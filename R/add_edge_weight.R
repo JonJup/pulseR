@@ -45,7 +45,7 @@
 #'
 #' @export 
 
-add_edge_weight <- function(g,variables = NULL){
+add_edge_weight <- function(g,id_col,variables = NULL){
         
         adj_matrix <- igraph::as_adjacency_matrix(
                 graph = g$graph, 
@@ -61,7 +61,9 @@ add_edge_weight <- function(g,variables = NULL){
         ## prepare environmental variables 
         data_scaled <- g$polygons
         if (!is.null(variables)){
-                data_scaled = dplyr::select(data_scaled, variables)
+                data_scaled = dplyr::select(data_scaled, tidyselect::all_of(variables))
+        } else {
+                data_scaled <- dplyr::select(data_scaled, !tidyselect::any_of(id_col))
         }
         data_scaled = sf::st_drop_geometry(data_scaled)
         data_scaled <- scale(data_scaled)
