@@ -3,6 +3,7 @@
 export(add_edge_weight)
 export(bhattacharyya_dist)
 export(connect_components)
+export(dev_polygon_to_network)
 export(get_core_regions)
 export(plot_fuzzy_area)
 export(plot_river_centroids)
