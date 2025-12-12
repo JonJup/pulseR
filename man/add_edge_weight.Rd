@@ -4,7 +4,7 @@
 \alias{add_edge_weight}
 \title{Add Environmental Dissimilarity Weights to Graph Edges}
 \usage{
-add_edge_weight(g, variables = NULL)
+add_edge_weight(g, id_col = NULL, variables = NULL)
 }
 \arguments{
 \item{g}{A list containing:
@@ -13,6 +13,10 @@ add_edge_weight(g, variables = NULL)
 \item{polygons}{An \code{sf} object containing environmental variables
 for each node. Node order must correspond to graph vertices.}
 }}
+
+\item{id_col}{Character vector of column names of ID columns. If \code{NULL} (default),
+it is assumed that none exist in \code{g$polygons}. These columns are removed prior
+to weighting. This argument is commonly used in conjunction with \code{variables = NULL}.}
 
 \item{variables}{Character vector of column names to use for calculating
 environmental dissimilarity. If \code{NULL} (default), all non-geometry
@@ -36,6 +40,14 @@ The function performs the following steps:
 \item Calculates Euclidean distances between neighbors using \code{\link[spdep]{nbcosts}}
 \item Constructs a new undirected graph with dissimilarity-weighted edges
 }
+}
+\examples{
+\dontrun{
+# Assuming g is a list with graph and polygons components
+g_weighted <- add_edge_weight(g)
+g_weighted_subset <- add_edge_weight(g, variables = c("temp", "precip"))
+}
+
 }
 \seealso{
 \code{\link[spdep]{nbcosts}} for neighbor cost calculation,
