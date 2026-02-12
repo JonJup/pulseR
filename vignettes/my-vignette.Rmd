@@ -1,8 +1,8 @@
 ---
-title: "my-vignette"
+title: "Introduction to pulseR"
 output: rmarkdown::html_vignette
 vignette: >
-  %\VignetteIndexEntry{my-vignette}
+  %\VignetteIndexEntry{Introduction to pulseR}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
@@ -10,10 +10,264 @@ vignette: >
 ```{r, include = FALSE}
 knitr::opts_chunk$set(
   collapse = TRUE,
-  comment = "#>"
+  comment = "#>",
+  eval = FALSE
 )
+```
+
+## Overview
+
+pulseR implements **spatially constrained fuzzy clustering** for classifying
+geographic areas into ecological types. The package is designed for ecotypology
+creation, where the goal is to partition a set of spatial units (e.g., river
+catchments) into ecologically meaningful regions based on environmental
+variables, while respecting spatial contiguity.
+
+The workflow proceeds through three main stages:
+
+1. **Network construction** -- convert spatial polygons into a contiguity graph
+2. **Fuzzy regionalization** -- cluster the graph into soft regions using an
+   ensemble SKATER algorithm
+3. **River type classification** -- fit Gaussian Mixture Models within core
+   regions and project them onto the full dataset
+
+## Installation
+
+```{r install}
+# Install from GitHub
+remotes::install_github("JonJup/pulseR")
 ```
 
 ```{r setup}
 library(pulseR)
+library(sf)
+```
+
+## Step 1: Build a spatial network
+
+The first step converts an `sf` polygon dataset into a spatial contiguity
+graph. Each polygon becomes a node and edges connect neighboring polygons
+(Queen contiguity -- shared edges or vertices).
+
+`dev_polygon_to_network()` is the recommended function. It avoids a memory
+issue present in `polygon_to_network()` caused by `spdep::nb2mat()` on large
+datasets.
+
+```{r network}
+# Load spatial data with environmental variables
+catchments <- st_read("catchments.gpkg")
+
+# Build spatial network
+g <- dev_polygon_to_network(catchments)
+```
+
+The result is a list with three components:
+
+- `g$graph` -- an `igraph` object representing the spatial network
+- `g$polygons` -- the original `sf` polygons
+- `g$edge_data` -- a data frame of edge pairs
+
+If the input polygons form disconnected components (e.g., islands),
+`connect_components()` is called automatically to bridge them using spatial
+proximity, ensuring the graph is fully connected.
+
+## Step 2: Weight edges by environmental dissimilarity
+
+Next, edge weights are computed from scaled Euclidean distances between
+neighboring polygons in environmental variable space. These weights represent
+how environmentally dissimilar two adjacent areas are.
+
+```{r weights}
+# Weight edges using all environmental variables (excluding the ID column)
+g_weighted <- add_edge_weight(g, id_col = "ID")
+
+# Or specify a subset of variables
+g_weighted <- add_edge_weight(g, variables = c("elevation", "temperature", "precipitation"))
+```
+
+## Step 3: Fuzzy regionalization with SKATER
+
+`skater_con()` performs fuzzy spatially constrained clustering. It generates an
+ensemble of regionalizations by repeatedly sampling random spanning trees and
+removing the most dissimilar edges. These are combined into a coassociation
+matrix, clustered with PAM, and converted into fuzzy memberships.
+
+```{r skater}
+# Generate 3 fuzzy regions from 100 random spanning trees
+regions <- skater_con(g_weighted, final_regions = 3, n.rst = 100)
+```
+
+The result is a numeric matrix where each row is a polygon and each column is a
+region. Values represent fuzzy membership degrees (rows sum to 1). A value of
+0.7 for region 2 means that polygon has 70% membership in region 2.
+
+Key parameters:
+
+- `final_regions` -- number of output clusters
+- `n.rst` -- number of random spanning trees (higher = more stable results)
+- `skater_regions` -- granularity of initial partitioning (default 50)
+- `fuzzyness_parameter` -- controls crispness of memberships (default 2;
+  values closer to 1 produce harder assignments)
+
+## Step 4: Visualize fuzzy regions
+
+`plot_fuzzy_area()` provides several visualization methods for fuzzy
+memberships over spatial polygons.
+
+```{r plot-regions}
+# Dominant class map with uncertainty as transparency
+plot_fuzzy_area(g$polygons, fuzzy_memberships = regions, plot = "dominant")
+
+# RGB color mixing (requires exactly 3 classes)
+plot_fuzzy_area(g$polygons, fuzzy_memberships = regions, plot = "RGB")
+
+# Small multiples -- one map per class
+plot_fuzzy_area(g$polygons, fuzzy_memberships = regions, plot = "small multiples")
+
+# Ternary plot (non-spatial, requires exactly 3 classes)
+plot_fuzzy_area(g$polygons, fuzzy_memberships = regions, plot = "ternary1")
+
+# Ternary choropleth with legend (requires exactly 3 classes)
+plot_fuzzy_area(g$polygons, fuzzy_memberships = regions, plot = "ternary2")
+```
+
+The **dominant** plot is the most general -- it works with any number of
+classes. RGB and ternary plots require exactly 3 classes.
+
+## Step 5: Extract core regions
+
+Core regions are contiguous groups of polygons with high membership in a given
+class. These serve as training areas for the river type models.
+
+```{r core-regions}
+# Combine polygons with fuzzy memberships
+fuzzy_sf <- cbind(g$polygons, regions)
+
+# Extract core regions (membership >= 0.8)
+cores <- get_core_regions(
+  fuzzy_sf,
+  membership_cols = paste0("X", 1:3),
+  cutoff = 0.8
+)
+```
+
+The result is a named list of `sf` objects (one per class). Each polygon in a
+core region has an additional `core_region_id` column identifying which
+contiguous subregion it belongs to.
+
+The `cutoff` parameter controls how strict core region membership is. Higher
+values produce smaller, more homogeneous core regions.
+
+## Step 6: Classify river types
+
+`river_types()` trains a Gaussian Mixture Model (via `mclust::Mclust()`)
+within each core region, then projects predicted class probabilities onto the
+full dataset, weighted by regional membership.
+
+```{r river-types}
+rt <- river_types(
+  all_data = catchments,
+  core_regions = cores,
+  membership_id = regions,
+  membership_cols = paste0("X", 1:3),
+  non_value_cols = "ID",
+  n_river_types = 1:9
+)
+```
+
+The result is a list with:
+
+- `rt$rivertypes` -- a matrix of weighted probabilities. Columns are named
+  `Region{i}RiverType{k}` (e.g., `Region1RiverType2`).
+- `rt$models` -- the fitted `Mclust` model objects for each region.
+
+The number of mixture components per region is selected automatically by
+`mclust` using BIC, searching over the range specified in `n_river_types`.
+
+## Step 7: Visualize river types
+
+The same `plot_fuzzy_area()` function works for river type probabilities.
+
+```{r plot-types}
+# Dominant river type
+plot_fuzzy_area(g$polygons, fuzzy_memberships = rt$rivertypes, plot = "dominant")
+
+# Small multiples of all river types
+plot_fuzzy_area(g$polygons, fuzzy_memberships = rt$rivertypes, plot = "small multiples")
+```
+
+### PCA of river type centroids
+
+`plot_river_centroids()` extracts the cluster centroids (means) from each
+regional model, runs PCA on the common environmental variables, and plots the
+river types in reduced space. This helps assess how distinct the river types
+are across regions.
+
+```{r pca}
+plot_river_centroids(models = rt$models)
+
+# Get the underlying data instead of a plot
+pca_data <- plot_river_centroids(models = rt$models, plot = FALSE)
+```
+
+### Bhattacharyya distance
+
+To quantify the similarity between any two river types (modeled as multivariate
+normal distributions), use `bhattacharyya_dist()`:
+
+```{r bhattacharyya}
+# Compare two clusters from different regions
+m1 <- rt$models[[1]]
+m2 <- rt$models[[2]]
+
+bhattacharyya_dist(
+  mu1    = m1$parameters$mean[, 1],
+  sigma1 = m1$parameters$variance$sigma[,, 1],
+  mu2    = m2$parameters$mean[, 1],
+  sigma2 = m2$parameters$variance$sigma[,, 1]
+)
+```
+
+## Complete workflow
+
+Putting it all together:
+
+```{r full-workflow}
+library(pulseR)
+library(sf)
+
+# 1. Load data
+catchments <- st_read("catchments.gpkg")
+
+# 2. Build spatial network
+g <- dev_polygon_to_network(catchments)
+
+# 3. Weight edges by environmental dissimilarity
+g2 <- add_edge_weight(g, id_col = "ID")
+
+# 4. Fuzzy regionalization
+regions <- skater_con(g2, final_regions = 3, n.rst = 100)
+
+# 5. Visualize regions
+plot_fuzzy_area(g$polygons, fuzzy_memberships = regions, plot = "dominant")
+
+# 6. Extract core regions
+cores <- get_core_regions(
+  cbind(g$polygons, regions),
+  membership_cols = paste0("X", 1:3),
+  cutoff = 0.8
+)
+
+# 7. Classify river types
+rt <- river_types(
+  all_data = catchments,
+  core_regions = cores,
+  membership_id = regions,
+  membership_cols = paste0("X", 1:3),
+  non_value_cols = "ID"
+)
+
+# 8. Visualize river types
+plot_fuzzy_area(g$polygons, fuzzy_memberships = rt$rivertypes, plot = "dominant")
+plot_river_centroids(models = rt$models)
 ```
