@@ -7,7 +7,7 @@ library(sfarrow)
 library(arrow)
 library(dplyr)
 library(sf)
-
+library(mclust)
 
 x <- st_read_parquet("../paper/data/rawData/parquet/Skjern.parquet")
 y <- read_parquet("../paper/data/rawData/catchments/Skjern_w_variables.parquet")
@@ -39,7 +39,16 @@ if (any(is.na(z))){
         
 }
 
+## Regions 
+g <- pulseR::dev_polygon_to_network(z)
+g2 <- pulseR::add_edge_weight(g, id_col = "ID")
+r  <- pulseR::skater_con(g2, final_regions = 3, n.rst = 100)
 
-g2 <- dev_polygon_to_network(z)
-g2 <- add_edge_weight(g2, id_col = "ID")
-r  <- skater_con(g2, final_regions = 3, n.rst = 100)
+pulseR::plot_fuzzy_area(g$polygons,fuzzy_memberships = r, plot = "dominant")
+
+## Rivers
+ca <- pulseR::get_core_regions(x = cbind(g$polygons, r), membership_cols = paste0("X", 1:3), cutoff = 0.8)
+rt <- pulseR::river_types(core_regions = ca, membership_cols = paste0("X", 1:3), non_value_cols = "ID", n_river_types = 1:20, membership_id = r, all_data = z)
+pulseR::plot_fuzzy_area(g$polygons,fuzzy_memberships = rt$rivertypes, plot = "dominant")
+pulseR::plot_river_centroids(models = rt$models)
+## Landscapes 

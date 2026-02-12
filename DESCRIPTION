@@ -23,3 +23,7 @@ Imports:
     tidyr,
     tidyselect,
     tricolore
+Suggests: 
+    knitr,
+    rmarkdown
+VignetteBuilder: knitr
