@@ -83,7 +83,7 @@ dev_polygon_to_network <- function(polygons, min_shared_length = 0, connect_isla
         # snap parameter adds tolerance for minor geometric inconsistencies
         nb <-
                 suppressWarnings(
-                        spdep::poly2nb(polygons, queen = TRUE, snap = 1e-6)
+                        spdep::poly2nb(polygons, queen = FALSE, snap = 1e-6)
                 )
         
         # Check the number of disconnected components in the neighbor structure
