@@ -9,56 +9,116 @@ river_types(
   core_regions,
   n_river_types = 1:9,
   membership_id,
-  membership_cols = paste0("X", 1:3),
-  non_value_cols = "ID"
+  membership_cols = NULL,
+  non_value_cols = "ID",
+  crisp = FALSE,
+  verbose = FALSE
 )
 }
 \arguments{
-\item{all_data}{An \code{sf} object or data frame containing the complete dataset
-to be classified. Must contain the variables used in the core region models.}
+\item{all_data}{An \code{sf} object or \code{data.frame} containing the
+complete dataset to be classified. Must contain (at least) every predictor
+variable used by the regional models. Any \code{sf} geometry column is
+dropped automatically.}
 
-\item{core_regions}{A list of \code{sf} objects or data frames. Each element represents
-a distinct geographic or logical region used to train the classification models.}
+\item{core_regions}{A non-empty list of \code{sf} objects or
+\code{data.frame}s. Each element holds the training observations for one
+region. All elements must contain the same predictor columns.}
 
-\item{n_river_types}{Integer or integer vector. The number of mixture components
-(clusters) to fit in \code{mclust::Mclust}. Default is \code{1:9}.}
+\item{n_river_types}{Integer scalar or vector passed to the \code{G} argument
+of \code{\link[mclust]{Mclust}}; the number(s) of mixture components to
+consider. When a vector is supplied, \code{Mclust} selects the best value
+by BIC. Default \code{1:9}.}
 
-\item{membership_id}{A matrix or data frame containing the fuzzy membership weights
-of each observation in \code{all_data} relative to the \code{core_regions}.
-Columns must correspond to the order of regions in \code{core_regions}.}
+\item{membership_id}{A numeric matrix or \code{data.frame} of regional
+membership weights with one row per observation in \code{all_data} and one
+column per element of \code{core_regions} (in the same order). Used to
+weight each regional model's predictions.}
 
-\item{membership_cols}{Character vector. Names of columns in \code{core_regions}
-related to prior class membership that should be excluded from training.
-Default is \code{paste0("X", 1:3)}.}
+\item{membership_cols}{Character vector naming prior-membership columns in
+\code{core_regions} that must be excluded from training. When \code{NULL}
+(default) it is set to \code{paste0("X", seq_len(ncol(membership_id)))}.}
 
-\item{non_value_cols}{Character vector. Names of identifier columns to be removed
-before model training (e.g., primary keys). Default is \code{"ID"}.}
+\item{non_value_cols}{Character vector of identifier columns to drop before
+training (e.g. primary keys). Default \code{"ID"}. The column
+\code{"core_region_id"} is always dropped from the training data.}
+
+\item{crisp}{Logical. When \code{TRUE} both the regional memberships and the
+per-region river-type probabilities are hardened to 0/1 (each observation
+assigned to its single most probable region and, within a region, its
+single most probable river type) before weighting. Default \code{FALSE}.}
+
+\item{verbose}{Logical. When \code{TRUE} progress over regions is reported
+via \code{\link{message}}. Default \code{FALSE}.}
 }
 \value{
-A list containing two elements:
+A named list with:
 \describe{
-\item{\code{rivertypes}}{A matrix of weighted probabilities. Column names follow the format
-"\eqn{Region{i}RiverType{k}}".}
-\item{\code{models}}{A list of the fitted \code{mclust::Mclust} model objects for each region.}
+\item{\code{rivertypes}}{Numeric matrix of membership-weighted river-type
+probabilities, one row per observation in \code{all_data}. Columns are
+named \code{"Region{i}RiverType{k}"}.}
+\item{\code{rivertypes_raw}}{List (one element per region, named
+\code{"Region{i}"}) of the \emph{unweighted} predicted probability
+matrices.}
+\item{\code{models}}{List of the fitted \code{Mclust} objects, named by
+region.}
 }
 }
 \description{
-This function trains Gaussian Mixture Models (GMM) on specified core regions and
-projects these classifications onto a larger dataset. The final output weighs the
-predicted cluster probabilities by the observation's membership to specific regions.
+Trains a Gaussian Mixture Model (GMM) on each of several user-defined
+"core regions" and projects those classifications onto a larger target
+dataset. For every observation the predicted river-type probabilities from
+each regional model are weighted by that observation's (fuzzy or crisp)
+membership in the corresponding region and concatenated into a single wide
+probability matrix.
 }
 \details{
-The function performs several preprocessing steps:
+Pre-processing applied before fitting:
 \itemize{
-\item Geometry columns are dropped using \code{sf::st_drop_geometry}.
-\item Constant variables within specific regions are identified and removed to avoid
-singular covariance matrices during GMM fitting.
-\item Specific logic is applied to geological variables (\code{area_sediment},
-\code{area_calcareous}, \code{area_siliceous}). If two are constant, the third
-is removed to prevent perfect collinearity (compositional data issues).
+\item \code{sf} geometry is removed with \code{\link[sf]{st_drop_geometry}}
+(a no-op for plain data frames).
+\item Identifier and prior-membership columns are removed.
+\item Columns that are constant in \emph{any} region are removed from
+\emph{all} regions, since a zero-variance predictor produces a singular
+covariance matrix in \code{Mclust}.
+\item Compositional geology handling: the variables \code{area_sediment},
+\code{area_calcareous} and \code{area_siliceous} sum to a constant, so
+including all three is perfectly collinear. If any one is found constant,
+all three are dropped (see \strong{Note}).
 }
 
-The prediction for a specific river type \eqn{k} in region \eqn{r} is calculated as:
-\eqn{P(Type_k | Region_r) \times W_{r}}
-Where \eqn{W_r} is the weight provided in \code{membership_id}.
+For region \eqn{r} and river type \eqn{k} the returned weighted probability
+is \eqn{P(\mathrm{Type}_k \mid \mathrm{Region}_r)\, W_r}, where \eqn{W_r} is
+the membership weight in column \eqn{r} of \code{membership_id}.
+}
+\note{
+The geology rule drops \emph{all three} compositional variables when
+\emph{any one} is constant. This is more aggressive than strictly required
+to break the simplex (sum-to-constant) constraint, for which dropping a
+single component would suffice. The behaviour is preserved from the
+original implementation; verify it matches your intended preprocessing.
+}
+\examples{
+\donttest{
+set.seed(1)
+make_region <- function(n, shift) {
+  data.frame(
+    ID             = seq_len(n),
+    core_region_id = 1,
+    X1 = stats::runif(n), X2 = stats::runif(n), # prior-membership cols (dropped)
+    temp     = stats::rnorm(n, shift),
+    slope    = stats::rnorm(n, -shift),
+    rainfall = stats::rnorm(n)
+  )
+}
+regions  <- list(make_region(100, 0), make_region(100, 3))
+all_data <- rbind(make_region(50, 0), make_region(50, 3))
+
+memb <- matrix(stats::runif(nrow(all_data) * 2), ncol = 2)
+memb <- memb / rowSums(memb)                    # fuzzy weights summing to 1
+
+res <- river_types(all_data, regions, n_river_types = 1:4, membership_id = memb)
+head(res$rivertypes)
+}
+
 }

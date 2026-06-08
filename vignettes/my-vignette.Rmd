@@ -98,7 +98,7 @@ matrix, clustered with PAM, and converted into fuzzy memberships.
 # Use the catchments in g_weighted to generate 3 fuzzy regions (final_regions) from 100 random spanning trees (n.rst)
 regions <- skater_con(g_weighted, final_regions = 3, n.rst = 100)
 ```
- 
+
 The result is a numeric matrix where each row is a polygon and each column is a
 region. Values represent fuzzy membership degrees (rows sum to 1). A value of
 0.7 for region 2 means that polygon has 70% membership in region 2.
@@ -110,6 +110,25 @@ Key parameters:
 - `skater_regions` -- granularity of initial partitioning (default 50)
 - `fuzzyness_parameter` -- controls crispness of memberships (default 2;
   values closer to 1 produce harder assignments)
+
+But how are you supposed to now how many regions to choose or at which number of random spanning tree results stabalize?
+To this end there are hyperparameter tuning facilities included in the function.
+
+```{r}
+regions <- skater_con(g_weighted,
+                       skater_regions = c(50,70, 125),
+                       final_regions = c(2:10),
+                       n.rst = c(500, 750, 1000),
+                       fuzzyness_parameter = 2,
+                       tuning_strategy = c("iterative"),
+                       tuning_metric = c("silhouette", "partition_coefficient",
+                                         "modified_partition_coefficient"),
+                       max_iter = 10,
+                       verbose = TRUE,
+                       seed = NULL)
+```
+
+
  
 ## Step 4: Visualize fuzzy regions
  
@@ -118,7 +137,7 @@ memberships over spatial polygons.
  
 ```{r plot-regions}
 # Dominant class map with uncertainty as transparency
-plot_fuzzy_area(g$polygons, fuzzy_memberships = regions, plot = "dominant")
+plot_fuzzy_area(g$polygons, fuzzy_memberships = regions$memberships, plot = "dominant")
  
 # RGB color mixing (requires exactly 3 classes)
 plot_fuzzy_area(g$polygons, fuzzy_memberships = regions, plot = "RGB")
@@ -144,12 +163,12 @@ class. These serve as training areas for the river type models.
  
 ```{r core-regions}
 # Combine polygons with fuzzy memberships
-fuzzy_sf <- cbind(g$polygons, regions)
+fuzzy_sf <- cbind(g$polygons, regions$memberships)
  
 # Extract core regions (membership >= 0.8)
 cores <- get_core_regions(
   fuzzy_sf,
-  membership_cols = paste0("X", 1:3),
+  membership_cols = paste0("X", 1:ncol(regions$memberships)),
   cutoff = 0.8
 )
 ```
@@ -162,7 +181,7 @@ The `cutoff` parameter controls how strict core region membership is. Higher
 values produce smaller, more homogeneous core regions.
  
 ## Step 6: Classify river types
- 
+
 `river_types()` trains a Gaussian Mixture Model (via `mclust::Mclust()`)
 within each core region, then projects predicted class probabilities onto the
 full dataset, weighted by regional membership.
@@ -171,10 +190,10 @@ full dataset, weighted by regional membership.
 rt <- river_types(
   all_data = catchments,
   core_regions = cores,
-  membership_id = regions,
-  membership_cols = paste0("X", 1:3),
+  membership_id = round(regions$memberships,2),
+  membership_cols = paste0("X", 1:ncol(regions$memberships)),
   non_value_cols = "ID",
-  n_river_types = 1:9
+  n_river_types = 1:3
 )
 ```
  
@@ -215,23 +234,28 @@ pca_data <- plot_river_centroids(models = rt$models, plot = FALSE)
  
 ### Bhattacharyya distance
  
-To quantify the similarity between any two river types (modeled as multivariate
-normal distributions), use `bhattacharyya_dist()`:
+To quantify the similarity between river types (modeled as multivariate
+normal distributions), use `compare_river_types`, which computes the Bhattacharayya 
+distance between each combination of types, within and across regions. 
+The Bhattacharyya distance measures how much two probability distributions overlap.
+For two multivariate Gaussians, it combines two sources of divergence:
+the difference in their means (how far apart the "centers" are) and the 
+difference in their covariance structures (how differently shaped and oriented 
+their spreads are). A distance of zero means the distributions are identical, 
+and larger values indicate less overlap. It's a natural choice for comparing
+mixture model components because each component is already parameterized by a
+mean vector and covariance matrix.
+
  
 ```{r bhattacharyya}
-# Compare two clusters from different regions
-m1 <- rt$models[[1]]
-m2 <- rt$models[[3]]
+comparison <- compare_river_types(rt$models)
+        
+```
  
+## Landscape types 
 
+```{r landscape}
 
-
-bhattacharyya_dist(
-  mu1    = m1$parameters$mean[, 1],
-  sigma1 = m1$parameters$variance$sigma[,, 1],
-  mu2    = m2$parameters$mean[, 1],
-  sigma2 = m2$parameters$variance$sigma[,, 1]
-)
 ```
  
 ## Complete workflow

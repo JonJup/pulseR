@@ -7,18 +7,24 @@ Description: What the package does (one paragraph).
 License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.3.3
 Imports: 
+    arrow,
     cluster,
     cowplot,
+    data.table,
     dplyr,
     ggplot2,
     ggtern,
     igraph,
+    Matrix,
     mclust,
+    methods,
+    nngeo,
     parallelDist,
-    purrr,
+    philentropy,
+    RANN,
     sf,
+    sfarrow,
     spdep,
     tidyr,
     tidyselect,
@@ -27,3 +33,4 @@ Suggests:
     knitr,
     rmarkdown
 VignetteBuilder: knitr
+Config/roxygen2/version: 8.0.0

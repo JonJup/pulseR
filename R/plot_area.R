@@ -132,8 +132,7 @@ plot_fuzzy_area <- function(polygons, fuzzy_memberships, plot = NULL, auto_renam
                 # Convert to long format for faceting
                 class_cols <- colnames(fuzzy_memberships)
                 
-                data_long <- pd |>
-                        tidyr::pivot_longer(cols = dplyr::all_of(class_cols), 
+                data_long <- tidyr::pivot_longer(pd, cols = dplyr::all_of(class_cols), 
                                             names_to = "Class", 
                                             values_to = "Probability")
                 
@@ -152,13 +151,11 @@ plot_fuzzy_area <- function(polygons, fuzzy_memberships, plot = NULL, auto_renam
                 
                 # Calculate dominant class and max probability
                 # We apply rowwise logic only to the class columns
-                data_summary <- pd |>
-                        dplyr::rowwise() |>
-                        dplyr::mutate(
-                                Max_Prob = max(dplyr::c_across(dplyr::all_of(class_cols))),
-                                Dominant_Class = class_cols[which.max(dplyr::c_across(dplyr::all_of(class_cols)))]
-                        ) |>
-                        dplyr::ungroup()
+                data_summary <- dplyr::rowwise(pd)
+                data_summary <- dplyr::mutate(data_summary,
+                                              Max_Prob = max(dplyr::c_across(dplyr::all_of(class_cols))),
+                                              Dominant_Class = class_cols[which.max(dplyr::c_across(dplyr::all_of(class_cols)))])
+                data_summary <- dplyr::ungroup(data_summary)
                 
                 p <- ggplot2::ggplot(data_summary) +
                         ggplot2::geom_sf(ggplot2::aes(fill = Dominant_Class, alpha = Max_Prob), color = NA) +

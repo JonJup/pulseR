@@ -2,72 +2,81 @@
 % Please edit documentation in R/connect_components.R
 \name{connect_components}
 \alias{connect_components}
-\title{Connect Disconnected Graph Components Using Spatial Proximity}
+\title{Connect disconnected components of a spatial graph}
 \usage{
-connect_components(g, polygons)
+connect_components(
+  g,
+  polygons = NULL,
+  centroids = NULL,
+  method = c("rann", "nngeo", "sf"),
+  verbose = TRUE
+)
 }
 \arguments{
-\item{g}{An \code{igraph} object representing the graph with potentially
-disconnected components.}
+\item{g}{An \pkg{igraph} object whose vertices correspond, \emph{in order},
+to the features in \code{polygons} / \code{centroids}. No name-based
+matching is performed; vertex \code{i} is feature \code{i}.}
 
-\item{polygons}{An \code{sf} or \code{sfc} object containing spatial polygons
-corresponding to the nodes in the graph. The number of polygons must match
-the number of vertices in \code{g}.}
+\item{polygons}{Optional \pkg{sf} polygon object. Used only to derive
+\code{centroids} when the latter is not supplied; ignored otherwise.}
+
+\item{centroids}{Optional \pkg{sf} point object or \pkg{sf} geometry column
+(\code{sfc}) giving one centroid per vertex of \code{g}. If \code{NULL},
+centroids are computed from \code{polygons} via \code{\link[sf]{st_centroid}}.
+Whatever is supplied is reduced to its geometry, so an \code{sf} object and
+its \code{sfc} are treated identically.}
+
+\item{method}{Character; nearest-neighbour backend. One of:
+\describe{
+\item{\code{"rann"}}{kd-tree lookup via \code{\link[RANN]{nn2}}. Fastest,
+but operates on planar coordinates and ignores the CRS.}
+\item{\code{"nngeo"}}{\code{\link[nngeo]{st_nn}}; slower, but CRS-aware
+(geodesic distances for lon/lat data).}
+\item{\code{"sf"}}{Brute-force \code{\link[sf]{st_distance}}; no extra
+dependencies. Sub-samples to 500 points per side for large components
+(deterministically, evenly spaced), so the chosen bridge is only
+approximately nearest.}
+}}
+
+\item{verbose}{Logical scalar; if \code{TRUE} (default) progress is reported
+via \code{message()}.}
 }
 \value{
-An \code{igraph} object with all components connected. The returned
-graph will have a single connected component.
+The input graph \code{g} with additional bridge edges, guaranteed to
+form a single connected component. If \code{g} is already connected it is
+returned unchanged.
 }
 \description{
-Iteratively connects disconnected components of a graph by adding edges
-between spatially closest nodes from different components. The function uses
-polygon centroids to compute spatial distances and applies a minimum spanning
-tree approach to ensure efficient connectivity.
+Iteratively bridges disconnected components of an \pkg{igraph} object by
+adding an edge between the geographically nearest pair of nodes across
+components. At each step the smallest remaining component is linked to its
+nearest neighbour, until the graph forms a single connected component.
 }
 \details{
-The function works by:
-\enumerate{
-\item Computing centroids of the input polygons
-\item Calculating the pairwise Euclidean distance matrix between all centroids
-\item Identifying disconnected components in the graph
-\item For each iteration while multiple components exist:
-\itemize{
-\item Computing minimum distances between all pairs of components
-\item Creating a component-level graph weighted by these distances
-\item Finding the minimum spanning tree (MST) of the component graph
-\item Adding an edge between the two nodes that represent the shortest
-connection between components
+The greedy "smallest component first" strategy is cheap -- few query points
+per iteration -- and tends to produce a small set of bridge edges, but is not
+guaranteed to yield a Euclidean minimum spanning forest of the components.
+
+Either \code{polygons} or \code{centroids} must be supplied; if both are
+given, \code{centroids} takes precedence. The number of centroids must equal
+the number of vertices of \code{g}, otherwise bridges would be added between
+the wrong nodes; a mismatch is a hard error.
 }
+\section{Coordinate reference system}{
+
+\code{method = "rann"} measures distance in raw coordinate space. For a
+geographic (lon/lat) CRS those are degrees, so the "nearest" pair is only
+approximate; use \code{"nngeo"} for geodesically correct distances or project
+the data first.
 }
 
-The algorithm continues until all components are connected into a single
-connected component.
-}
 \examples{
 \dontrun{
-library(igraph)
-library(sf)
-
-# Create a simple graph with two components
-g <- make_empty_graph(n = 6) |>
-  add_edges(c(1, 2, 2, 3)) |>
-  add_edges(c(4, 5, 5, 6))
-
-# Create corresponding spatial polygons
-polygons <- st_as_sf(data.frame(
-  id = 1:6,
-  geometry = st_sfc(
-    st_point(c(0, 0)), st_point(c(1, 0)), st_point(c(2, 0)),
-    st_point(c(10, 0)), st_point(c(11, 0)), st_point(c(12, 0))
-  ) |> st_buffer(0.5)
-))
-
-# Connect the components
-g_connected <- connect_components(g, polygons)
-components(g_connected)$no  # Should be 1
+library(sf); library(igraph)
+g_connected <- connect_components(g, centroids = pts, method = "rann")
 }
 
 }
 \seealso{
-\code{\link[igraph]{components}}, \code{\link[igraph]{mst}}
+\code{\link[igraph]{components}}
 }

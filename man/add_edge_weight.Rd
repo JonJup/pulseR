@@ -4,52 +4,126 @@
 \alias{add_edge_weight}
 \title{Add Environmental Dissimilarity Weights to Graph Edges}
 \usage{
-add_edge_weight(g, id_col = NULL, variables = NULL)
+add_edge_weight(
+  g,
+  chunked = FALSE,
+  files = NULL,
+  id_col = NULL,
+  variables = NULL,
+  scale = TRUE
+)
 }
 \arguments{
 \item{g}{A list containing:
 \describe{
-\item{graph}{An \code{igraph} object representing the network structure.}
-\item{polygons}{An \code{sf} object containing environmental variables
-for each node. Node order must correspond to graph vertices.}
+\item{graph}{An \code{igraph} object representing the network structure.
+Vertices should be named (the names are propagated to the output).}
+\item{polygons}{Required when \code{chunked = FALSE}. An \pkg{sf} object
+containing environmental variables for each node. Row order must
+correspond to graph vertex order (see \strong{Node ordering}).}
 }}
 
-\item{id_col}{Character vector of column names of ID columns. If \code{NULL} (default),
-it is assumed that none exist in \code{g$polygons}. These columns are removed prior
-to weighting. This argument is commonly used in conjunction with \code{variables = NULL}.}
+\item{chunked}{Logical scalar. If \code{FALSE} (default), environmental
+variables are taken from \code{g$polygons}. If \code{TRUE}, they are read
+from the parquet files supplied via \code{files} and concatenated in input
+order.}
 
-\item{variables}{Character vector of column names to use for calculating
-environmental dissimilarity. If \code{NULL} (default), all non-geometry
-columns in \code{g$polygons} are used.}
+\item{files}{Character vector of parquet file paths providing environmental
+variables. Required when \code{chunked = TRUE}, ignored otherwise. The
+concatenated row order must match the graph vertex order.}
+
+\item{id_col}{Character vector of ID column names to exclude before
+weighting. Only used when \code{variables} is \code{NULL}. Default
+\code{NULL}.}
+
+\item{variables}{Character vector of column names to use for environmental
+dissimilarity. If \code{NULL} (default), all non-geometry, non-\code{id_col}
+columns are used. If supplied, \code{id_col} is ignored. In chunked mode,
+supplying \code{variables} also restricts the columns read from disk,
+which can substantially reduce memory use on wide parquet files.}
+
+\item{scale}{Logical scalar. Standardize variables (subtract mean, divide by
+SD) before computing distances. Default \code{TRUE}. Set to \code{FALSE}
+when variables are already on a comparable scale.}
 }
 \value{
-An \code{igraph} object with edge weights representing Euclidean
-distances between neighboring nodes in scaled environmental space.
+An undirected \code{igraph} object whose edge \code{weight} attribute
+is the Euclidean distance between neighbouring nodes in (optionally scaled)
+environmental space. Vertex names from \code{g$graph} are preserved, all
+input vertices are retained (including isolated ones), and each undirected
+edge appears exactly once (no multi-edges).
 }
 \description{
-Calculates edge weights based on Euclidean distances between neighboring
-nodes using scaled environmental variables, and returns a new igraph object
-with weighted edges.
+Calculates edge weights based on Euclidean distances between neighbouring
+nodes using (optionally) scaled environmental variables, and returns a new
+\pkg{igraph} object with weighted edges. Supports two modes: an in-memory
+mode where environmental variables are taken directly from \code{g$polygons},
+and a chunked mode where they are read from one or more parquet files and
+stacked in input order.
 }
 \details{
-The function performs the following steps:
+Both modes share the following pipeline:
 \enumerate{
-\item Extracts the adjacency structure from the input graph
-\item Converts to a \code{spdep} neighbors object
-\item Scales (standardizes) the selected environmental variables
-\item Calculates Euclidean distances between neighbors using \code{\link[spdep]{nbcosts}}
-\item Constructs a new undirected graph with dissimilarity-weighted edges
+\item Extract the adjacency structure from \code{g$graph}.
+\item Convert it to an \pkg{spdep} neighbours list via
+\code{\link[spdep]{mat2listw}}.
+\item Acquire environmental variables (from \code{g$polygons} or by
+reading and stacking \code{files}).
+\item Coerce all variables to numeric and, if \code{scale = TRUE},
+standardize them. Zero-variance and non-numeric columns are handled
+defensively (see below).
+\item Compute neighbour Euclidean distances via
+\code{\link[spdep]{nbcosts}}.
+\item Build an undirected \pkg{igraph} object with these distances as
+edge weights, preserving vertex names and de-duplicating reciprocal
+edges.
 }
+
+Variable selection precedence: if \code{variables} is supplied, it takes
+precedence and \code{id_col} is ignored; otherwise all columns except those
+in \code{id_col} (and common geometry-like columns such as \code{Shape},
+\code{Shape_Length}, \code{Shape_Area}, \code{geom}, \code{geometry}) are
+used.
+
+Data hygiene: columns that are entirely non-numeric after coercion trigger an
+informative error (they are almost always a mis-classified ID/label column);
+zero-variance columns are dropped with a warning (they cannot be scaled and
+add nothing to a Euclidean distance); remaining missing values trigger a
+warning because they propagate to \code{NA} edge weights, which will break a
+downstream minimum spanning tree / SKATER step.
+
+Isolated vertices (degree 0) are retained in the output as isolated nodes but
+contribute no edges; a warning is emitted when any are present.
 }
+\section{Node ordering}{
+
+This function assumes that the i-th row of the environmental data corresponds
+to the i-th vertex of \code{g$graph} (i.e. the order returned by
+\code{igraph::as_adjacency_matrix()}). This contract is \emph{not} verified
+by content, only by count: the function errors if the number of environmental
+rows differs from the number of vertices, but it cannot detect a same-length
+\emph{re-ordering}. Ensure \code{g$polygons} / the stacked parquet rows are
+built in the same order as the graph vertices.
+}
+
 \examples{
 \dontrun{
-# Assuming g is a list with graph and polygons components
-g_weighted <- add_edge_weight(g)
+# --- In-memory ---
+g_weighted        <- add_edge_weight(g)
 g_weighted_subset <- add_edge_weight(g, variables = c("temp", "precip"))
+
+# --- Chunked across parquet files ---
+files <- list.files("data/env", pattern = "\\\\.parquet$", full.names = TRUE)
+g_weighted <- add_edge_weight(
+  g,
+  chunked = TRUE,
+  files   = files,
+  id_col  = c("ID", "country")
+)
 }
 
 }
 \seealso{
-\code{\link[spdep]{nbcosts}} for neighbor cost calculation,
-\code{\link[igraph]{graph_from_data_frame}} for graph construction
+\code{\link[spdep]{nbcosts}} for neighbour cost calculation,
+\code{\link[igraph]{graph_from_data_frame}} for graph construction.
 }

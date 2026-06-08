@@ -7,49 +7,63 @@
 get_core_regions(x, membership_cols = NULL, cutoff = 0.5, queen = TRUE)
 }
 \arguments{
-\item{x}{An sf object containing polygons with fuzzy membership degrees.}
+\item{x}{An \code{sf} object whose features are (multi)polygons carrying one
+column of fuzzy membership degrees per class.}
 
-\item{membership_cols}{A character vector of column names containing the
-membership degrees for each class. If NULL, all numeric columns except
-geometry are used.}
+\item{membership_cols}{Character vector of column names holding the
+membership degrees. If \code{NULL} (default), every numeric column in \code{x}
+(excluding the geometry column) is treated as a membership column.}
 
-\item{cutoff}{A numeric value between 0 and 1 specifying the minimum
-membership degree threshold for core region inclusion. Default is 0.5.}
+\item{cutoff}{Single numeric in \verb{[0, 1]}. Minimum membership degree for a
+polygon to be included in a class's core region. Default \code{0.5}.}
 
-\item{queen}{Logical. If TRUE (default), uses queen contiguity (polygons
-sharing edges or vertices are considered neighbors). If FALSE, uses rook
-contiguity (only shared edges).}
+\item{queen}{Logical scalar. If \code{TRUE} (default) neighbours are defined by
+queen contiguity (polygons sharing an edge \emph{or} a single vertex). If
+\code{FALSE}, rook contiguity is used (only polygons sharing an edge of
+positive length).}
 }
 \value{
-A named list where each element corresponds to a class (named by
-the membership column). Each element is an sf object containing the core
-region polygons for that class, with an additional column 'core_region_id'
-identifying distinct contiguous regions.
+A named \code{list} with one element per membership column. Each element is an
+\code{sf} object containing the polygons that belong to that class's core
+region(s), with an additional \strong{first} column \code{core_region_id} (integer)
+labelling distinct contiguous regions. Classes with no qualifying polygons
+yield a zero-row \code{sf} object with the same columns. The \code{core_region_id}
+labels are arbitrary integers and are only comparable within a single class.
 }
 \description{
-This function identifies core regions for each class based on fuzzy membership
-degrees. Core regions are defined as contiguous groups of polygons where the
-membership degree meets or exceeds a specified threshold.
+Identifies \emph{core regions} for each fuzzy class from per-polygon membership
+degrees. A core region is a set of spatially contiguous polygons whose
+membership degree for that class meets or exceeds a threshold (\code{cutoff}).
 }
 \details{
-The function performs the following steps for each class:
+For each membership column the function:
 \enumerate{
-\item Filters polygons where membership degree >= cutoff
-\item Builds a spatial adjacency graph
-\item Identifies connected components (contiguous regions)
-\item Returns polygons with their core region assignment
+\item selects polygons whose membership degree is \verb{>= cutoff}
+(missing values are treated as \emph{not} meeting the threshold);
+\item builds a sparse spatial neighbour list using the requested
+contiguity rule;
+\item derives an undirected graph and extracts its connected components,
+each of which is one contiguous core region;
+\item returns the selected polygons annotated with their region id.
 }
+
+Contiguity is evaluated with DE-9IM relate patterns: \code{"F***T****"} for queen
+(boundaries meet at a point \emph{or} a line) and \code{"F***1****"} for rook
+(boundaries meet along a line only). The neighbour list is kept sparse so the
+routine scales to large polygon sets without materialising an
+\eqn{n \times n} adjacency matrix. Contiguity is only meaningful for
+polygonal geometries.
 }
 \examples{
 \dontrun{
-# Assuming 'fuzzy_data' is an sf object with membership columns
+# 'fuzzy_data' is an sf object with one membership column per class.
 core_regions <- get_core_regions(
   x = fuzzy_data,
   membership_cols = c("class_A", "class_B", "class_C"),
   cutoff = 0.6
 )
 
-# Access core regions for class_A
+# Core regions for class_A (sf object, 'core_region_id' is the first column):
 core_regions$class_A
 }
 
