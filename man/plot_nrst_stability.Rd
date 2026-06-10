@@ -4,10 +4,10 @@
 \alias{plot_nrst_stability}
 \title{Ensemble-size (n.rst) stability curve, ggplot version}
 \usage{
-plot_nrst_stability(eco)
+plot_nrst_stability(regions)
 }
 \arguments{
-\item{eco}{Result of \code{skater_con()} (uses \code{eco$n.rst_stability}).}
+\item{regions}{Result of \code{skater_con()} (uses \code{regions$n.rst_stability}).}
 }
 \value{
 A ggplot object, or NULL with a message if no stability run was done.

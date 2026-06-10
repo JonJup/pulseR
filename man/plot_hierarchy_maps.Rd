@@ -4,12 +4,12 @@
 \alias{plot_hierarchy_maps}
 \title{Side-by-side maps of all three levels}
 \usage{
-plot_hierarchy_maps(polys, eco = NULL, rt = NULL, land = NULL)
+plot_hierarchy_maps(polys, region = NULL, local = NULL, mosaic = NULL)
 }
 \arguments{
 \item{polys}{An \code{sf} layer row-aligned to all three results.}
 
-\item{eco, rt, land}{The three pipeline results (any may be NULL).}
+\item{region, local, mosaic}{The three pipeline results (any may be NULL).}
 }
 \value{
 A patchwork object.

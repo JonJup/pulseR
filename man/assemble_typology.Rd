@@ -4,18 +4,19 @@
 \alias{assemble_typology}
 \title{Assemble a row-aligned typology table across the three levels}
 \usage{
-assemble_typology(eco = NULL, rt = NULL, land = NULL)
+assemble_typology(region = NULL, local = NULL, mosaic = NULL)
 }
 \arguments{
-\item{eco, rt, land}{Results of the three pipeline stages (any may be NULL).}
+\item{region, local, mosaic}{Results of the three pipeline stages (any may be NULL).}
 }
 \value{
-A data.frame with columns \code{ecoregion}, \code{river_type},
-\code{landscape}, and \code{u_eco}, \code{u_rt}, \code{u_land}.
+A data.frame with hard-label columns \code{region}, \code{local},
+\code{mosaic} and per-level uncertainty columns \code{u_region},
+\code{u_lt}, \code{u_mosaic} (only those whose input was supplied).
 }
 \description{
 All three results must describe the same features in the same row order
-(eco-region and river-type span the full set; landscape labels are scattered
-through \code{land$valid}). Produces one tidy data frame with hard labels and
+(region and local-type span the full set; mosaic labels are scattered
+through \code{mosaic$valid}). Produces one tidy data frame with hard labels and
 per-level uncertainties -- the substrate for every cross-level plot.
 }

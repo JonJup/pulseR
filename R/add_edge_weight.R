@@ -33,7 +33,8 @@
 #' @param scale Logical scalar. Standardize variables (subtract mean, divide by
 #'   SD) before computing distances. Default \code{TRUE}. Set to \code{FALSE}
 #'   when variables are already on a comparable scale.
-#'
+#' @param prior Numeric or character vector with type memberships to priori 
+#'   typology systems.
 #' @return An undirected \code{igraph} object whose edge \code{weight} attribute
 #'   is the Euclidean distance between neighbouring nodes in (optionally scaled)
 #'   environmental space. Vertex names from \code{g$graph} are preserved, all
@@ -311,15 +312,15 @@ add_edge_weight <- function(g,
         )
         # Adding the prior typology if provided.
         if (!is.null(prior)){
-                V(out.graph)$prior <- prior
+                igraph::V(out.graph)$prior <- prior
         }
         return(out.graph)
 }
 
 
-# =============================================================================
+#
 # Internal helpers
-# =============================================================================
+#
 
 #' Coerce a data frame of environmental variables to a numeric matrix
 #'

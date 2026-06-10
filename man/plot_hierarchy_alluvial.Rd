@@ -2,9 +2,9 @@
 % Please edit documentation in R/exploratory_graphics.R
 \name{plot_hierarchy_alluvial}
 \alias{plot_hierarchy_alluvial}
-\title{Alluvial flow across the hierarchy: eco-region -> river type -> landscape}
+\title{Alluvial flow across the hierarchy: region -> local type -> mosaic}
 \usage{
-plot_hierarchy_alluvial(typ, axes = c("ecoregion", "river_type", "landscape"))
+plot_hierarchy_alluvial(typ, axes = c("region", "local", "mosaic"))
 }
 \arguments{
 \item{typ}{Output of \code{assemble_typology()}.}
@@ -16,6 +16,6 @@ A ggplot object.
 }
 \description{
 The "money" cross-level figure: stream width = number of catchments, so you
-can read how each eco-region splits into river types and how those reassemble
-into landscape types (i.e. how aligned or crossed the three partitions are).
+can read how each region splits into local types and how those reassemble
+into mosaic types (i.e. how aligned or crossed the three partitions are).
 }

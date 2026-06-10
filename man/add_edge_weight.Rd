@@ -10,7 +10,8 @@ add_edge_weight(
   files = NULL,
   id_col = NULL,
   variables = NULL,
-  scale = TRUE
+  scale = TRUE,
+  prior = NULL
 )
 }
 \arguments{
@@ -45,6 +46,9 @@ which can substantially reduce memory use on wide parquet files.}
 \item{scale}{Logical scalar. Standardize variables (subtract mean, divide by
 SD) before computing distances. Default \code{TRUE}. Set to \code{FALSE}
 when variables are already on a comparable scale.}
+
+\item{prior}{Numeric or character vector with type memberships to priori
+typology systems.}
 }
 \value{
 An undirected \code{igraph} object whose edge \code{weight} attribute

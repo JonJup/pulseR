@@ -9,6 +9,9 @@ eco_palette(n)
 \arguments{
 \item{n}{Number of colours.}
 }
+\value{
+A character vector of \code{n} hex colour codes.
+}
 \description{
 Uses the 8-colour Okabe-Ito set for k <= 8, then falls back to a perceptually
 even HCL palette for larger k so arbitrarily many clusters stay distinct.

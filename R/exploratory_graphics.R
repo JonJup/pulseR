@@ -1,12 +1,11 @@
-# =============================================================================
 # ECOTYPOLOGY EXPLORATORY GRAPHICS
-# ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
+
 # A cohesive set of exploratory-plot functions for the three nested levels of
-# the river ecotypology pipeline:
+# the ecotypology pipeline:
 #
-#   Level 1  ECO-REGIONS    -> skater_con()        (WHERE  : spatial regions)
-#   Level 2  RIVER TYPES     -> river_types()        (WHAT   : environment within region)
-#   Level 3  LANDSCAPE TYPES -> get_mosaic_types() (HOW    : spatial co-occurrence)
+#   Level 1  REGIONS      -> get_regions()      (WHERE: spatial regions)
+#   Level 2  LOCAL TYPES  -> get_local_types()  (WHAT: environment within region)
+#   Level 3  MOSAIC TYPES -> get_mosaic_types() (HOW: spatial co-occurrence)
 #
 # Each level gets its own family of plots; a final family visualises the three
 # levels *together* (alluvial flow, concordance, side-by-side maps, fuzziness).
@@ -25,16 +24,18 @@
 # Dependencies: ggplot2 (required by all). sf (maps), patchwork (composites),
 #   tidyr + dplyr (reshaping), scales, ggalluvial (alluvial only). The pipeline
 #   helpers js_distance_fast() etc. are used when available but never required.
-# =============================================================================
-
 
 # ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
 # 0. Shared utilities (theme, palette, label/uncertainty extractors)
 # ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
 
 #' Stop unless every named package is installed
+#'
+#' @param ... Character package names to check (one or more).
+#' @return Invisibly \code{TRUE} if all packages are installed; otherwise stops
+#'   with an informative \code{install.packages()} hint.
 #' @keywords internal
-.eco_require <- function(...) {
+.region_require <- function(...) {
         pkgs <- c(...)
         missing <- pkgs[!vapply(pkgs, requireNamespace, logical(1), quietly = TRUE)]
         if (length(missing)) {
@@ -50,9 +51,10 @@
 #'
 #' @param base_size Base font size.
 #' @param map Logical. If TRUE, strips axes/grid for choropleths.
+#' @return A \code{ggplot2} theme object to add to a plot.
 #' @export
 theme_eco <- function(base_size = 12, map = FALSE) {
-        .eco_require("ggplot2")
+        .region_require("ggplot2")
         th <- ggplot2::theme_minimal(base_size = base_size) +
                 ggplot2::theme(
                         plot.title       = ggplot2::element_text(face = "bold", size = base_size * 1.25),
@@ -81,6 +83,7 @@ theme_eco <- function(base_size = 12, map = FALSE) {
 #' even HCL palette for larger k so arbitrarily many clusters stay distinct.
 #'
 #' @param n Number of colours.
+#' @return A character vector of \code{n} hex colour codes.
 #' @export
 eco_palette <- function(n) {
         okabe <- c("#0072B2", "#E69F00", "#009E73", "#D55E00",
@@ -95,10 +98,10 @@ eco_palette <- function(n) {
 #'   renormalised defensively).
 #' @param method "entropy" (normalised Shannon entropy, default), "margin"
 #'   (1 - gap between the top two memberships) or "maxprob" (1 - top membership).
-#' @return Numeric vector in [0, 1]; higher = more ambiguous. Returns NA for
+#' @return Numeric vector in `[0, 1]`; higher = more ambiguous. Returns NA for
 #'   all-zero / NA rows.
 #' @keywords internal
-.eco_uncertainty <- function(U, method = c("entropy", "margin", "maxprob")) {
+.region_uncertainty <- function(U, method = c("entropy", "margin", "maxprob")) {
         method <- match.arg(method)
         U <- as.matrix(U)
         k <- ncol(U)
@@ -122,14 +125,23 @@ eco_palette <- function(n) {
 }
 
 #' Hard label from a membership matrix (argmax)
+#'
+#' @param U Numeric membership matrix (observations x classes).
+#' @return Integer vector of length \code{nrow(U)} giving the argmax column index
+#'   per row (ties broken by first).
 #' @keywords internal
-.eco_hard_from_U <- function(U) max.col(as.matrix(U), ties.method = "first")
+.region_hard_from_U <- function(U) max.col(as.matrix(U), ties.method = "first")
 
-#' Parse the wide river_types column names "Region{i}RiverType{k}"
+#' Parse wide local_types column names
+#'
+#' @param rt A list with a \code{localtypes} matrix whose column names follow the
+#'   \code{R<region>·T<type>} convention.
+#' @return A data.frame with columns \code{col} (original name), \code{region}
+#'   (factor) and \code{type} (factor), one row per local-type column.
 #' @keywords internal
-.eco_lt_class_table <- function(rt) {
+.region_lt_class_table <- function(rt) {
         cn <- colnames(rt$localtypes)
-        m  <- regmatches(cn, regexec("^Region([0-9]+)localType([0-9]+)$", cn))
+        m  <- regmatches(cn, regexec("^R([0-9]+)\u00b7T([0-9]+)$", cn))
         reg <- vapply(m, function(x) if (length(x) == 3) x[2] else NA_character_, character(1))
         typ <- vapply(m, function(x) if (length(x) == 3) x[3] else NA_character_, character(1))
         data.frame(col = cn,
@@ -139,35 +151,55 @@ eco_palette <- function(n) {
 }
 
 #' Dominant (region, local type) label per observation
+#'
+#' @param lt Result of \code{get_local_types()} (uses its \code{localtypes} matrix).
+#' @return A factor of length \code{nrow(lt$localtypes)} giving the argmax
+#'   (region, local type) label per observation, with levels in column order.
 #' @keywords internal
-.eco_lt_hard <- function(lt) {
+.region_lt_hard <- function(lt) {
         M  <- as.matrix(lt$localtypes)
         cn <- colnames(M)
+        cn <- sub(pattern = "^Region([0-9]+)localType([0-9]+)$", replacement = "R\\1\u00b7T\\2", x = cn)
         factor(cn[max.col(M, ties.method = "first")], levels = cn)
 }
 
 #' Hard mosaic label, aligned to the clustered (valid) rows
+#'
+#' @param mosaic Result of \code{get_mosaic_types()}.
+#' @return Integer vector of hard cluster labels for the valid (clustered) rows,
+#'   sourced from \code{pam_result}, \code{clustering} or \code{memberships} as
+#'   available. Stops if none can be found.
 #' @keywords internal
-.eco_mosaic_hard <- function(mosaic) {
+.region_mosaic_hard <- function(mosaic) {
         cl <- mosaic$clusters
         if (!is.null(cl$pam_result)) return(as.integer(cl$pam_result$clustering)) # fuzzy
         if (!is.null(cl$clustering)) return(as.integer(cl$clustering))            # crisp pam
-        if (!is.null(cl$memberships)) return(.eco_hard_from_U(cl$memberships))
+        if (!is.null(cl$memberships)) return(.region_hard_from_U(cl$memberships))
         stop("Could not locate hard mosaic labels in `mosaic$clusters`.", call. = FALSE)
 }
 
-#' Landscape membership matrix (fuzzy U, or one-hot for crisp), valid rows
+#' mosaic type membership matrix (fuzzy U, or one-hot for crisp), valid rows
+#'
+#' @param mosaic Result of \code{get_mosaic_types()}.
+#' @return Numeric membership matrix (valid rows x clusters): the fuzzy
+#'   \code{memberships} when present, otherwise a one-hot matrix built from the
+#'   hard labels.
 #' @keywords internal
-.eco_mosaic_U <- function(mosaic) {
+.region_mosaic_U <- function(mosaic) {
         cl <- mosaic$clusters
         if (!is.null(cl$memberships)) return(as.matrix(cl$memberships))
-        lab <- .eco_mosaic_hard(mosaic); k <- max(lab)
+        lab <- .region_mosaic_hard(mosaic); k <- max(lab)
         U <- matrix(0, length(lab), k); U[cbind(seq_along(lab), lab)] <- 1; U
 }
 
 #' Parse "ci:cj" signature column names into class-pair indices
+#'
+#' @param cn Character vector of signature column names of the form \code{"ci:cj"}
+#'   (a bare \code{"ci"} is treated as the self-pair \code{ci:ci}).
+#' @return A data.frame with character columns \code{a} and \code{b} holding the
+#'   two class codes of each pair.
 #' @keywords internal
-.eco_parse_pairs <- function(cn) {
+.region_parse_pairs <- function(cn) {
         sp <- strsplit(cn, ":", fixed = TRUE)
         data.frame(
                 a = vapply(sp, `[`, character(1), 1L),
@@ -177,8 +209,14 @@ eco_palette <- function(n) {
 }
 
 #' Adjusted Rand Index between two label vectors (NA-tolerant)
+#'
+#' @param a,b Label vectors of equal length; pairs with an \code{NA} in either
+#'   vector are dropped before scoring.
+#' @return The Adjusted Rand Index as a single numeric, \code{0} for the
+#'   degenerate (zero-variance) case, or \code{NA} when fewer than two complete
+#'   pairs are available.
 #' @keywords internal
-.eco_ari <- function(a, b) {
+.region_ari <- function(a, b) {
         ok <- !is.na(a) & !is.na(b)
         a <- a[ok]; b <- b[ok]
         if (length(a) < 2) return(NA_real_)
@@ -193,9 +231,15 @@ eco_palette <- function(n) {
 }
 
 #' Attach a vector to an sf layer by row order, with a length check
+#'
+#' @param polys An \code{sf} object whose row order matches \code{values}.
+#' @param values Vector to attach; must have length \code{nrow(polys)}.
+#' @param name Character name for the new column.
+#' @return The \code{sf} object \code{polys} with column \code{name} added.
+#'   Stops if \code{polys} is not \code{sf} or the lengths disagree.
 #' @keywords internal
-.eco_attach <- function(polys, values, name) {
-        .eco_require("sf")
+.region_attach <- function(polys, values, name) {
+        .region_require("sf")
         if (!inherits(polys, "sf"))
                 stop("`polys` must be an sf object whose row order matches the result.", call. = FALSE)
         if (length(values) != nrow(polys))
@@ -207,9 +251,23 @@ eco_palette <- function(n) {
 }
 
 #' Internal: a discrete or continuous choropleth on an sf layer
+#'
+#' @param polys An \code{sf} layer carrying the column to map.
+#' @param col Name of the column mapped to fill.
+#' @param discrete Logical; \code{TRUE} for a qualitative \code{eco_palette()}
+#'   fill, \code{FALSE} for a continuous viridis ("C") scale.
+#' @param title,sub Plot title and subtitle.
+#' @param legend Legend (fill) title.
+#' @param border Polygon border colour. Default \code{"white"}.
+#' @param alpha Optional name of a column mapped to the alpha aesthetic
+#'   (membership degree); \code{NULL} (default) disables it.
+#' @param shuffle Logical; if \code{TRUE}, randomly permute the qualitative
+#'   palette (fixed seed) so adjacent classes contrast more. Discrete only.
+#' @return A ggplot object.
 #' @keywords internal
-.eco_choropleth <- function(polys, col, discrete, title, sub, legend, border = "white", alpha = NULL) {
-        .eco_require("ggplot2", "sf")
+.region_choropleth <- function(polys, col, discrete, title, sub, legend, 
+                               border = "white", alpha = NULL, shuffle = FALSE) {
+        .region_require("ggplot2", "sf")
         if (is.null(alpha)){
                 g <- ggplot2::ggplot(polys) +
                         ggplot2::geom_sf(ggplot2::aes(fill = .data[[col]]), colour = NA, linewidth = 0.05)
@@ -219,12 +277,19 @@ eco_palette <- function(n) {
                                                       alpha = .data[[alpha]]),
                                          colour = NA,
                                          linewidth = 0.05) + 
-                        labs(alpha = "Membership Degree")
+                        ggplot2::labs(alpha = "Membership Degree")
         }
-
+        
         if (discrete) {
-                k <- uniqueN(polys[[col]])
-                g <- g + ggplot2::scale_fill_manual(values = eco_palette(k), na.value = "grey85",
+                
+                k <- data.table::uniqueN(polys[[col]])
+                if (shuffle == TRUE){
+                        set.seed(1)
+                        final_palette <- sample(eco_palette(k))
+                } else if (shuffle == FALSE){
+                        final_palette <- eco_palette(k)
+                }
+                g <- g + ggplot2::scale_fill_manual(values = final_palette, na.value = "grey85",
                                                     drop = FALSE, name = legend)
         } else {
                 g <- g + ggplot2::scale_fill_viridis_c(option = "C", na.value = "grey85", name = legend)
@@ -234,7 +299,7 @@ eco_palette <- function(n) {
 
 
 # ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
-# LEVEL 1: ECO-REGIONS  (output of skater_con())
+# LEVEL 1: REGIONS  (output of skater_con())
 # ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
 
 #' Map of fuzzy regions, or their assignment uncertainty
@@ -242,35 +307,41 @@ eco_palette <- function(n) {
 #' The two faces of a fuzzy regionalisation: \code{fill = "region"} shows the
 #' hard partition (the regions), \code{fill = "uncertainty"} shows where the
 #' partition is *soft* -- the ecotones / transitional catchments that the hard
-#' map hides.
+#' map hides; \code{fill = "both"} shades the dominant region by its membership degree
+#' (transitional catchments fade out); \code{fill = "core"} does the same but
+#' masks everything outside the supplied core regions.
 #'
 #' @param polys An \code{sf} polygon/line layer, row-aligned to the catchments
-#'   that were clustered (same order as \code{eco$hard_clusters}).
-#' @param eco The list returned by \code{skater_con()}.
-#' @param fill "region" (default) or "uncertainty".
+#'   that were clustered (same order as \code{regions$hard_clusters}).
+#'   
+#' @param regions The list returned by \code{skater_con()}.
+#' @param core Optional list of core-region objects (each with an \code{ID}
+#'   field). Required only when \code{fill = "core"}; ignored otherwise.
+#' @param fill One of "region" (default), "uncertainty", "both", or "core".
 #' @param uncertainty_method Passed to the entropy/margin/maxprob helper.
 #' @return A ggplot object.
 #' @export
-plot_region_map <- function(polys, eco, core = NULL, fill = c("region", "uncertainty", "both", "core"),
-                               uncertainty_method = "entropy") {
+plot_region_map <- function(polys, regions, core = NULL, fill = c("region",
+                           "uncertainty", "both", "core"), uncertainty_method = 
+                           "entropy") {
         fill <- match.arg(fill)
         if (fill == "region") {
-                lab <- factor(eco$hard_clusters)
-                polys <- .eco_attach(polys, lab, ".eco")
-                .eco_choropleth(polys, ".eco", discrete = TRUE,
-                                title = "Eco-regions",
-                                sub = sprintf("%d regions (hard partition) \u00b7 %d catchments",
-                                              nlevels(lab), length(lab)),
-                                legend = "Eco-region")
+                lab <- factor(regions$hard_clusters)
+                polys <- .region_attach(polys, lab, ".region")
+                .region_choropleth(polys, ".region", discrete = TRUE,
+                                   title = "Regions",
+                                   sub = sprintf("%d regions (hard partition) \u00b7 %d mapping units",
+                                                 nlevels(lab), length(lab)),
+                                   legend = "Region")
         } else if (fill == "uncertainty"){
-                u <- .eco_uncertainty(eco$memberships, uncertainty_method)
-                polys <- .eco_attach(polys, u, ".unc")
-                .eco_choropleth(polys, ".unc", discrete = FALSE,
-                                title = "Eco-region assignment uncertainty",
-                                sub = "Normalised membership entropy \u00b7 bright = transitional (ecotone)",
-                                legend = "Uncertainty")
+                u <- .region_uncertainty(regions$memberships, uncertainty_method)
+                polys <- .region_attach(polys, u, ".unc")
+                .region_choropleth(polys, ".unc", discrete = FALSE,
+                                   title = "Region assignment uncertainty",
+                                   sub = "Normalised membership entropy\u00b7 bright = transitional (ecotone)",
+                                   legend = "Uncertainty")
         } else if (fill == "both"){
-                u <- eco$memberships
+                u <- regions$memberships
                 pd <- dplyr::bind_cols(polys, as.data.frame(u))
                 class_cols <- dplyr::setdiff(names(pd), names(polys))
                 
@@ -281,17 +352,17 @@ plot_region_map <- function(polys, eco, core = NULL, fill = c("region", "uncerta
                                               Dominant_Class = class_cols[which.max(dplyr::c_across(dplyr::all_of(class_cols)))])
                 data_summary$Dominant_Class <- gsub("V", "", data_summary$Dominant_Class)
                 data_summary <- dplyr::ungroup(data_summary)
-                #polys <- .eco_attach(polys, u, ".unc")
-                .eco_choropleth(data_summary, "Dominant_Class", discrete = TRUE,
-                                title = "Continuous Region Membership",
-                                alpha = "Max_Memb",
-                                sub = "Degree of Membership for highest membership region \n bright = low membership = transitional (ecotone)",
-                                legend = "Region")
+                #polys <- .region_attach(polys, u, ".unc")
+                .region_choropleth(data_summary, "Dominant_Class", discrete = TRUE,
+                                   title = "Continuous Region Membership",
+                                   alpha = "Max_Memb",
+                                   sub = "Degree of Membership for highest membership region \n bright = low membership = transitional (ecotone)",
+                                   legend = "Region")
         } else if (fill == "core"){
                 if (is.null(core)){
                         stop("If method core is selected a core object must be provided.")
                 }
-                u <- eco$memberships
+                u <- regions$memberships
                 pd <- dplyr::bind_cols(polys, as.data.frame(u))
                 class_cols <- dplyr::setdiff(names(pd), names(polys))
                 
@@ -303,21 +374,14 @@ plot_region_map <- function(polys, eco, core = NULL, fill = c("region", "uncerta
                 data_summary <- dplyr::ungroup(data_summary)
                 data_summary$Dominant_Class <- gsub("V", "", data_summary$Dominant_Class)
                 # Extract IDs of all core regions and subset data_summary
-                data_summary <- 
-                        dplyr::mutate(
-                                data_summary, 
-                                Max_Memb = dplyr::if_else(
-                                        ID %in% unlist(sapply(core, function(x) x$ID)),
-                                        Max_Memb,
-                                        0
-                                ) 
-                        )
-
-                .eco_choropleth(data_summary, "Dominant_Class", discrete = TRUE,
-                                title = "Core Regions",
-                                alpha = "Max_Memb",
-                                sub = "",
-                                legend = "Region")
+                core_ids <- unlist(sapply(core, function(x) x$ID))
+                data_summary$Max_Memb[!data_summary$ID %in% core_ids] <- 0
+                
+                .region_choropleth(data_summary, "Dominant_Class", discrete = TRUE,
+                                   title = "Core Regions",
+                                   alpha = "Max_Memb",
+                                   sub = "",
+                                   legend = "Region")
         }
 }
 
@@ -328,13 +392,13 @@ plot_region_map <- function(polys, eco, core = NULL, fill = c("region", "uncerta
 #' Right: distribution of per-catchment max membership -- how crisp the
 #' partition is overall.
 #'
-#' @param eco Result of \code{skater_con()}.
+#' @param regions Result of \code{skater_con()}.
 #' @return A patchwork of two ggplots.
 #' @export
-plot_region_membership <- function(eco) {
-        .eco_require("ggplot2", "patchwork")
-        U   <- as.matrix(eco$memberships)
-        hard <- eco$hard_clusters
+plot_region_membership <- function(regions) {
+        .region_require("ggplot2", "patchwork")
+        U   <- as.matrix(regions$memberships)
+        hard <- regions$hard_clusters
         k   <- ncol(U)
         
         comp <- data.frame(
@@ -366,50 +430,50 @@ plot_region_membership <- function(eco) {
 
 #' Hyperparameter tuning surface for the region clustering
 #'
-#' Heatmap of the selection score over the (skater_regions x final_regions) grid
-#' from \code{eco$tuning_log}, with the chosen cell marked. Reveals whether the
+#' Heatmap of the selection score over the (intermediate_regions x final_regions) grid
+#' from \code{regions$tuning_log}, with the chosen cell marked. Reveals whether the
 #' optimum is a sharp peak or a broad plateau.
 #'
-#' @param eco Result of a *tuned* \code{skater_con()} run (needs \code{tuning_log}).
+#' @param regions Result of a *tuned* \code{skater_con()} run (needs \code{tuning_log}).
 #' @param score_col Column to map to fill. Default "score".
 #' @return A ggplot object.
 #' @export
-plot_region_cvi_grid <- function(eco, score_col = "score") {
-        .eco_require("ggplot2")
-        tl <- eco$tuning_log
-        if (is.null(tl)) stop("`eco$tuning_log` is NULL (single-configuration run; nothing to tune).",
+plot_region_cvi_grid <- function(regions, score_col = "score") {
+        .region_require("ggplot2")
+        tl <- regions$tuning_log
+        if (is.null(tl)) stop("`regions$tuning_log` is NULL (single-configuration run; nothing to tune).",
                               call. = FALSE)
-        need_cols <- c("skater_regions", "final_regions")
+        need_cols <- c("intermediate_regions", "final_regions")
         if (!all(need_cols %in% names(tl))) {
                 # tolerate alternative column names produced by the tuner
-                alt <- c(sr = grep("skater", names(tl), value = TRUE)[1],
+                alt <- c(sr = grep("intermediate", names(tl), value = TRUE)[1],
                          fr = grep("final",  names(tl), value = TRUE)[1])
                 names(tl)[match(alt, names(tl))] <- need_cols
         }
-        tl$skater_regions <- factor(tl$skater_regions)
+        tl$intermediate_regions <- factor(tl$intermediate_regions)
         tl$final_regions  <- factor(tl$final_regions)
         best <- tl[which.max(tl[[score_col]]), , drop = FALSE]
         
-        ggplot2::ggplot(tl, ggplot2::aes(.data$final_regions, .data$skater_regions,
+        ggplot2::ggplot(tl, ggplot2::aes(.data$final_regions, .data$intermediate_regions,
                                          fill = .data[[score_col]])) +
                 ggplot2::geom_tile(colour = "white", linewidth = 0.4) +
                 ggplot2::geom_tile(data = best, fill = NA, colour = "black", linewidth = 1.1) +
                 ggplot2::scale_fill_viridis_c(option = "D", name = score_col) +
                 ggplot2::labs(title = "Eco-region tuning surface",
-                              subtitle = sprintf("Optimum: skater_regions = %s, final_regions = %s",
-                                                 best$skater_regions, best$final_regions),
+                              subtitle = sprintf("Optimum: intermediate_regions = %s, final_regions = %s",
+                                                 best$intermediate_regions, best$final_regions),
                               x = "final regions (k)", y = "skater regions") +
                 theme_eco()
 }
 
 #' Ensemble-size (n.rst) stability curve, ggplot version
 #'
-#' @param eco Result of \code{skater_con()} (uses \code{eco$n.rst_stability}).
+#' @param regions Result of \code{skater_con()} (uses \code{regions$n.rst_stability}).
 #' @return A ggplot object, or NULL with a message if no stability run was done.
 #' @export
-plot_nrst_stability <- function(eco) {
-        .eco_require("ggplot2")
-        df <- eco$n.rst_stability
+plot_nrst_stability <- function(regions) {
+        .region_require("ggplot2")
+        df <- regions$n.rst_stability
         if (is.null(df)) { message("No n.rst stability data (single n.rst was used)."); return(invisible(NULL)) }
         df <- df[is.finite(df$change), , drop = FALSE]
         knee <- df[df$is_knee, , drop = FALSE]
@@ -426,12 +490,13 @@ plot_nrst_stability <- function(eco) {
 }
 
 #' Combined region tuning dashboard (surface + stability)
-#' @param eco Result of \code{skater_con()}.
+#' @param regions Result of \code{skater_con()}.
+#' @return A patchwork object.
 #' @export
-plot_region_tuning <- function(eco) {
-        .eco_require("patchwork")
-        g  <- tryCatch(plot_region_cvi_grid(eco), error = function(e) NULL)
-        s  <- tryCatch(plot_nrst_stability(eco),     error = function(e) NULL)
+plot_region_tuning <- function(regions) {
+        .region_require("patchwork")
+        g  <- tryCatch(plot_region_cvi_grid(regions = regions), error = function(e) NULL)
+        s  <- tryCatch(plot_nrst_stability(regions = regions),     error = function(e) NULL)
         ps <- Filter(Negate(is.null), list(g, s))
         if (!length(ps)) stop("Nothing to plot: no tuning_log and no n.rst_stability.", call. = FALSE)
         patchwork::wrap_plots(ps, ncol = length(ps))
@@ -443,18 +508,18 @@ plot_region_tuning <- function(eco) {
 #' a point in the membership triangle; corner = a crisp region, centre = a
 #' three-way mixture.
 #'
-#' @param eco Result of \code{skater_con()} with exactly 3 final regions.
+#' @param regions Result of \code{skater_con()} with exactly 3 final regions.
 #' @return A ggplot object.
 #' @export
-plot_membership_ternary <- function(eco) {
-        .eco_require("ggplot2")
-        U <- as.matrix(eco$memberships)
+plot_membership_ternary <- function(regions) {
+        .region_require("ggplot2")
+        U <- as.matrix(regions$memberships)
         if (ncol(U) != 3L) stop("Ternary plot requires exactly 3 regions (k = ", ncol(U), ").",
                                 call. = FALSE)
         U <- U / pmax(rowSums(U), .Machine$double.eps)
         x <- U[, 2] + U[, 3] / 2
         y <- U[, 3] * sqrt(3) / 2
-        df <- data.frame(x = x, y = y, region = factor(.eco_hard_from_U(U)))
+        df <- data.frame(x = x, y = y, region = factor(.region_hard_from_U(U)))
         corners <- data.frame(x = c(0, 1, 0.5), y = c(0, 0, sqrt(3) / 2),
                               lab = c("Region 1", "Region 2", "Region 3"))
         ggplot2::ggplot() +
@@ -472,24 +537,24 @@ plot_membership_ternary <- function(eco) {
 
 
 # ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
-# LEVEL 2: RIVER TYPES  (output of get_local_types())
+# LEVEL 2: LOCAL TYPES  (output of get_local_types())
 # ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
 
 #' BIC model-selection curves for every regional GMM
 #'
 #' For each region, the best BIC at each candidate number of components G
 #' (envelope over covariance models), with the selected G highlighted. Shows
-#' how many river types each region's mixture "wanted", and how decisive that
+#' how many local types each region's mixture "wanted", and how decisive that
 #' choice was (sharp peak vs flat ridge).
 #'
-#' @param rt Result of \code{get_local_types()}.
+#' @param local Result of \code{get_local_types()}.
 #' @return A ggplot object (faceted by region).
 #' @export
-plot_localtype_bic <- function(rt) {
-        .eco_require("ggplot2")
+plot_localtype_bic <- function(local) {
+        .region_require("ggplot2")
         rows <- list()
-        for (nm in names(rt$models)) {
-                fit <- rt$models[[nm]]
+        for (nm in names(local$models)) {
+                fit <- local$models[[nm]]
                 bic <- fit$BIC
                 gvals <- suppressWarnings(as.integer(dimnames(bic)[[1]]))
                 mat   <- matrix(as.numeric(bic), nrow = nrow(bic))
@@ -506,78 +571,47 @@ plot_localtype_bic <- function(rt) {
                 ggplot2::geom_point(data = sel, colour = "#D55E00", size = 3.5) +
                 ggplot2::facet_wrap(~ region, scales = "free_y") +
                 ggplot2::scale_x_continuous(breaks = scales::breaks_width(1)) +
-                ggplot2::labs(title = "River-type model selection (per region)",
-                              subtitle = "Best BIC at each G \u00b7 orange = selected number of river types",
-                              x = "Number of river types (G)", y = "BIC") +
+                ggplot2::labs(title = "Local type model selection (per region)",
+                              subtitle = "Best BIC at each G \u00b7 orange = selected number of local types",
+                              x = "Number of local types (G)", y = "BIC") +
                 theme_eco()
 }
 
-#' Environmental fingerprint of each river type
+#' Environmental fingerprint of each local type
 #'
-#' Heatmap of the GMM component means (z-scored within each predictor across all
-#' regions/types) -- rows are predictors, columns are river types, faceted by
-#' region. This is the *interpretation* plot: it answers "what does Region 2's
-#' river type 3 actually mean ecologically?".
+#' Heatmap of the GMM component means, centred within each ecoregion (deviation
+#' of each local type from its region's mean) and scaled by each predictor's
+#' natural variability -- rows are predictors, columns are local types, faceted
+#' by region. This is the *interpretation* plot: it answers "what does Region 2's
+#' local type 3 actually mean ecologically?".
 #'
-#' @param rt Result of \code{get_local_types()}.
+#' @param local Result of \code{get_local_types()}.
+#' @param top Optional integer; keep only the \code{top} most discriminating
+#'   predictors (ranked by mean within-region between-type variance). Default
+#'   \code{NULL} keeps all.
+#' @param cap Absolute value at which the within-region z-scores are clipped, so
+#'   a single extreme component cannot dominate the colour scale or the ranking.
+#'   Default 3.
+#' @param order_rows Logical; order predictor rows by discriminability. Default TRUE.
 #' @return A ggplot object.
 #' @export
-# plot_localtype_profiles <- function(rt, top = NULL) {
-#         .eco_require("ggplot2")
-#         rows <- list()
-#         for (nm in names(rt$models)) {
-#                 fit <- rt$models[[nm]]
-#                 mu  <- fit$parameters$mean
-#                 if (is.null(dim(mu))) {
-#                         vn <- colnames(fit$data); if (is.null(vn)) vn <- "var"
-#                         mu <- matrix(mu, nrow = 1, dimnames = list(vn[1], NULL))
-#                 }
-#                 vn <- rownames(mu); if (is.null(vn)) vn <- paste0("V", seq_len(nrow(mu)))
-#                 for (g in seq_len(ncol(mu))) {
-#                         rows[[length(rows) + 1L]] <- data.frame(
-#                                 region = nm, type = factor(g), variable = vn, value = mu[, g]
-#                         )
-#                 }
-#         }
-#         df <- do.call(rbind, rows)
-#         # z-score within each predictor so disparate units are comparable
-#         df <- do.call(rbind, lapply(split(df, df$variable), function(d) {
-#                 s <- stats::sd(d$value); d$z <- if (is.finite(s) && s > 0) (d$value - mean(d$value)) / s else 0
-#                 d
-#         }))
-#         if (!is.null(top)){
-#                 df2 <- dplyr::group_by(df, variable)
-#                 df3 <- dplyr::summarize(df2, abs = sum(abs(z)), groups = "variable")
-#                 df3 <- dplyr::arrange(df3, abs)
-#                 df4 <- tail(df3, top)
-#                 df2 <- dplyr::filter(df, variable %in% df4$variable)
-#         } else {
-#                 df2 <- df
-#         }
-#        
-#         ggplot2::ggplot(df2, ggplot2::aes(.data$type, .data$variable, fill = .data$z)) +
-#                 ggplot2::geom_tile(colour = "white", linewidth = 0.3) +
-#                 ggplot2::facet_grid(~ region, scales = "free_x", space = "free_x") +
-#                 ggplot2::scale_fill_gradient2(low = "#2166AC", mid = "grey95", high = "#B2182B",
-#                                               midpoint = 0, name = "z-score") +
-#                 ggplot2::labs(title = "River-type environmental fingerprints",
-#                               subtitle = "GMM component means, standardised within predictor",
-#                               x = "River type", y = NULL) +
-#                 theme_eco() + ggplot2::theme(panel.grid = ggplot2::element_blank())
-# }
-plot_localtype_profiles <- function(rt, top = NULL, cap = 3, order_rows = TRUE) {
-        .eco_require("ggplot2")
+plot_local_profiles <- function(local, top = NULL, cap = 3,
+                                    order_rows = TRUE) {
+        .region_require("ggplot2")
         
         ## component means in long form, plus core data for a fixed per-predictor scale
-        rows <- list(); pooled <- list()
-        for (nm in names(rt$models)) {
-                fit <- rt$models[[nm]]
+        rows <- list()
+        pooled <- list()
+        for (nm in names(local$models)) {
+                fit <- local$models[[nm]]
                 mu  <- fit$parameters$mean
                 if (is.null(dim(mu))) {
-                        vn <- colnames(fit$data); if (is.null(vn)) vn <- "var"
+                        vn <- colnames(fit$data)
+                        if (is.null(vn)) vn <- "var"
                         mu <- matrix(mu, nrow = 1L, dimnames = list(vn[1], NULL))
                 }
-                vn <- rownames(mu); if (is.null(vn)) vn <- paste0("V", seq_len(nrow(mu)))
+                vn <- rownames(mu)
+                if (is.null(vn)) vn <- paste0("V", seq_len(nrow(mu)))
                 for (g in seq_len(ncol(mu))) {
                         rows[[length(rows) + 1L]] <- data.frame(
                                 region = nm, type = factor(g), variable = vn, value = mu[, g],
@@ -601,14 +635,14 @@ plot_localtype_profiles <- function(rt, top = NULL, cap = 3, order_rows = TRUE) 
         
         ## centre each predictor WITHIN its region: deviation of each type from its region's average
         s <- scale_v[df$variable]; s[!is.finite(s) | s <= 0] <- NA
-        df$z <- (df$value - ave(df$value, df$region, df$variable, FUN = mean)) / s
+        df$z <- (df$value - stats::ave(df$value, df$region, df$variable, FUN = mean)) / s
         df$z[is.na(df$z)] <- 0
         
         ## cap so a stray component cannot blow out the palette (or the ranking)
         if (is.finite(cap)) df$z <- pmax(pmin(df$z, cap), -cap)
         
         ## discriminability = within-region between-type variance, averaged over regions
-        rv    <- aggregate(z ~ region + variable, df, stats::var)
+        rv    <- stats::aggregate(z ~ region + variable, df, stats::var)
         score <- tapply(rv$z, rv$variable, mean, na.rm = TRUE)
         score[!is.finite(score)] <- 0
         
@@ -627,69 +661,72 @@ plot_localtype_profiles <- function(rt, top = NULL, cap = 3, order_rows = TRUE) 
                 ggplot2::facet_grid(~ region, scales = "free_x", space = "free_x") +
                 ggplot2::scale_fill_gradient2(low = "#2166AC", mid = "grey95", high = "#B2182B",
                                               midpoint = 0, limits = lim, name = "within-region z") +
-                ggplot2::labs(title = "River-type environmental fingerprints",
+                ggplot2::labs(title = "Local type environmental fingerprints",
                               subtitle = "GMM component means, centred within ecoregion, scaled by predictor variability",
-                              x = "River type", y = NULL) +
+                              x = "Local type", y = NULL) +
                 theme_eco() + ggplot2::theme(panel.grid = ggplot2::element_blank())
 }
-#' River-type composition by region
+#' Local type composition by region
 #'
-#' How much of the dataset each river type captures. \code{weight = "soft"}
+#' How much of the dataset each local type captures. \code{weight = "soft"}
 #' (default) sums the membership-weighted probabilities (uses the fuzzy
 #' information); \code{"hard"} counts argmax assignments.
 #'
-#' @param rt Result of \code{get_local_types()}.
+#' @param local Result of \code{get_local_types()}.
 #' @param weight "soft" or "hard".
 #' @return A ggplot object.
 #' @export
-plot_localtype_composition <- function(rt, weight = c("soft", "hard")) {
-        .eco_require("ggplot2")
+plot_localtype_composition <- function(local, weight = c("soft", "hard")) {
+        .region_require("ggplot2")
         weight <- match.arg(weight)
-        tab <- .eco_lt_class_table(rt)
+        tab <- .region_lt_class_table(local)
         if (weight == "soft") {
-                tab$value <- colSums(as.matrix(rt$localtypes))
+                tab$value <- colSums(as.matrix(local$localtypes))
                 ylab <- "Soft membership mass"
         } else {
-                hard <- table(.eco_rt_hard(rt))
+                hard <- table(.region_lt_hard(local))
                 tab$value <- as.numeric(hard[tab$col])
                 ylab <- "Catchments (argmax)"
         }
         ggplot2::ggplot(tab, ggplot2::aes(.data$region, .data$value, fill = .data$type)) +
                 ggplot2::geom_col(width = 0.75, colour = "white", linewidth = 0.2) +
-                ggplot2::scale_fill_manual(values = eco_palette(nlevels(tab$type)), name = "River type") +
-                ggplot2::labs(title = "River-type composition",
+                ggplot2::scale_fill_manual(values = eco_palette(nlevels(tab$type)), name = "Local type") +
+                ggplot2::labs(title = "Local type composition",
                               subtitle = sprintf("Weighting: %s", weight),
                               x = NULL, y = ylab) +
                 theme_eco() + ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 30, hjust = 1))
 }
 
-#' Map of dominant river type, or river-type assignment uncertainty
+#' Map of dominant local type, or local-type assignment uncertainty
 #'
-#' @param polys An \code{sf} layer row-aligned to \code{rt$localtypes}.
-#' @param rt Result of \code{get_local_types()}.
-#' @param fill "type" (default) or "uncertainty".
+#' @param polys An \code{sf} layer row-aligned to \code{local$localtypes}.
+#' @param local Result of \code{get_local_types()}.
+#' @param fill One of "type" (default), "uncertainty", or "both".
+#' @param uncertainty_method Passed to the entropy/margin/maxprob helper.
 #' @return A ggplot object.
 #' @export
-plot_localtype_map <- function(polys, lt, fill = c("type", "uncertainty", "both"),
-                               uncertainty_method = "entropy") {
+plot_local_map <- function(polys, local, fill = c("type", "uncertainty", "both"),
+                           uncertainty_method = "entropy") {
         fill <- match.arg(fill)
         if (fill == "type") {
-                lab <- .eco_lt_hard(lt)
+                lab <- .region_lt_hard(local)
                 lab <- droplevels(lab)
-                polys <- .eco_attach(polys, lab, ".lt")
-                .eco_choropleth(polys, ".lt", discrete = TRUE,
-                                title = "Dominant river type",
-                                sub = sprintf("%d realised river-type classes", nlevels(lab)),
-                                legend = "River type")
+                polys <- .region_attach(polys, lab, ".local")
+                .region_choropleth(polys, ".local", discrete = TRUE,
+                                   title = "Dominant local type",
+                                   sub = sprintf("%d realised local type classes", nlevels(lab)),
+                                   legend = "Local type", shuffle = TRUE)
         } else if (fill == "uncertainty"){
-                u <- .eco_uncertainty(lt$localtypes, uncertainty_method)
-                polys <- .eco_attach(polys, u, ".unc")
-                .eco_choropleth(polys, ".unc", discrete = FALSE,
-                                title = "River-type assignment uncertainty",
-                                sub = "Normalised entropy of weighted river-type probabilities",
-                                legend = "Uncertainty")
+                u <- .region_uncertainty(local$localtypes, uncertainty_method)
+                polys <- .region_attach(polys, u, ".unc")
+                .region_choropleth(polys, ".unc", discrete = FALSE,
+                                   title = "Local-type assignment uncertainty",
+                                   sub = "Normalised entropy of weighted local-type probabilities",
+                                   legend = "Uncertainty")
         } else if (fill == "both"){
-                u <- lt$localtypes
+                u <- local$localtypes
+                colnames(u) <- 
+                        sub(pattern = "^Region([0-9]+)localType([0-9]+)$", replacement = "R\\1\u00b7T\\2", x = colnames(u))
                 pd <- dplyr::bind_cols(polys, as.data.frame(u))
                 class_cols <- dplyr::setdiff(names(pd), names(polys))
                 
@@ -700,12 +737,12 @@ plot_localtype_map <- function(polys, lt, fill = c("type", "uncertainty", "both"
                                               Dominant_Class = class_cols[which.max(dplyr::c_across(dplyr::all_of(class_cols)))])
                 data_summary$Dominant_Class <- gsub("V", "", data_summary$Dominant_Class)
                 data_summary <- dplyr::ungroup(data_summary)
-                #polys <- .eco_attach(polys, u, ".unc")
-                .eco_choropleth(data_summary, "Dominant_Class", discrete = TRUE,
-                                title = "Continuous Local Type Membership",
-                                alpha = "Max_Memb",
-                                sub = "Degree of Membership for highest membership region \n bright = low membership = transitional (ecotone)",
-                                legend = "Local type")
+                #polys <- .region_attach(polys, u, ".unc")
+                .region_choropleth(data_summary, "Dominant_Class", discrete = TRUE,
+                                   title = "Continuous Local Type Membership",
+                                   alpha = "Max_Memb",
+                                   sub = "Degree of Membership for highest membership region \n bright = low membership = transitional (ecotone)",
+                                   legend = "Local type", shuffle = TRUE)
         }
 }
 
@@ -723,31 +760,32 @@ plot_localtype_map <- function(polys, lt, fill = c("type", "uncertainty", "both"
 #' @param polys An \code{sf} layer row-aligned to the *signature* matrix (the
 #'   full polygon set; same order as \code{mosaic$valid}).
 #' @param mosaic Result of \code{get_mosaic_types()}.
-#' @param fill "type" (default) or "uncertainty".
+#' @param fill One of "type" (default), "uncertainty", or "both".
+#' @param uncertainty_method Passed to the entropy/margin/maxprob helper.
 #' @return A ggplot object.
 #' @export
 plot_mosaic_map <- function(polys, mosaic, fill = c("type", "uncertainty", "both"),
-                               uncertainty_method = "entropy") {
+                            uncertainty_method = "entropy") {
         fill  <- match.arg(fill)
         valid <- mosaic$valid
         if (fill == "type") {
                 lab <- rep(NA_integer_, length(valid))
-                lab[valid] <- .eco_mosaic_hard(mosaic)
+                lab[valid] <- .region_mosaic_hard(mosaic)
                 lab <- factor(lab)
-                polys <- .eco_attach(polys, lab, ".ls")
-                .eco_choropleth(polys, ".ls", discrete = TRUE,
-                                title = "Landscape types",
-                                sub = sprintf("k = %d co-occurrence clusters \u00b7 grey = isolated polygons",
-                                              mosaic$best_k),
-                                legend = "Landscape")
+                polys <- .region_attach(polys, lab, ".ls")
+                .region_choropleth(polys, ".ls", discrete = TRUE,
+                                   title = "Mosaic types",
+                                   sub = sprintf("k = %d co-occurrence clusters \u00b7 grey = isolated polygons",
+                                                 mosaic$best_k),
+                                   legend = "Mosaic type")
         } else if (fill == "uncertainty"){
                 u <- rep(NA_real_, length(valid))
-                u[valid] <- .eco_uncertainty(.eco_mosaic_U(mosaic), uncertainty_method)
-                polys <- .eco_attach(polys, u, ".unc")
-                .eco_choropleth(polys, ".unc", discrete = FALSE,
-                                title = "Landscape-type uncertainty",
-                                sub = "Normalised membership entropy",
-                                legend = "Uncertainty")
+                u[valid] <- .region_uncertainty(.region_mosaic_U(mosaic), uncertainty_method)
+                polys <- .region_attach(polys, u, ".unc")
+                .region_choropleth(polys, ".unc", discrete = FALSE,
+                                   title = "Mosaic-type uncertainty",
+                                   sub = "Normalised membership entropy",
+                                   legend = "Uncertainty")
         } else if (fill == "both"){
                 u <- mosaic$clusters$memberships
                 pd <- dplyr::bind_cols(polys, as.data.frame(u))
@@ -760,12 +798,12 @@ plot_mosaic_map <- function(polys, mosaic, fill = c("type", "uncertainty", "both
                                               Dominant_Class = class_cols[which.max(dplyr::c_across(dplyr::all_of(class_cols)))])
                 data_summary$Dominant_Class <- gsub("V", "", data_summary$Dominant_Class)
                 data_summary <- dplyr::ungroup(data_summary)
-                #polys <- .eco_attach(polys, u, ".unc")
-                .eco_choropleth(data_summary, "Dominant_Class", discrete = TRUE,
-                                title = "Continuous Mosaic Type Membership",
-                                alpha = "Max_Memb",
-                                sub = "Degree of Membership for highest membership mosaic type \n bright = low membership = transitional (ecotone)",
-                                legend = "Mosaic type")
+                #polys <- .region_attach(polys, u, ".unc")
+                .region_choropleth(data_summary, "Dominant_Class", discrete = TRUE,
+                                   title = "Continuous Mosaic Type Membership",
+                                   alpha = "Max_Memb",
+                                   sub = "Degree of Membership for highest membership mosaic type \n bright = low membership = transitional (ecotone)",
+                                   legend = "Mosaic type")
         }
 }
 
@@ -782,10 +820,10 @@ plot_mosaic_map <- function(polys, mosaic, fill = c("type", "uncertainty", "both
 #' @return A ggplot object.
 #' @export
 plot_mosaic_signatures <- function(mosaic, sigs) {
-        .eco_require("ggplot2")
+        .region_require("ggplot2")
         S   <- as.matrix(sigs)[mosaic$valid, , drop = FALSE]
-        lab <- .eco_mosaic_hard(mosaic)
-        pr  <- .eco_parse_pairs(colnames(S))
+        lab <- .region_mosaic_hard(mosaic)
+        pr  <- .region_parse_pairs(colnames(S))
         classes <- sort(unique(c(pr$a, pr$b)))
         ulab <- sort(unique(lab))
         
@@ -794,27 +832,35 @@ plot_mosaic_signatures <- function(mosaic, sigs) {
                 m <- colMeans(S[lab == g, , drop = FALSE], na.rm = TRUE)
                 for (j in seq_along(m)) {
                         rows[[length(rows) + 1L]] <- data.frame(
-                                cluster = factor(paste0("Landscape ", g)),
+                                cluster = factor(paste0("Mosaic ", g)),
                                 a = pr$a[j], b = pr$b[j], value = m[j]
                         )
                         if (pr$a[j] != pr$b[j]) {  # mirror to fill the lower triangle
                                 rows[[length(rows) + 1L]] <- data.frame(
-                                        cluster = factor(paste0("Landscape ", g)),
+                                        cluster = factor(paste0("Mosaic ", g)),
                                         a = pr$b[j], b = pr$a[j], value = m[j]
                                 )
                         }
                 }
         }
         df <- do.call(rbind, rows)
+        
+        ia <- match(as.character(df$a), classes)   # column index in class order
+        ib <- match(as.character(df$b), classes)   # row index in class order
+        df <- df[ib >= ia, , drop = FALSE]         # lower triangle + diagonal
+        
         df$a <- factor(df$a, levels = classes)
         df$b <- factor(df$b, levels = rev(classes))
+        
+        df$value[df$value == 0] <- NA          # never-occurring combos -> NA
         
         ggplot2::ggplot(df, ggplot2::aes(.data$a, .data$b, fill = .data$value)) +
                 ggplot2::geom_tile(colour = "white", linewidth = 0.3) +
                 ggplot2::facet_wrap(~ cluster) +
-                ggplot2::scale_fill_viridis_c(option = "G", name = "mean\nco-occur.") +
+                ggplot2::scale_fill_viridis_c(option = "D", name = "mean\nco-occur.",
+                                              na.value = "white") +   # NA -> white
                 ggplot2::coord_equal() +
-                ggplot2::labs(title = "Landscape-type co-occurrence fingerprints",
+                ggplot2::labs(title = "Mosaic-type co-occurrence fingerprints",
                               subtitle = "Mean class \u00d7 class co-occurrence per cluster",
                               x = "class", y = "class") +
                 theme_eco() + ggplot2::theme(panel.grid = ggplot2::element_blank(),
@@ -832,9 +878,9 @@ plot_mosaic_signatures <- function(mosaic, sigs) {
 #' @return A ggplot object.
 #' @export
 plot_mosaic_validity <- function(mosaic,
-                                    metrics = c("XB_star", "SIL_F", "STAB",
-                                                "SILH_HARD", "MPC")) {
-        .eco_require("ggplot2")
+                                 metrics = c("XB_star", "SIL_F", "STAB",
+                                             "SILH_HARD", "MPC")) {
+        .region_require("ggplot2")
         v <- mosaic$validity
         metrics <- intersect(metrics, names(v))
         dir <- c(XB_star = "min", SIL_F = "max", STAB = "max",
@@ -867,11 +913,11 @@ plot_mosaic_validity <- function(mosaic,
 #'
 #' @param sigs Signature matrix (row-aligned to \code{mosaic$valid}).
 #' @param mosaic Result of \code{get_mosaic_types()}.
-#' @param ellipses Draw 95\% normal ellipses per cluster? Default TRUE.
+#' @param ellipses Draw 95% normal ellipses per cluster? Default TRUE.
 #' @return A ggplot object.
 #' @export
 plot_mosaic_ordination <- function(sigs, mosaic, ellipses = TRUE) {
-        .eco_require("ggplot2")
+        .region_require("ggplot2")
         S <- as.matrix(sigs)[mosaic$valid, , drop = FALSE]
         d <- if (exists("js_distance_fast", mode = "function")) {
                 get("js_distance_fast")(S)
@@ -881,13 +927,13 @@ plot_mosaic_ordination <- function(sigs, mosaic, ellipses = TRUE) {
         }
         mds <- stats::cmdscale(d, k = 2)
         df  <- data.frame(MDS1 = mds[, 1], MDS2 = mds[, 2],
-                          cluster = factor(.eco_mosaic_hard(mosaic)))
+                          cluster = factor(.region_mosaic_hard(mosaic)))
         g <- ggplot2::ggplot(df, ggplot2::aes(.data$MDS1, .data$MDS2, colour = .data$cluster)) +
                 ggplot2::geom_point(alpha = 0.6, size = 1.4)
         if (ellipses) g <- g + ggplot2::stat_ellipse(level = 0.95, linewidth = 0.7)
         g + ggplot2::scale_colour_manual(values = eco_palette(nlevels(df$cluster)),
-                                         name = "Landscape") +
-                ggplot2::labs(title = "Landscape signature ordination",
+                                         name = "Mosaic") +
+                ggplot2::labs(title = "Mosaic signature ordination",
                               subtitle = "Classical MDS of Jensen-Shannon distances",
                               x = "MDS axis 1", y = "MDS axis 2") +
                 theme_eco()
@@ -899,7 +945,7 @@ plot_mosaic_ordination <- function(sigs, mosaic, ellipses = TRUE) {
 #' @return A ggplot object.
 #' @export
 plot_mosaic_ksweep <- function(sweep_df) {
-        .eco_require("ggplot2")
+        .region_require("ggplot2")
         df <- sweep_df
         df$k_order    <- factor(df$k_order)
         df$n_clusters <- factor(df$n_clusters)
@@ -923,18 +969,19 @@ plot_mosaic_ksweep <- function(sweep_df) {
 #' Assemble a row-aligned typology table across the three levels
 #'
 #' All three results must describe the same features in the same row order
-#' (region and river-type span the full set; mosaic labels are scattered
+#' (region and local-type span the full set; mosaic labels are scattered
 #' through \code{mosaic$valid}). Produces one tidy data frame with hard labels and
 #' per-level uncertainties -- the substrate for every cross-level plot.
 #'
 #' @param region,local,mosaic Results of the three pipeline stages (any may be NULL).
-#' @return A data.frame with columns \code{region}, \code{river_type},
-#'   \code{mosaic}, and \code{u_eco}, \code{u_rt}, \code{u_mosaic}.
+#' @return A data.frame with hard-label columns \code{region}, \code{local},
+#'   \code{mosaic} and per-level uncertainty columns \code{u_region},
+#'   \code{u_lt}, \code{u_mosaic} (only those whose input was supplied).
 #' @export
 assemble_typology <- function(region = NULL, local = NULL, mosaic = NULL) {
-        lens <- c(region  = if (!is.null(region))  length(region$hard_clusters)      else NA,
-                  local   = if (!is.null(local))   nrow(local$localtypes)            else NA,
-                  mosaic = if (!is.null(mosaic)) length(mosaic$valid)            else NA)
+        lens <- c(region  = if (!is.null(region))  length(region$hard_clusters) else NA,
+                  local   = if (!is.null(local))   nrow(local$localtypes)       else NA,
+                  mosaic  = if (!is.null(mosaic))  length(mosaic$valid)         else NA)
         N <- unique(stats::na.omit(lens))
         if (length(N) > 1) stop("Inputs are not row-aligned (lengths: ",
                                 paste(names(lens), lens, sep = "=", collapse = ", "), ").",
@@ -944,16 +991,16 @@ assemble_typology <- function(region = NULL, local = NULL, mosaic = NULL) {
         out <- data.frame(.row = seq_len(N))
         if (!is.null(region)) {
                 out$region <- factor(region$hard_clusters)
-                out$u_region     <- .eco_uncertainty(region$memberships)
+                out$u_region     <- .region_uncertainty(region$memberships)
         }
         if (!is.null(local)) {
-                out$local <- droplevels(.eco_rt_hard(local))
-                out$u_lt       <- .eco_uncertainty(local$localtypes)
+                out$local <- droplevels(.region_lt_hard(local))
+                out$u_lt       <- .region_uncertainty(local$localtypes)
         }
         if (!is.null(mosaic)) {
-                ls <- rep(NA_integer_, N); ls[mosaic$valid] <- .eco_mosaic_hard(mosaic)
+                ls <- rep(NA_integer_, N); ls[mosaic$valid] <- .region_mosaic_hard(mosaic)
                 out$mosaic <- factor(ls)
-                uu <- rep(NA_real_, N); uu[mosaic$valid] <- .eco_uncertainty(.eco_mosaic_U(mosaic))
+                uu <- rep(NA_real_, N); uu[mosaic$valid] <- .region_uncertainty(.region_mosaic_U(mosaic))
                 out$u_mosaic <- uu
         }
         out$.row <- NULL
@@ -961,8 +1008,13 @@ assemble_typology <- function(region = NULL, local = NULL, mosaic = NULL) {
 }
 
 #' Make alluvial stratum labels unique & readable per axis
+#'
+#' @param x Vector of labels to relabel (coerced to character).
+#' @param axis One of \code{"region"}, \code{"local"} or \code{"mosaic"}; any
+#'   other value gets an abbreviated prefix.
+#' @return A character vector of prefixed, disambiguated labels.
 #' @keywords internal
-.eco_axis_relabel <- function(x, axis) {
+.region_axis_relabel <- function(x, axis) {
         x <- as.character(x)
         if (axis == "local") {
                 return(sub(pattern = "^Region([0-9]+)localType([0-9]+)$", replacement = "R\\1\u00b7T\\2", x = x))
@@ -975,7 +1027,7 @@ assemble_typology <- function(region = NULL, local = NULL, mosaic = NULL) {
 #' Alluvial flow across the hierarchy: region -> local type -> mosaic
 #'
 #' The "money" cross-level figure: stream width = number of catchments, so you
-#' can read how each region splits into river types and how those reassemble
+#' can read how each region splits into local types and how those reassemble
 #' into mosaic types (i.e. how aligned or crossed the three partitions are).
 #'
 #' @param typ Output of \code{assemble_typology()}.
@@ -984,13 +1036,13 @@ assemble_typology <- function(region = NULL, local = NULL, mosaic = NULL) {
 #' @export
 plot_hierarchy_alluvial <- function(typ,
                                     axes = c("region", "local", "mosaic")) {
-        .eco_require("ggplot2", "ggalluvial")
+        .region_require("ggplot2", "ggalluvial")
         axes <- intersect(axes, names(typ))
         if (length(axes) < 2) stop("Need at least two label columns to draw flows.", call. = FALSE)
         d <- typ[stats::complete.cases(typ[, axes, drop = FALSE]), axes, drop = FALSE]
         # Disambiguate identical codes across axes (e.g. region "1" vs mosaic "1")
         # so flows join correctly and stratum labels stay self-describing.
-        for (ax in axes) d[[ax]] <- factor(.eco_axis_relabel(d[[ax]], ax))
+        for (ax in axes) d[[ax]] <- factor(.region_axis_relabel(d[[ax]], ax))
         d$freq <- 1L
         agg <- stats::aggregate(freq ~ ., data = d, FUN = sum)
         
@@ -1001,13 +1053,13 @@ plot_hierarchy_alluvial <- function(typ,
                 ggalluvial::geom_alluvium(ggplot2::aes(fill = .data[[axes[1]]]), alpha = 0.6) +
                 ggalluvial::geom_stratum(width = 0.28, fill = "grey92", colour = "grey50") +
                 ggplot2::geom_text(stat = ggalluvial::StatStratum,
-                                   ggplot2::aes(label = ggplot2::after_stat(stratum)), size = 3) +
+                                   ggplot2::aes(label = ggplot2::after_stat(.data$stratum)), size = 3) +
                 ggplot2::scale_x_discrete(limits = axes, expand = c(0.08, 0.08)) +
                 ggplot2::scale_fill_manual(values = eco_palette(nlevels(agg[[axes[1]]])),
                                            guide = "none") +
                 ggplot2::labs(title = "Typology hierarchy",
                               subtitle = paste(axes, collapse = "  \u2192  "),
-                              x = NULL, y = "Catchments") +
+                              x = NULL, y = "Mapping Units") +
                 theme_eco()
 }
 
@@ -1023,20 +1075,20 @@ plot_hierarchy_alluvial <- function(typ,
 #' @return A ggplot object.
 #' @export
 plot_hierarchy_concordance <- function(typ, x = "region", y = "mosaic") {
-        .eco_require("ggplot2")
+        .region_require("ggplot2")
         for (cc in c(x, y)) if (!cc %in% names(typ))
                 stop("Column '", cc, "' not in the typology table.", call. = FALSE)
         ok <- !is.na(typ[[x]]) & !is.na(typ[[y]])
         tab <- table(typ[[x]][ok], typ[[y]][ok])
         if (x == "local"){
-                rownames(tab) <- .eco_axis_relabel(rownames(tab), axis = "local")
+                rownames(tab) <- .region_axis_relabel(rownames(tab), axis = "local")
         } else if (y == "local"){
-                colnames(tab) <- .eco_axis_relabel(colnames(tab), axis = "local")
+                colnames(tab) <- .region_axis_relabel(colnames(tab), axis = "local")
         }
         prop <- sweep(tab, 1, pmax(rowSums(tab), 1), "/")
         df <- as.data.frame(prop)
         names(df) <- c("xcl", "ycl", "share")
-        ari <- .eco_ari(typ[[x]], typ[[y]])
+        ari <- .region_ari(typ[[x]], typ[[y]])
         
         ggplot2::ggplot(df, ggplot2::aes(.data$ycl, .data$xcl, fill = .data$share)) +
                 ggplot2::geom_tile(colour = "white", linewidth = 0.3) +
@@ -1055,22 +1107,22 @@ plot_hierarchy_concordance <- function(typ, x = "region", y = "mosaic") {
 #' whether the levels describe nested or crossing spatial structure.
 #'
 #' @param polys An \code{sf} layer row-aligned to all three results.
-#' @param eco,rt,mosaic The three pipeline results (any may be NULL).
+#' @param region,local,mosaic The three pipeline results (any may be NULL).
 #' @return A patchwork object.
 #' @export
-plot_hierarchy_maps <- function(polys, eco = NULL, rt = NULL, mosaic = NULL) {
-        .eco_require("patchwork")
+plot_hierarchy_maps <- function(polys, region = NULL, local = NULL, mosaic = NULL) {
+        .region_require("patchwork")
         ps <- list()
-        if (!is.null(eco))  ps$Ecoregion <- plot_region_map(polys, eco) +
-                ggplot2::labs(title = "1 \u00b7 Eco-region", subtitle = NULL)
-        if (!is.null(rt))   ps$Rivertype <- plot_localtype_map(polys, rt) +
-                ggplot2::labs(title = "2 \u00b7 River type", subtitle = NULL)
-        if (!is.null(mosaic)) ps$Landscape <- plot_mosaic_map(polys, mosaic) +
-                ggplot2::labs(title = "3 \u00b7 Landscape type", subtitle = NULL)
-        if (!length(ps)) stop("Supply at least one of `eco`, `rt`, `mosaic`.", call. = FALSE)
+        if (!is.null(region))  ps$region <- plot_region_map(polys, region) +
+                ggplot2::labs(title = "1 \u00b7 Region", subtitle = NULL)
+        if (!is.null(local))   ps$local <- plot_local_map(polys, local) +
+                ggplot2::labs(title = "2 \u00b7 Local type", subtitle = NULL)
+        if (!is.null(mosaic)) ps$mosaic <- plot_mosaic_map(polys, mosaic) +
+                ggplot2::labs(title = "3 \u00b7 Mosaic type", subtitle = NULL)
+        if (!length(ps)) stop("Supply at least one of `region`, `local`, `mosaic`.", call. = FALSE)
         patchwork::wrap_plots(ps, nrow = 1) +
                 patchwork::plot_annotation(
-                        title = "The three ecotypology levels in space",
+                        title = "The three typology levels in space",
                         theme = theme_eco())
 }
 
@@ -1084,7 +1136,7 @@ plot_hierarchy_maps <- function(polys, eco = NULL, rt = NULL, mosaic = NULL) {
 #' @return A ggplot object.
 #' @export
 plot_hierarchy_uncertainty <- function(typ) {
-        .eco_require("ggplot2")
+        .region_require("ggplot2")
         cols <- intersect(c("u_region", "u_lt", "u_mosaic"), names(typ))
         if (!length(cols)) stop("No uncertainty columns found in the typology table.", call. = FALSE)
         labmap <- c(u_region = "Region", u_lt = "Local type", u_mosaic = "Mosaic type")
@@ -1103,38 +1155,3 @@ plot_hierarchy_uncertainty <- function(typ) {
                               x = NULL, y = "Uncertainty") +
                 theme_eco()
 }
-
-
-# ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
-# USAGE  (sketch; assumes `polys` is an sf layer row-aligned to each result)
-# ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
-# eco  <- skater_con(graph, skater_regions = c(20,40), final_regions = 3:6, n.rst = 30)
-# rt   <- river_types(all_data, core_regions, membership_id = eco$memberships)
-# sigs <- compute_all_signatures(P, graph, k = 2, coords = coords)
-# land <- cluster_landscapes(sigs, n_clusters = 2:10)
-#
-# # Level 1
-# plot_region_map(polys, eco)                      # regions
-# plot_region_map(polys, eco, fill = "uncertainty")# ecotones
-# plot_region_membership(eco)
-# plot_region_tuning(eco)
-#
-# # Level 2
-# plot_localtype_bic(rt)
-# plot_localtype_profiles(rt)
-# plot_localtype_composition(rt)
-# plot_localtype_map(polys, rt)
-#
-# # Level 3
-# plot_mosaic_map(polys, land)
-# plot_mosaic_signatures(land, sigs)
-# plot_mosaic_validity(land)
-# plot_mosaic_ordination(sigs, land)
-#
-# # Together
-# typ <- assemble_typology(eco, rt, land)
-# plot_hierarchy_alluvial(typ)
-# plot_hierarchy_concordance(typ, "region", "landscape")
-# plot_hierarchy_maps(polys, eco, rt, land)
-# plot_hierarchy_uncertainty(typ)
-# =============================================================================

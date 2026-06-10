@@ -11,6 +11,9 @@ theme_eco(base_size = 12, map = FALSE)
 
 \item{map}{Logical. If TRUE, strips axes/grid for choropleths.}
 }
+\value{
+A \code{ggplot2} theme object to add to a plot.
+}
 \description{
 A clean shared theme for all ecotypology figures
 }

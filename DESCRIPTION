@@ -10,25 +10,25 @@ Roxygen: list(markdown = TRUE)
 Imports: 
     arrow,
     cluster,
-    cowplot,
     data.table,
     dplyr,
+    ggalluvial,
     ggplot2,
-    ggtern,
     igraph,
     Matrix,
     mclust,
     methods,
     nngeo,
     parallelDist,
+    patchwork,
     philentropy,
+    plotly,
     RANN,
+    scales,
     sf,
     sfarrow,
     spdep,
-    tidyr,
-    tidyselect,
-    tricolore
+    tidyselect
 Suggests: 
     knitr,
     rmarkdown

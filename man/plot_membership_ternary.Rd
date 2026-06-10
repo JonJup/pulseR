@@ -2,12 +2,12 @@
 % Please edit documentation in R/exploratory_graphics.R
 \name{plot_membership_ternary}
 \alias{plot_membership_ternary}
-\title{Ternary membership plot for the special case of exactly 3 eco-regions}
+\title{Ternary membership plot for the special case of exactly 3 regions}
 \usage{
-plot_membership_ternary(eco)
+plot_membership_ternary(regions)
 }
 \arguments{
-\item{eco}{Result of \code{skater_con()} with exactly 3 final regions.}
+\item{regions}{Result of \code{skater_con()} with exactly 3 final regions.}
 }
 \value{
 A ggplot object.

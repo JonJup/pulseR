@@ -4,7 +4,7 @@
 \alias{plot_hierarchy_concordance}
 \title{Concordance heatmap + ARI between two typology levels}
 \usage{
-plot_hierarchy_concordance(typ, x = "ecoregion", y = "landscape")
+plot_hierarchy_concordance(typ, x = "region", y = "mosaic")
 }
 \arguments{
 \item{typ}{Output of \code{assemble_typology()}.}

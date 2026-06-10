@@ -91,8 +91,7 @@ process_file_internals <- function(file_path,
         if (make_valid) polys <- sf::st_make_valid(polys)
         
         # ---- 2. Globally unique IDs --------------------------------------------
-        # seq_len(n) is empty-safe; `(global_offset + 1):(global_offset + n)` counts
-        # DOWN when n == 0 and is the classic source of silent off-by-one bugs.
+        # seq_len(n) is empty-safe
         polys$global_id <- global_offset + seq_len(n)
         
         # ---- 3. Internal contiguity --------------------------------------------
