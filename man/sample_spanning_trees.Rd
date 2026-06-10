@@ -2,7 +2,7 @@
 % Please edit documentation in R/modular_skate_w_tune.R
 \name{sample_spanning_trees}
 \alias{sample_spanning_trees}
-\alias{print.skater_trees}
+\alias{print.spanning_trees}
 \title{Sample Random Spanning Trees from a Spatial Graph}
 \usage{
 sample_spanning_trees(
@@ -13,7 +13,7 @@ sample_spanning_trees(
   prior_typology = NULL
 )
 
-\method{print}{skater_trees}(x, ...)
+\method{print}{spanning_trees}(x, ...)
 }
 \arguments{
 \item{graph}{An \code{igraph} object. Edges must carry a numeric
@@ -37,14 +37,14 @@ that vertex. When supplied, edges connecting two vertices with the same
 non-NA label are flagged as "within-prior" and become eligible for
 weight halving in the SKATER cutting step (see \code{prior_strength}
 in \code{\link{compute_ensemble_memberships}} and
-\code{\link{skater_con}}). Default \code{NULL} (no prior).}
+\code{\link{delineate_regions}}). Default \code{NULL} (no prior).}
 
-\item{x}{An object to print (e.g. of class \code{"skater_trees"}).}
+\item{x}{An object to print (e.g. of class \code{"spanning_trees"}).}
 
 \item{...}{Further arguments passed to or from other methods (unused).}
 }
 \value{
-An object of class \code{"skater_trees"} — a list with:
+An object of class \code{"spanning_trees"} — a list with:
 \describe{
 \item{\code{trees}}{List of sampled spanning-tree objects (igraph edge
 sequences or graphs, depending on the installed igraph version).}
@@ -61,13 +61,13 @@ length N), or \code{NULL}.}
 within-prior edges, or \code{NULL}.}
 }
 
-\code{print.skater_trees} returns \code{x} invisibly.
+\code{print.spanning_trees} returns \code{x} invisibly.
 }
 \description{
 Draws \code{n} random spanning trees from a weighted, (ideally) connected
 \code{igraph} object. The trees, together with the parent graph's edge
 weights/endpoints and any resolved prior-typology information, are bundled
-into a \code{"skater_trees"} object that the rest of the pipeline consumes.
+into a \code{"spanning_trees"} object that the rest of the pipeline consumes.
 }
 \examples{
 \dontrun{
@@ -80,5 +80,5 @@ print(trees)
 
 }
 \seealso{
-\code{\link{skater_con}} for the full one-call pipeline.
+\code{\link{delineate_regions}} for the full one-call pipeline.
 }

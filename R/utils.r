@@ -224,6 +224,124 @@ nb_to_edgelist <- function(nb) {
         }
 }
 
+#' CLARA-style medoid clustering under Hamming distance
+#'
+#' A lightweight re-implementation of CLARA (Kaufman & Rousseeuw 1990) that
+#' clusters the rows of an ensemble membership matrix under the \emph{Hamming}
+#' distance, i.e. the fraction of spanning trees in which two nodes receive
+#' different region labels. It exists because \code{cluster::clara()} offers no
+#' Hamming metric. One-hot encoding then Manhattan would be a correct (it equals
+#'  \eqn{2\times} Hamming) but memory-heavy alternative. Instead, we subsample
+#' and reuse the \eqn{O(Nk)} distance-to-medoid routine.
+#'
+#' Algorithm: draw \code{samples} subsamples of \code{sampsize} rows; run PAM on
+#' each subsample's (small) Hamming dissimilarity matrix; assign \emph{all} N
+#' rows to the nearest resulting medoid by Hamming distance; keep the medoid set
+#' with the lowest mean distance over all N rows. Following CLARA, the current
+#' best medoids are forced into each subsequent subsample. Peak memory is
+#' \eqn{O(N k + \text{sampsize}^2)} — no \eqn{N \times N} matrix is built.
+#'
+#' @param memb_mat Integer matrix (N x n_trees) of per-tree region labels.
+#' @param k Integer \eqn{\ge 2}. Number of final clusters (medoids).
+#' @param samples Integer \eqn{\ge 1}. Number of subsamples. Default 50. Cost
+#'   scales linearly in this; 5–10 is often enough.
+#' @param sampsize Integer or \code{NULL}. Rows per subsample. \code{NULL}
+#'   selects \code{min(N, 40 + 2k)} (the \code{cluster::clara} default).
+#' @param seed Integer or \code{NULL}. If supplied, seeds subsampling and the
+#'   caller's RNG state is restored on exit.
+#' @param verbose Logical. Progress + ETA. Default \code{TRUE}.
+#'
+#' @return A list with \code{i.med} (length-k integer vector of global medoid
+#'   row indices), \code{clustering} (length-N integer hard labels, columns
+#'   aligned to \code{i.med}), \code{cost} (mean Hamming distance to assigned
+#'   medoid over all N rows), \code{silinfo} (silhouette info from PAM on the
+#'   best subsample, matching \code{clara} semantics; \code{$avg.width} is a
+#'   hardened, sample-based diagnostic), and \code{sample} (the winning
+#'   subsample's global row indices).
+#'
+#' @importFrom cluster pam
+#' @importFrom parallelDist parallelDist
+#' @keywords internal
+#' @noRd
+.clara_hamming <- function(memb_mat,
+                           k,
+                           samples  = 50L,
+                           sampsize = NULL,
+                           seed     = NULL,
+                           verbose  = TRUE) {
+        
+        N <- nrow(memb_mat)
+        stopifnot(is.matrix(memb_mat), N >= 2L,
+                  length(k) == 1L, k >= 2L, k < N,
+                  length(samples) == 1L, samples >= 1L)
+        
+        if (is.null(sampsize)) sampsize <- min(N, 40L + 2L * k)
+        sampsize <- as.integer(min(sampsize, N))
+        if (sampsize <= k) {
+                stop("`sampsize` (", sampsize, ") must exceed `k` (", k, ").", call. = FALSE)
+        }
+        
+        # RNG: seed locally, restore the caller's state on exit (file-wide convention).
+        if (!is.null(seed)) {
+                if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
+                        .old_seed <- get(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
+                        on.exit(assign(".Random.seed", .old_seed, envir = .GlobalEnv), add = TRUE)
+                }
+                set.seed(seed)
+        }
+        
+        if (verbose) {
+                message(sprintf(
+                        "CLARA (Hamming): %d sample(s) of %d rows, N = %d, k = %d ...",
+                        samples, sampsize, N, k
+                ))
+        }
+        tick <- if (verbose) .make_progress(samples, "CLARA(Hamming)") else function(i) NULL
+        
+        best_cost       <- Inf
+        best_medoids    <- NULL
+        best_clustering <- NULL
+        best_sample     <- NULL
+        best_pam        <- NULL
+        
+        for (s in seq_len(samples)) {
+                # Draw a subsample; force the current best medoids in (CLARA refinement).
+                smp <- sample.int(N, sampsize, replace = FALSE)
+                if (!is.null(best_medoids)) smp <- union(best_medoids, smp)
+                smp <- sort(unique(smp))
+                
+                # PAM on the small (sampsize x sampsize) Hamming dissimilarity matrix.
+                d_smp <- parallelDist::parallelDist(memb_mat[smp, , drop = FALSE],
+                                                    method = "hamming")
+                pr    <- cluster::pam(d_smp, k = k, diss = TRUE)
+                med_global <- smp[pr$id.med]
+                
+                # Assign ALL N rows to the nearest medoid; cost = mean Hamming to that medoid.
+                # .hamming_to_refs() accumulates an N x k matrix in O(N k) memory: no N x N.
+                d_to_med <- .hamming_to_refs(memb_mat, med_global)        # N x k, in [0, 1]
+                nearest  <- max.col(-d_to_med, ties.method = "first")     # argmin per row
+                cost     <- mean(d_to_med[cbind(seq_len(N), nearest)])
+                
+                if (cost < best_cost) {
+                        best_cost       <- cost
+                        best_medoids    <- med_global
+                        best_clustering <- nearest
+                        best_sample     <- smp
+                        best_pam        <- pr        # silhouette taken from this subsample's PAM
+                }
+                tick(s)
+        }
+        
+        list(
+                i.med      = best_medoids,
+                clustering = as.integer(best_clustering),
+                cost       = best_cost,
+                silinfo    = best_pam$silinfo,
+                sample     = best_sample
+        )
+}
+
+
 
 # Register variables used via non-standard evaluation (ggplot2/dplyr) so
 # R CMD check does not raise "no visible binding for global variable" NOTEs.

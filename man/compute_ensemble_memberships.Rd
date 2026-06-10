@@ -17,7 +17,7 @@ compute_ensemble_memberships(
 \method{print}{ensemble_memberships}(x, ...)
 }
 \arguments{
-\item{trees}{A \code{"skater_trees"} object.}
+\item{trees}{A \code{"spanning_trees"} object.}
 
 \item{n.rst}{Integer scalar. Number of spanning trees to use
 (must be \code{<= trees$n_trees}).}
@@ -35,8 +35,8 @@ disables prior weighting and reproduces the unconstrained algorithm.
 \eqn{\lambda_E = 1} halves within-prior weights, \eqn{\lambda_E = 2}
 quarters them, and so on. Has no effect if \code{trees} was constructed
 without a \code{prior_typology}. \code{Inf} is not accepted here (use the
-\code{prior_strength = Inf} short-circuit of \code{\link{skater_con}} /
-\code{\link{tune_skater_con}} instead).}
+\code{prior_strength = Inf} short-circuit of \code{\link{delineate_regions}} /
+\code{\link{tune_regions}} instead).}
 
 \item{verbose}{Logical. Default \code{TRUE}.}
 

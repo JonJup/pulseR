@@ -26,7 +26,7 @@ evaluate_nrst_stability(
 \item{graph}{The parent \code{igraph} object the trees were sampled from.
 Required because membership re-computation needs the original edge set.}
 
-\item{trees}{A \code{"skater_trees"} object from
+\item{trees}{A \code{"spanning_trees"} object from
 \code{\link{sample_spanning_trees}}.}
 
 \item{skater_regions}{Integer scalar \eqn{\ge 2}. Number of SKATER regions

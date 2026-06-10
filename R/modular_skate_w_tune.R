@@ -1,22 +1,21 @@
-# =============================================================================
 # SKATER-CON: Fuzzy Contiguity-Constrained Clustering
-# ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
+
 # Modular pipeline implementation.
 #
 # Pipeline:
-#   1. sample_spanning_trees()          -> sample random spanning trees
-#   2. evaluate_nrst_stability()        -> pick ensemble size n.rst (knee)
-#   3. compute_ensemble_memberships()   -> SKATER edge removal -> region labels
-#   4. fuzzy_consensus_clustering()     -> CLARA/PAM consensus + fuzzy U
-#   5a. tune_skater_con()               -> hyper-parameter search (CVIs)
-#   5b. skater_con()                    -> one-call convenience wrapper
+#   1. sample_spanning_trees()        -> sample random spanning trees
+#   2. evaluate_nrst_stability()      -> pick ensemble size n.rst (knee)
+#   3. compute_ensemble_memberships() -> SKATER edge removal -> region labels
+#   4. cluster_consensus()            -> CLARA/PAM consensus + fuzzy U
+#   5a. tune_regions()                -> hyper-parameter search (CVIs)
+#   5b. get_regions()           -> one-call convenience wrapper
 #
 # Conventions:
 #   * Public functions are exported and return small, S3-classed result objects.
 #   * Internal helpers are prefixed "." and tagged @keywords internal.
 #   * Any function that calls set.seed() restores the caller's RNG state on exit
 #     (CRAN-friendly: never silently clobber the user's .Random.seed).
-# =============================================================================
+
 
 
 # ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
@@ -28,7 +27,7 @@
 #' Draws \code{n} random spanning trees from a weighted, (ideally) connected
 #' \code{igraph} object. The trees, together with the parent graph's edge
 #' weights/endpoints and any resolved prior-typology information, are bundled
-#' into a \code{"skater_trees"} object that the rest of the pipeline consumes.
+#' into a \code{"spanning_trees"} object that the rest of the pipeline consumes.
 #'
 #' @param graph An \code{igraph} object. Edges must carry a numeric
 #'   \code{weight} attribute (dissimilarity / cost; finite and non-negative).
@@ -47,9 +46,9 @@
 #'   non-NA label are flagged as "within-prior" and become eligible for
 #'   weight halving in the SKATER cutting step (see \code{prior_strength}
 #'   in \code{\link{compute_ensemble_memberships}} and
-#'   \code{\link{skater_con}}). Default \code{NULL} (no prior).
+#'   \code{\link{get_regions}}). Default \code{NULL} (no prior).
 #'
-#' @return An object of class \code{"skater_trees"} — a list with:
+#' @return An object of class \code{"spanning_trees"} — a list with:
 #'   \describe{
 #'     \item{\code{trees}}{List of sampled spanning-tree objects (igraph edge
 #'       sequences or graphs, depending on the installed igraph version).}
@@ -66,7 +65,7 @@
 #'       within-prior edges, or \code{NULL}.}
 #'   }
 #'
-#' @seealso \code{\link{skater_con}} for the full one-call pipeline.
+#' @seealso \code{\link{get_regions}} for the full one-call pipeline.
 #'
 #' @examples
 #' \dontrun{
@@ -120,20 +119,24 @@ sample_spanning_trees <- function(graph, n, seed = NULL, verbose = TRUE,
         }
         
         # --- Resolve prior typology (if supplied) --------------------------------
-        prior_labels      <- .resolve_prior_typology(graph, prior_typology)
-        edge_endpoints    <- igraph::ends(graph, igraph::E(graph), names = FALSE)
-        within_prior_edge <- .compute_within_prior_edge(prior_labels, edge_endpoints)
-        
-        if (verbose && !is.null(prior_labels)) {
-                n_cov    <- sum(!is.na(prior_labels))
-                n_within <- sum(within_prior_edge, na.rm = TRUE)
-                n_edges  <- length(within_prior_edge)
-                message(sprintf(
-                        "  Prior typology: %d / %d vertices covered (%.1f%%), %d / %d edges within-prior (%.1f%%)",
-                        n_cov, length(prior_labels), 100 * n_cov / length(prior_labels),
-                        n_within, n_edges, 100 * n_within / max(n_edges, 1L)
-                ))
+        if (!is.null(prior_typology) & prior_typology == TRUE){
+                prior_typology = "prior"
+                prior_labels      <- .resolve_prior_typology(graph, prior_typology)
+                edge_endpoints    <- igraph::ends(graph, igraph::E(graph), names = FALSE)
+                within_prior_edge <- .compute_within_prior_edge(prior_labels, edge_endpoints)
+                
+                if (verbose && !is.null(prior_labels)) {
+                        n_cov    <- sum(!is.na(prior_labels))
+                        n_within <- sum(within_prior_edge, na.rm = TRUE)
+                        n_edges  <- length(within_prior_edge)
+                        message(sprintf(
+                                "  Prior typology: %d / %d vertices covered (%.1f%%), %d / %d edges within-prior (%.1f%%)",
+                                n_cov, length(prior_labels), 100 * n_cov / length(prior_labels),
+                                n_within, n_edges, 100 * n_within / max(n_edges, 1L)
+                        ))
+                }
         }
+
         
         # --- Sample the trees ----------------------------------------------------
         if (verbose) message(sprintf("Sampling %d random spanning trees ...", n))
@@ -156,18 +159,18 @@ sample_spanning_trees <- function(graph, n, seed = NULL, verbose = TRUE,
                         prior_labels      = prior_labels,
                         within_prior_edge = within_prior_edge
                 ),
-                class = "skater_trees"
+                class = "spanning_trees"
         )
 }
 
 #' @rdname sample_spanning_trees
-#' @param x An object to print (e.g. of class \code{"skater_trees"}).
+#' @param x An object to print (e.g. of class \code{"spanning_trees"}).
 #' @param ... Further arguments passed to or from other methods (unused).
-#' @return \code{print.skater_trees} returns \code{x} invisibly.
+#' @return \code{print.spanning_trees} returns \code{x} invisibly.
 #' @export
-print.skater_trees <- function(x, ...) {
+print.spanning_trees <- function(x, ...) {
         cat(sprintf(
-                "<skater_trees>  %d trees | %d vertices | seed = %s\n",
+                "<spanning_trees>  %d trees | %d vertices | seed = %s\n",
                 x$n_trees, x$n_vertices,
                 if (is.null(x$seed)) "NULL" else as.character(x$seed)
         ))
@@ -195,7 +198,7 @@ print.skater_trees <- function(x, ...) {
 #'
 #' @param graph The parent \code{igraph} object the trees were sampled from.
 #'   Required because membership re-computation needs the original edge set.
-#' @param trees A \code{"skater_trees"} object from
+#' @param trees A \code{"spanning_trees"} object from
 #'   \code{\link{sample_spanning_trees}}.
 #' @param skater_regions Integer scalar \eqn{\ge 2}. Number of SKATER regions
 #'   used as anchor (typically the median of the candidate range).
@@ -246,7 +249,7 @@ evaluate_nrst_stability <- function(graph,
                                     verbose        = TRUE) {
         
         # --- Argument validation -------------------------------------------------
-        stopifnot(inherits(trees, "skater_trees"))
+        stopifnot(inherits(trees, "spanning_trees"))
         stability_metric <- match.arg(stability_metric)
         
         n.rst_candidates <- sort(unique(as.integer(n.rst_candidates)))
@@ -405,7 +408,7 @@ plot.nrst_stability <- function(x, ...) {
 #' \code{skater_regions} connected components, then records each node's region
 #' label. Returns an integer matrix (one column per tree).
 #'
-#' @param trees A \code{"skater_trees"} object.
+#' @param trees A \code{"spanning_trees"} object.
 #' @param n.rst Integer scalar. Number of spanning trees to use
 #'   (must be \code{<= trees$n_trees}).
 #' @param graph The parent \code{igraph} object the trees were sampled from.
@@ -419,8 +422,8 @@ plot.nrst_stability <- function(x, ...) {
 #'   \eqn{\lambda_E = 1} halves within-prior weights, \eqn{\lambda_E = 2}
 #'   quarters them, and so on. Has no effect if \code{trees} was constructed
 #'   without a \code{prior_typology}. \code{Inf} is not accepted here (use the
-#'   \code{prior_strength = Inf} short-circuit of \code{\link{skater_con}} /
-#'   \code{\link{tune_skater_con}} instead).
+#'   \code{prior_strength = Inf} short-circuit of \code{\link{get_regions}} /
+#'   \code{\link{tune_regions}} instead).
 #' @param verbose Logical. Default \code{TRUE}.
 #'
 #' @return An object of class \code{"ensemble_memberships"} — a list with:
@@ -443,7 +446,7 @@ compute_ensemble_memberships <- function(trees,
                                          verbose = TRUE) {
         
         # --- Argument validation -------------------------------------------------
-        stopifnot(inherits(trees, "skater_trees"))
+        stopifnot(inherits(trees, "spanning_trees"))
         stopifnot(length(n.rst) == 1L, n.rst >= 2, n.rst <= trees$n_trees)
         stopifnot(length(skater_regions) == 1L, skater_regions >= 2,
                   skater_regions <= trees$n_vertices)
@@ -451,7 +454,7 @@ compute_ensemble_memberships <- function(trees,
                   prior_strength >= 0)
         if (is.infinite(prior_strength)) {
                 stop("`prior_strength = Inf` is not supported here; use the exact-prior ",
-                     "short-circuit in skater_con()/tune_skater_con().", call. = FALSE)
+                     "short-circuit in get_regions()/tune_regions().", call. = FALSE)
         }
         
         if (verbose) {
@@ -542,14 +545,14 @@ print.ensemble_memberships <- function(x, ...) {
 #' @importFrom cluster clara pam
 #' @importFrom parallelDist parallelDist
 #' @export
-fuzzy_consensus_clustering <- function(ensemble,
-                                       k,
-                                       fuzziness = 2,
-                                       crisp = FALSE,
-                                       large_n_threshold = 20000,
-                                       clara_samples = 50,
-                                       clara_sampsize = NULL,
-                                       verbose = TRUE) {
+cluster_consensus <- function(ensemble,
+                              k,
+                              fuzziness = 2,
+                              crisp = FALSE,
+                              large_n_threshold = 20000,
+                              clara_samples = 50,
+                              clara_sampsize = NULL,
+                              verbose = TRUE) {
         
         # --- Coerce input to a membership matrix ---------------------------------
         if (inherits(ensemble, "ensemble_memberships")) {
@@ -578,11 +581,10 @@ fuzzy_consensus_clustering <- function(ensemble,
                 # CLARA operates directly on the data matrix (samples + PAM on each sample),
                 # avoiding a full N x N dissimilarity matrix.
                 sampsize <- if (is.null(clara_sampsize)) min(n, 200 + 2 * k) else clara_sampsize
-                cl_res <- cluster::clara(memb_mat, k = k,
-                                         metric   = "manhattan",
+                cl_res <- .clara_hamming(memb_mat, k = k,
                                          samples  = clara_samples,
                                          sampsize = sampsize,
-                                         pamLike  = TRUE)
+                                         verbose  = verbose)
                 medoid_idx  <- cl_res$i.med
                 clustering  <- cl_res$clustering
                 sil_width   <- cl_res$silinfo$avg.width
@@ -656,7 +658,7 @@ fuzzy_consensus_clustering <- function(ensemble,
         )
 }
 
-#' @rdname fuzzy_consensus_clustering
+#' @rdname cluster_consensus
 #' @param x An object of class \code{"fuzzy_clusters"}.
 #' @param ... Further arguments passed to or from other methods (unused).
 #' @return \code{print.fuzzy_clusters} returns \code{x} invisibly.
@@ -678,10 +680,10 @@ print.fuzzy_clusters <- function(x, ...) {
 #'
 #' Searches over \code{skater_regions} and/or \code{final_regions} to find the
 #' combination that optimises a clustering-quality metric, operating on a
-#' pre-computed \code{"skater_trees"} object.
+#' pre-computed \code{"spanning_trees"} object.
 #'
 #' @param graph The parent \code{igraph} object the trees were sampled from.
-#' @param trees A \code{"skater_trees"} object from
+#' @param trees A \code{"spanning_trees"} object from
 #'   \code{\link{sample_spanning_trees}}.
 #' @param n.rst Integer scalar ensemble size to use
 #'   (\eqn{2 \le} \code{n.rst} \eqn{\le} \code{trees$n_trees}).
@@ -721,12 +723,12 @@ print.fuzzy_clusters <- function(x, ...) {
 #' @param max_iter Integer. Maximum iterations for the \code{"iterative"}
 #'   strategy. Default 10.
 #' @param large_n_threshold Integer. CLARA/PAM cutoff, mirrors
-#'   \code{\link{fuzzy_consensus_clustering}}. Default 20000.
+#'   \code{\link{cluster_consensus}}. Default 20000.
 #' @param seed Optional integer seed (controls stability subsampling); the
 #'   caller's RNG state is restored on exit.
 #' @param verbose Logical. Default \code{TRUE}.
 #'
-#' @return An object of class \code{"skater_con_tuning"} — a list with
+#' @return An object of class \code{"regions_tuning"} — a list with
 #'   \code{best_result} (a \code{"fuzzy_clusters"} object),
 #'   \code{best_skater_regions}, \code{best_final_regions}, \code{best_score},
 #'   \code{tuning_log} (a data frame exposing all CVI columns: PC, PE, MPC,
@@ -736,35 +738,35 @@ print.fuzzy_clusters <- function(x, ...) {
 #'   \code{.exact_prior_result} is returned instead.
 #'
 #' @export
-tune_skater_con <- function(graph,
-                            trees,
-                            n.rst,
-                            skater_regions = 50,
-                            final_regions,
-                            fuzziness  = 2,
-                            crisp      = FALSE,
-                            strategy   = c("grid", "sequential", "iterative"),
-                            metric     = c("borda",
-                                           "XB_star",
-                                           "SIL_F",
-                                           "stability",
-                                           "MPC",
-                                           "PE",
-                                           "PEN",
-                                           "silhouette",
-                                           "partition_coefficient",
-                                           "modified_partition_coefficient"),
-                            stability_B      = 25L,
-                            silf_subsample_n = 5000L,
-                            silf_alpha       = 1,
-                            prior_strength   = 0,
-                            prior_typology   = NULL,
-                            max_iter          = 10,
-                            large_n_threshold = 20000,
-                            seed              = NULL,
-                            verbose           = TRUE) {
+tune_regions <- function(graph,
+                         trees,
+                         n.rst,
+                         skater_regions = 50,
+                         final_regions,
+                         fuzziness  = 2,
+                         crisp      = FALSE,
+                         strategy   = c("grid", "sequential", "iterative"),
+                         metric     = c("borda",
+                                        "XB_star",
+                                        "SIL_F",
+                                        "stability",
+                                        "MPC",
+                                        "PE",
+                                        "PEN",
+                                        "silhouette",
+                                        "partition_coefficient",
+                                        "modified_partition_coefficient"),
+                         stability_B      = 25L,
+                         silf_subsample_n = 5000L,
+                         silf_alpha       = 1,
+                         prior_strength   = 0,
+                         prior_typology   = NULL,
+                         max_iter          = 10,
+                         large_n_threshold = 20000,
+                         seed              = NULL,
+                         verbose           = TRUE) {
         
-        stopifnot(inherits(trees, "skater_trees"))
+        stopifnot(inherits(trees, "spanning_trees"))
         strategy <- match.arg(strategy)
         metric   <- match.arg(metric)
         stopifnot(is.numeric(prior_strength), length(prior_strength) == 1L,
@@ -839,7 +841,7 @@ tune_skater_con <- function(graph,
         # --- Score one (sr, fr) pair -> one row of CVI columns -------------------
         score_pair <- function(sr, fr) {
                 memb_mat <- get_memb(sr)
-                res <- fuzzy_consensus_clustering(
+                res <- cluster_consensus(
                         memb_mat, k = fr, fuzziness = fuzziness, crisp = crisp,
                         large_n_threshold = large_n_threshold, verbose = FALSE
                 )
@@ -1023,7 +1025,7 @@ tune_skater_con <- function(graph,
         }
         
         memb_mat <- get_memb(best_sr)
-        best_res <- fuzzy_consensus_clustering(
+        best_res <- cluster_consensus(
                 memb_mat, k = best_fr, fuzziness = fuzziness, crisp = crisp,
                 large_n_threshold = large_n_threshold, verbose = verbose
         )
@@ -1039,7 +1041,7 @@ tune_skater_con <- function(graph,
                         strategy            = strategy,
                         prior_strength      = prior_strength
                 ),
-                class = "skater_con_tuning"
+                class = "regions_tuning"
         )
 }
 
@@ -1048,12 +1050,12 @@ tune_skater_con <- function(graph,
 # Step 5b: Convenience wrapper
 # ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
 
-#' Fuzzy Contiguity-Constrained Clustering using SKATER (one-call wrapper)
+#' Delineate Fuzzy Contiguity-Constrained Regions using SKATER (one-call wrapper)
 #'
 #' All-in-one convenience wrapper that samples spanning trees, optionally
 #' chooses the ensemble size by stability analysis, optionally tunes
 #' \code{skater_regions} / \code{final_regions}, and returns the final fuzzy
-#' partition. See \code{\link{tune_skater_con}} for the full menu of
+#' regionalisation. See \code{\link{tune_regions}} for the full menu of
 #' \code{tuning_metric} options. Default is \code{"borda"}.
 #'
 #' @inheritParams sample_spanning_trees
@@ -1065,10 +1067,10 @@ tune_skater_con <- function(graph,
 #' @param crisp Logical. Produce hard memberships? Default \code{FALSE}.
 #' @param tuning_strategy Character. One of \code{"grid"} (default),
 #'   \code{"sequential"}, \code{"iterative"}.
-#' @param tuning_metric Character. See \code{\link{tune_skater_con}}. Default
+#' @param tuning_metric Character. See \code{\link{tune_regions}}. Default
 #'   \code{"borda"}.
 #' @param stability_B,silf_subsample_n,silf_alpha Passed through to
-#'   \code{\link{tune_skater_con}}.
+#'   \code{\link{tune_regions}}.
 #' @param n.rst_stability_metric Character. One of \code{"mean_abs_diff"}
 #'   (default), \code{"frobenius"}, \code{"correlation"}.
 #' @param prior_typology Optional. Vertex attribute name (single character)
@@ -1100,7 +1102,7 @@ tune_skater_con <- function(graph,
 #'     \item{\code{tuning_log}}{The tuning data frame, or \code{NULL} if no
 #'       tuning was performed.}
 #'     \item{\code{n.rst_stability}}{The stability data frame, or \code{NULL}.}
-#'     \item{\code{trees}}{The \code{"skater_trees"} object used.}
+#'     \item{\code{trees}}{The \code{"spanning_trees"} object used.}
 #'     \item{\code{cluster_result}}{The raw CLARA/PAM object.}
 #'     \item{\code{prior_strength}}{The prior strength used.}
 #'   }
@@ -1110,43 +1112,43 @@ tune_skater_con <- function(graph,
 #' @seealso \code{\link{sample_spanning_trees}},
 #'   \code{\link{evaluate_nrst_stability}},
 #'   \code{\link{compute_ensemble_memberships}},
-#'   \code{\link{fuzzy_consensus_clustering}}, \code{\link{tune_skater_con}}.
+#'   \code{\link{cluster_consensus}}, \code{\link{tune_regions}}.
 #'
 #' @examples
 #' \dontrun{
 #' library(igraph)
 #' g <- sample_gnp(200, 0.05)
 #' E(g)$weight <- runif(ecount(g))
-#' res <- skater_con(g, skater_regions = c(10, 20), final_regions = c(3, 4),
-#'                   n.rst = 30, seed = 1)
+#' res <- get_regions(g, skater_regions = c(10, 20), final_regions = c(3, 4),
+#'                          n.rst = 30, seed = 1)
 #' table(res$hard_clusters)
 #' }
 #'
 #' @importFrom igraph vcount
 #' @export
-skater_con <- function(graph,
-                       skater_regions = 50,
-                       final_regions,
-                       n.rst,
-                       fuzziness  = 2,
-                       crisp      = FALSE,
-                       tuning_strategy = c("grid", "sequential", "iterative"),
-                       tuning_metric   = c("borda", "XB_star", "SIL_F", "stability",
-                                           "MPC", "PE", "PEN",
-                                           "silhouette",
-                                           "partition_coefficient",
-                                           "modified_partition_coefficient"),
-                       stability_B      = 25L,
-                       silf_subsample_n = 5000L,
-                       silf_alpha       = 1,
-                       n.rst_stability_metric = c("mean_abs_diff",
-                                                  "frobenius",
-                                                  "correlation"),
-                       prior_typology = NULL,
-                       prior_strength = 0,
-                       max_iter = 10,
-                       verbose  = TRUE,
-                       seed     = NULL) {
+get_regions <- function(graph,
+                              skater_regions = 50,
+                              final_regions,
+                              n.rst,
+                              fuzziness  = 2,
+                              crisp      = FALSE,
+                              tuning_strategy = c("grid", "sequential", "iterative"),
+                              tuning_metric   = c("borda", "XB_star", "SIL_F", "stability",
+                                                  "MPC", "PE", "PEN",
+                                                  "silhouette",
+                                                  "partition_coefficient",
+                                                  "modified_partition_coefficient"),
+                              stability_B      = 25L,
+                              silf_subsample_n = 5000L,
+                              silf_alpha       = 1,
+                              n.rst_stability_metric = c("mean_abs_diff",
+                                                         "frobenius",
+                                                         "correlation"),
+                              prior_typology = NULL,
+                              prior_strength = 0,
+                              max_iter = 10,
+                              verbose  = TRUE,
+                              seed     = NULL) {
         
         tuning_strategy        <- match.arg(tuning_strategy)
         tuning_metric          <- match.arg(tuning_metric)
@@ -1206,7 +1208,7 @@ skater_con <- function(graph,
         needs_tuning <- length(skater_regions) > 1L || length(final_regions) > 1L
         
         if (needs_tuning) {
-                tuning_result <- tune_skater_con(
+                tuning_result <- tune_regions(
                         graph          = graph,
                         trees          = trees,
                         n.rst          = best_nrst,
@@ -1243,7 +1245,7 @@ skater_con <- function(graph,
                         prior_strength = prior_strength,
                         verbose = verbose
                 )
-                result <- fuzzy_consensus_clustering(
+                result <- cluster_consensus(
                         ensemble, k = final_regions, fuzziness = fuzziness,
                         crisp = crisp, large_n_threshold = 20000, verbose = verbose
                 )
@@ -1356,7 +1358,7 @@ skater_con <- function(graph,
 #'
 #' @param graph Parent \code{igraph} (used only to re-resolve edges when the
 #'   stored tree object is a subgraph rather than an edge sequence).
-#' @param trees A \code{"skater_trees"} object.
+#' @param trees A \code{"spanning_trees"} object.
 #' @param n.rst Number of trees to use.
 #' @param skater_regions Number of regions per tree.
 #' @param prior_strength Within-prior halving rate.
@@ -1621,7 +1623,7 @@ skater_con <- function(graph,
 #' @param B Number of bootstrap replicates. \code{0} disables.
 #' @param subsample_frac Fraction of rows to retain per replicate. Default 0.8.
 #' @param large_n_threshold CLARA/PAM cutoff (mirrors
-#'   \code{fuzzy_consensus_clustering}).
+#'   \code{cluster_consensus}).
 #' @param clara_samples,clara_sampsize CLARA controls.
 #' @param seed Optional integer seed; the caller's RNG state is restored on
 #'   exit.
@@ -1764,7 +1766,7 @@ skater_con <- function(graph,
 #'
 #' @param U N x k membership matrix (rows sum to 1).
 #' @param d_to_medoids N x k matrix of distances from each object to each
-#'   medoid (from \code{fuzzy_consensus_clustering}).
+#'   medoid (from \code{cluster_consensus}).
 #' @param medoid_dist k x k matrix of inter-medoid distances.
 #' @param memb_mat Integer matrix N x n_trees. Required if \code{SIL_F} or
 #'   \code{STAB} are to be computed; may be \code{NULL} otherwise (those entries
@@ -1995,7 +1997,7 @@ skater_con <- function(graph,
 #'
 #' @param prior_labels Character vector of length N (resolved labels).
 #' @param verbose Logical.
-#' @return A list mirroring the \code{skater_con()} return, plus \code{coverage}
+#' @return A list mirroring the \code{get_regions()} return, plus \code{coverage}
 #'   and \code{class_levels}.
 #' @keywords internal
 #' @noRd

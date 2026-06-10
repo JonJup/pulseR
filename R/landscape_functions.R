@@ -1,5 +1,5 @@
 
-# Fuzzy co-occurrence landscape signatures and clustering
+# Fuzzy co-occurrence signatures and clustering
 # ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
 
 #' Compute k-order reachability matrix
@@ -339,7 +339,7 @@ compute_all_signatures <- function(P, graph, k, verbose = TRUE, coords = NULL,
 #'
 #' @importFrom philentropy distance
 #' @importFrom stats complete.cases
-#' @seealso \code{\link{compute_all_signatures}}, \code{\link{cluster_landscapes}}
+#' @seealso \code{\link{compute_all_signatures}}, \code{\link{get_mosaic_types}}
 #' @export
 js_distance_fast <- function(sigs) {
         sigs  <- as.matrix(sigs)
@@ -423,7 +423,7 @@ compute_fuzzy <- function(coassoc, k, fuzziness = 2) {
 }
 
 
-#' Cluster landscape signatures with automatic selection of cluster number
+#' Cluster signatures with automatic selection of cluster number
 #'
 #' Clusters polygons by their fuzzy co-occurrence signatures using PAM with
 #' Jensen-Shannon distance, selecting the number of clusters with a fuzzy-aware
@@ -452,7 +452,7 @@ compute_fuzzy <- function(coassoc, k, fuzziness = 2) {
 #' @importFrom stats complete.cases
 #' @seealso \code{\link{compute_fuzzy}}, \code{\link{js_distance_fast}}
 #' @export
-cluster_landscapes <- function(sigs,
+get_mosaic_types <- function(sigs,
                                n_clusters  = 2:10,
                                method      = c("pam"),
                                crisp       = FALSE,
@@ -506,7 +506,7 @@ cluster_landscapes <- function(sigs,
                         )
                 } else {
                         fz <- compute_fuzzy(d, nc)
-                        rows[[i]] <- .landscape_cvis(fz, D_full,
+                        rows[[i]] <- .mosaic_cvis(fz, D_full,
                                                      stability_B = stability_B,
                                                      silf_alpha  = silf_alpha,
                                                      seed        = seed)
@@ -564,10 +564,10 @@ cluster_landscapes <- function(sigs,
 #'
 #' @details Iterates over \code{k_range}, computing signatures with
 #'   \code{\link{compute_all_signatures}} and evaluating clustering with
-#'   \code{\link{cluster_landscapes}}.
+#'   \code{\link{get_mosaic_types}}.
 #'
 #' @importFrom igraph is_igraph
-#' @seealso \code{\link{compute_all_signatures}}, \code{\link{cluster_landscapes}}
+#' @seealso \code{\link{compute_all_signatures}}, \code{\link{get_mosaic_types}}
 #' @export
 sweep_k_order <- function(P, graph, coords = NULL, k_range = 1:5, n_clusters = 2:10,
                           kernel = "none", sigma = 1) {
@@ -585,7 +585,7 @@ sweep_k_order <- function(P, graph, coords = NULL, k_range = 1:5, n_clusters = 2
                 message("\n=== Neighborhood order k = ", k, " ===")
                 sigs <- compute_all_signatures(P, graph, k, coords = coords, verbose = TRUE,
                                                kernel = kernel, sigma = sigma)
-                cl   <- cluster_landscapes(sigs, n_clusters = n_clusters)
+                cl   <- get_mosaic_types(sigs, n_clusters = n_clusters)
                 
                 # cl$validity has one row per candidate k (same order as the candidates);
                 # SILH_HARD is the average hard silhouette for that solution. The original
@@ -655,7 +655,7 @@ sweep_k_order <- function(P, graph, coords = NULL, k_range = 1:5, n_clusters = 2
 # Fuzzy CVIs on a compute_fuzzy() result
 # .............................................................................
 
-#' Compute fuzzy-aware validity indices for one landscape clustering
+#' Compute fuzzy-aware validity indices for one mosaic clustering
 #'
 #' @param fz Output of \code{\link{compute_fuzzy}}.
 #' @param D_full Full \eqn{N \times N} dissimilarity matrix (JS distances over
@@ -672,7 +672,7 @@ sweep_k_order <- function(P, graph, coords = NULL, k_range = 1:5, n_clusters = 2
 #'
 #' @importFrom stats as.dist
 #' @keywords internal
-.landscape_cvis <- function(fz, D_full,
+.mosaic_cvis <- function(fz, D_full,
                             stability_B = 25L, silf_alpha = 1,
                             silf_subsample_n = 8000L, seed = NULL) {
         U <- fz$memberships
@@ -734,7 +734,7 @@ sweep_k_order <- function(P, graph, coords = NULL, k_range = 1:5, n_clusters = 2
 #' @seealso \code{\link{compute_all_signatures}}, \code{\link{compute_signature}}
 #' @importFrom sf st_as_sf st_geometry st_centroid st_point_on_surface st_coordinates st_is_longlat
 #' @export
-polygon_centroids <- function(polygons,
+polygon_to_centroids <- function(polygons,
                               type = c("centroid", "point_on_surface"),
                               warn_longlat = TRUE) {
         type <- match.arg(type)

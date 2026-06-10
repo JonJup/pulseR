@@ -1,8 +1,8 @@
-#' Classify River Types using Regional Gaussian Mixture Models
+#' Classify local Types using Regional Gaussian Mixture Models
 #'
 #' Trains a Gaussian Mixture Model (GMM) on each of several user-defined
 #' "core regions" and projects those classifications onto a larger target
-#' dataset. For every observation the predicted river-type probabilities from
+#' dataset. For every observation the predicted local-type probabilities from
 #' each regional model are weighted by that observation's (fuzzy or crisp)
 #' membership in the corresponding region and concatenated into a single wide
 #' probability matrix.
@@ -14,7 +14,7 @@
 #' @param core_regions A non-empty list of \code{sf} objects or
 #'   \code{data.frame}s. Each element holds the training observations for one
 #'   region. All elements must contain the same predictor columns.
-#' @param n_river_types Integer scalar or vector passed to the \code{G} argument
+#' @param n_local_types Integer scalar or vector passed to the \code{G} argument
 #'   of \code{\link[mclust]{Mclust}}; the number(s) of mixture components to
 #'   consider. When a vector is supplied, \code{Mclust} selects the best value
 #'   by BIC. Default \code{1:9}.
@@ -29,11 +29,14 @@
 #'   training (e.g. primary keys). Default \code{"ID"}. The column
 #'   \code{"core_region_id"} is always dropped from the training data.
 #' @param crisp Logical. When \code{TRUE} both the regional memberships and the
-#'   per-region river-type probabilities are hardened to 0/1 (each observation
+#'   per-region local-type probabilities are hardened to 0/1 (each observation
 #'   assigned to its single most probable region and, within a region, its
-#'   single most probable river type) before weighting. Default \code{FALSE}.
+#'   single most probable local type) before weighting. Default \code{FALSE}.
 #' @param verbose Logical. When \code{TRUE} progress over regions is reported
 #'   via \code{\link{message}}. Default \code{FALSE}.
+#' @param modelNames Character vector indicating the models to be fitted in the 
+#'   EM phase of clustering. Is passed directly to mclust::Mclust, see there for
+#   for more details
 #'
 #' @details
 #' Pre-processing applied before fitting:
@@ -50,7 +53,7 @@
 #'     all three are dropped (see \strong{Note}).
 #' }
 #'
-#' For region \eqn{r} and river type \eqn{k} the returned weighted probability
+#' For region \eqn{r} and local type \eqn{k} the returned weighted probability
 #' is \eqn{P(\mathrm{Type}_k \mid \mathrm{Region}_r)\, W_r}, where \eqn{W_r} is
 #' the membership weight in column \eqn{r} of \code{membership_id}.
 #'
@@ -62,10 +65,10 @@
 #'
 #' @return A named list with:
 #' \describe{
-#'   \item{\code{rivertypes}}{Numeric matrix of membership-weighted river-type
+#'   \item{\code{localtypes}}{Numeric matrix of membership-weighted local-type
 #'     probabilities, one row per observation in \code{all_data}. Columns are
-#'     named \code{"Region{i}RiverType{k}"}.}
-#'   \item{\code{rivertypes_raw}}{List (one element per region, named
+#'     named \code{"Region{i}localType{k}"}.}
+#'   \item{\code{localtypes_raw}}{List (one element per region, named
 #'     \code{"Region{i}"}) of the \emph{unweighted} predicted probability
 #'     matrices.}
 #'   \item{\code{models}}{List of the fitted \code{Mclust} objects, named by
@@ -91,8 +94,8 @@
 #' memb <- matrix(stats::runif(nrow(all_data) * 2), ncol = 2)
 #' memb <- memb / rowSums(memb)                    # fuzzy weights summing to 1
 #'
-#' res <- river_types(all_data, regions, n_river_types = 1:4, membership_id = memb)
-#' head(res$rivertypes)
+#' res <- local_types(all_data, regions, n_local_types = 1:4, membership_id = memb)
+#' head(res$localtypes)
 #' }
 #'
 #' @importFrom sf st_drop_geometry
@@ -100,14 +103,15 @@
 #' @importFrom stats predict complete.cases
 #'
 #' @export
-river_types <- function(all_data,
+get_local_types <- function(all_data,
                         core_regions,
-                        n_river_types = 1:9,
+                        n_local_types = 1:9,
                         membership_id,
                         membership_cols = NULL,
                         non_value_cols  = "ID",
                         crisp           = FALSE,
-                        verbose         = FALSE) {
+                        verbose         = FALSE,
+                        modelNames = NULL) {
         
         ## ---- 0. Input validation --------------------------------------------------
         if (!is.data.frame(all_data)) {
@@ -130,9 +134,9 @@ river_types <- function(all_data,
         if (!is.logical(verbose) || length(verbose) != 1L || is.na(verbose)) {
                 stop("`verbose` must be a single TRUE/FALSE value.", call. = FALSE)
         }
-        if (!is.numeric(n_river_types) || length(n_river_types) == 0L ||
-            any(n_river_types < 1L) || any(n_river_types != as.integer(n_river_types))) {
-                stop("`n_river_types` must be one or more positive integers.", call. = FALSE)
+        if (!is.numeric(n_local_types) || length(n_local_types) == 0L ||
+            any(n_local_types < 1L) || any(n_local_types != as.integer(n_local_types))) {
+                stop("`n_local_types` must be one or more positive integers.", call. = FALSE)
         }
         if (!is.null(non_value_cols) && !is.character(non_value_cols)) {
                 stop("`non_value_cols` must be a character vector or NULL.", call. = FALSE)
@@ -199,7 +203,7 @@ river_types <- function(all_data,
         ## logic below assumes this).
         ref_cols <- names(train_list[[1L]])
         if (!all(vapply(train_list, function(x) setequal(names(x), ref_cols), logical(1)))) {
-                stop("All `core_regions` must contain the same predictor columns.", call. = FALSE)
+                stop("All core regions must contain the same predictor columns.", call. = FALSE)
         }
         
         ## ---- 1b. Optional crisp (hard) regional membership ------------------------
@@ -210,22 +214,14 @@ river_types <- function(all_data,
         ## A column constant within ANY region is dropped from ALL regions: a
         ## zero-variance predictor yields a singular covariance matrix in Mclust.
         ## NB: a column that is entirely NA also has a single unique value and is
-        ## therefore (correctly) flagged here.
+        ## therefore also flagged here.
         const_names <- character(0)
         for (i in seq_len(n_regions)) {
                 n_unique    <- vapply(train_list[[i]], function(x) length(unique(x)), integer(1))
                 const_names <- union(const_names, names(n_unique)[n_unique <= 1L])
         }
         
-        ## Compositional geology variables sum to a constant; including all three is
-        ## perfectly collinear. If any one is constant, drop all three (see @note).
-        geo_vars <- c("area_sediment", "area_calcareous", "area_siliceous")
-        if (length(const_names) && any(geo_vars %in% const_names)) {
-                const_names <- union(const_names, intersect(geo_vars, ref_cols))
-        }
-        
-        ## Remove by NAME, not by negative position: `x[, -which(...)]` silently drops
-        ## EVERY column when the match set is empty, which was a latent bug.
+        ## Remove constant variables by name
         if (length(const_names)) {
                 train_list <- lapply(train_list, function(x) x[, !names(x) %in% const_names, drop = FALSE])
         }
@@ -262,16 +258,12 @@ river_types <- function(all_data,
                 train_vars[[i]] <- names(train_list[[i]])
                 
                 ## IMPORTANT: Mclust() rebuilds its arguments into a call to mclustBIC() and
-                ## evaluates that call in the *calling* frame (this function's frame), not in
-                ## mclust's own namespace. So mclustBIC must be reachable from here: either
-                ## imported into this package's namespace (see `@importFrom mclust ... mclustBIC`
-                ## above) or, when sourcing this file interactively, have mclust attached via
-                ## library(mclust). Otherwise mclust raises:
-                ##   Error in mclustBIC(...) : could not find function "mclustBIC"
-                fit <- mclust::Mclust(train_list[[i]], G = n_river_types)
+                ## evaluates that call in the calling frame (this function's frame), not in
+                ## mclust's own namespace. So mclustBIC must be reachable from here!
+                fit <- mclust::Mclust(train_list[[i]], G = n_local_types, modelNames = modelNames)
                 if (is.null(fit)) {
                         stop(sprintf("Mclust could not fit a model for region %d over G = %s.",
-                                     i, paste(range(n_river_types), collapse = ":")), call. = FALSE)
+                                     i, paste(range(n_local_types), collapse = ":")), call. = FALSE)
                 }
                 models[[i]] <- fit
         }
@@ -301,7 +293,7 @@ river_types <- function(all_data,
                 
                 ## Mclust prediction needs complete, finite rows. Flag offenders in a
                 ## vectorised way (avoids a slow row-wise apply on large datasets) and
-                ## report how many and where rather than a bare "bad".
+                ## report how many and where.
                 mat <- as.matrix(model_data)
                 bad <- !stats::complete.cases(mat) | rowSums(!is.finite(mat)) > 0L
                 if (any(bad)) {
@@ -313,26 +305,22 @@ river_types <- function(all_data,
                              call. = FALSE)
                 }
                 
-                ## predict.Mclust is dispatched through the stats::predict generic (mclust
-                ## is imported, so its S3 method is registered). $z holds the posterior
-                ## cluster probabilities as an n-by-G matrix.
+                ## predict.Mclust is dispatched through stats::predict. $z holds
+                ##  the posterior cluster probabilities as an n-by-G matrix.
                 pred <- stats::predict(models[[i]], newdata = model_data)$z
-                pred <- as.matrix(pred)   # guarantee matrix form (e.g. when G = 1)
+                ## guarantee matrix form (e.g. when G = 1)
+                pred <- as.matrix(pred)   
                 
                 if (crisp) {
                         pred <- harden_rows(pred)
-                } else {
-                        ## Rounding mirrors the original behaviour; note rounded rows may no
-                        ## longer sum to exactly 1.
-                        pred <- round(pred, 4L)
                 }
                 
                 raw[[i]] <- pred
                 
-                ## Weight every river-type column by this region's membership weight. The
+                ## Weight every local-type column by this region's membership weight. The
                 ## length-n vector recycles down the columns, scaling each row by its weight.
                 w <- pred * membership_id[, i]
-                colnames(w) <- paste0("Region", i, "RiverType", seq_len(ncol(w)))
+                colnames(w) <- paste0("Region", i, "localType", seq_len(ncol(w)))
                 weighted[[i]] <- w
         }
         names(raw) <- paste0("Region", seq_len(n_regions))
@@ -341,8 +329,8 @@ river_types <- function(all_data,
         out <- do.call(cbind, weighted)
         
         list(
-                rivertypes     = out,
-                rivertypes_raw = raw,
+                localtypes     = out,
+                localtypes_raw = raw,
                 models         = models
         )
 }

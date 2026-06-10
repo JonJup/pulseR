@@ -118,7 +118,8 @@ add_edge_weight <- function(g,
                             files     = NULL,
                             id_col    = NULL,
                             variables = NULL,
-                            scale     = TRUE) {
+                            scale     = TRUE,
+                            prior     = NULL) {
         
         # ---- Input validation -----------------------------------------------------
         # Validate logical scalars first so later branching is well defined.
@@ -303,11 +304,16 @@ add_edge_weight <- function(g,
         
         # Passing an explicit vertex table preserves vertex names AND retains every
         # input vertex (including isolated ones, which never appear in `edges_df`).
-        igraph::graph_from_data_frame(
+        out.graph <- igraph::graph_from_data_frame(
                 d        = edges_df,
                 directed = FALSE,
                 vertices = data.frame(name = vertex_names, stringsAsFactors = FALSE)
         )
+        # Adding the prior typology if provided.
+        if (!is.null(prior)){
+                V(out.graph)$prior <- prior
+        }
+        return(out.graph)
 }
 
 
