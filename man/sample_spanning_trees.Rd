@@ -10,7 +10,7 @@ sample_spanning_trees(
   n,
   seed = NULL,
   verbose = TRUE,
-  prior_typology = NULL
+  prior_typology = FALSE
 )
 
 \method{print}{spanning_trees}(x, ...)

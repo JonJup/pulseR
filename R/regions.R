@@ -79,9 +79,9 @@
 #' @importFrom igraph sample_spanning_tree E ends vcount vertex_attr vertex_attr_names edge_attr components
 #' @export
 sample_spanning_trees <- function(graph, n, seed = NULL, verbose = TRUE,
-                                  prior_typology = NULL) {
+                                  prior_typology = FALSE) {
         
-        # --- Argument validation -------------------------------------------------
+        # --- Argument validation ---- *--- *
         stopifnot(
                 inherits(graph, "igraph"),
                 is.numeric(n), length(n) == 1L, is.finite(n), n >= 1
@@ -109,7 +109,7 @@ sample_spanning_trees <- function(graph, n, seed = NULL, verbose = TRUE,
                 ), call. = FALSE)
         }
         
-        # --- RNG handling: seed locally, restore the caller's state on exit ------
+        # --- RNG handling: seed locally, restore the caller's state on exit ---- *-
         if (!is.null(seed)) {
                 if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
                         .old_seed <- get(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
@@ -117,12 +117,11 @@ sample_spanning_trees <- function(graph, n, seed = NULL, verbose = TRUE,
                 }
                 set.seed(seed)
         }
-        
-        # --- Resolve prior typology (if supplied) --------------------------------
-        if (!is.null(prior_typology) & prior_typology == TRUE){
+        edge_endpoints    <- igraph::ends(graph, igraph::E(graph), names = FALSE)
+        # --- Resolve prior typology (if supplied) ---- *---- *---- *---- *---- *---- *--
+        if (prior_typology == TRUE){
                 prior_typology = "prior"
                 prior_labels      <- .resolve_prior_typology(graph, prior_typology)
-                edge_endpoints    <- igraph::ends(graph, igraph::E(graph), names = FALSE)
                 within_prior_edge <- .compute_within_prior_edge(prior_labels, edge_endpoints)
                 
                 if (verbose && !is.null(prior_labels)) {
@@ -138,7 +137,7 @@ sample_spanning_trees <- function(graph, n, seed = NULL, verbose = TRUE,
         }
 
         
-        # --- Sample the trees ----------------------------------------------------
+        # --- Sample the trees ---- *---- *---- *---- *---- *---- *---- *---- *---- *---- *--
         if (verbose) message(sprintf("Sampling %d random spanning trees ...", n))
         tick <- if (verbose) .make_progress(n, "Spanning trees") else function(i) NULL
         
@@ -156,8 +155,8 @@ sample_spanning_trees <- function(graph, n, seed = NULL, verbose = TRUE,
                         edge_weights      = edge_w,
                         edge_endpoints    = edge_endpoints,
                         seed              = seed,
-                        prior_labels      = prior_labels,
-                        within_prior_edge = within_prior_edge
+                        prior_labels      = ifelse(exists("prior_labels"), prior_labels, NA),
+                        within_prior_edge = ifelse(exists("within_prior_edge"), within_prior_edge, NA)
                 ),
                 class = "spanning_trees"
         )
@@ -249,7 +248,7 @@ evaluate_nrst_stability <- function(graph,
                                     seed           = NULL,
                                     verbose        = TRUE) {
         
-        # --- Argument validation -------------------------------------------------
+        # --- Argument validation ---- *---- *---- *---- *---- *---- *---- *---- *---- *----
         stopifnot(inherits(trees, "spanning_trees"))
         stability_metric <- match.arg(stability_metric)
         
@@ -261,7 +260,7 @@ evaluate_nrst_stability <- function(graph,
         stopifnot(is.numeric(prior_strength), length(prior_strength) == 1L,
                   prior_strength >= 0)
         
-        # --- RNG handling --------------------------------------------------------
+        # --- RNG handling ---- *---- *---- *---- *---- *---- *---- *---- *---- *---- *---- *-
         if (!is.null(seed)) {
                 if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
                         .old_seed <- get(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
@@ -270,7 +269,7 @@ evaluate_nrst_stability <- function(graph,
                 set.seed(seed)
         }
         
-        # --- Subsample selection (fixed across all candidate sizes) --------------
+        # --- Subsample selection (fixed across all candidate sizes) ---- *---- *----
         n_v <- trees$n_vertices
         use_subsample <- n_v > subsample_n
         if (use_subsample) {
@@ -446,7 +445,7 @@ compute_ensemble_memberships <- function(trees,
                                          prior_strength = 0,
                                          verbose = TRUE) {
         
-        # --- Argument validation -------------------------------------------------
+        # --- Argument validation ---- *---- *---- *---- *---- *---- *---- *---- *---- *----
         stopifnot(inherits(trees, "spanning_trees"))
         stopifnot(length(n.rst) == 1L, n.rst >= 2, n.rst <= trees$n_trees)
         stopifnot(length(intermediate_regions) == 1L, intermediate_regions >= 2,
@@ -555,7 +554,7 @@ cluster_consensus <- function(ensemble,
                               clara_sampsize = NULL,
                               verbose = TRUE) {
         
-        # --- Coerce input to a membership matrix ---------------------------------
+        # --- Coerce input to a membership matrix ---- *---- *---- *---- *---- *---- *---
         if (inherits(ensemble, "ensemble_memberships")) {
                 memb_mat <- ensemble$memberships
         } else if (is.matrix(ensemble)) {
@@ -577,7 +576,7 @@ cluster_consensus <- function(ensemble,
         
         t0 <- proc.time()[["elapsed"]]
         
-        # --- Medoid clustering ---------------------------------------------------
+        # --- Medoid clustering ---- *---- *---- *---- *---- *---- *---- *---- *---- *---- *-
         if (use_clara) {
                 # CLARA operates directly on the data matrix (samples + PAM on each sample),
                 # avoiding a full N x N dissimilarity matrix.
@@ -601,13 +600,13 @@ cluster_consensus <- function(ensemble,
                 cl_res      <- pam_res
         }
         
-        # --- Distances to medoids (always computed) ------------------------------
+        # --- Distances to medoids (always computed) ---- *---- *---- *---- *---- *---- *
         # Needed both for fuzzy-membership derivation and for downstream CVIs (XB*,
         # SIL_F). Computing it unconditionally keeps the crisp = TRUE path and CVI
         # consumers well-defined.
         dists_to_med <- .hamming_to_refs(memb_mat, medoid_idx)
         
-        # --- k x k inter-medoid distance matrix (separation term for XB*) --------
+        # --- k x k inter-medoid distance matrix (separation term for XB*) ---- *---
         if (length(medoid_idx) >= 2L) {
                 medoid_dist <- as.matrix(
                         parallelDist::parallelDist(
@@ -619,7 +618,7 @@ cluster_consensus <- function(ensemble,
                 medoid_dist <- matrix(0, 1L, 1L)
         }
         
-        # --- Build memberships ---------------------------------------------------
+        # --- Build memberships ---- *---- *---- *---- *---- *---- *---- *---- *---- *---- *-
         if (crisp) {
                 # One-hot assignment, vectorised (avoid an N-length R loop).
                 memberships <- matrix(0, nrow = n, ncol = k)
@@ -773,7 +772,7 @@ tune_regions <- function(graph,
         stopifnot(is.numeric(prior_strength), length(prior_strength) == 1L,
                   prior_strength >= 0)
         
-        # --- Exact prior reproduction short-circuit ------------------------------
+        # --- Exact prior reproduction short-circuit ---- *---- *---- *---- *---- *---- *
         if (is.infinite(prior_strength)) {
                 if (is.null(prior_typology)) {
                         stop("`prior_strength = Inf` requires `prior_typology`.", call. = FALSE)
@@ -808,7 +807,7 @@ tune_regions <- function(graph,
                   all(intermediate_regions <= trees$n_vertices))
         stopifnot(length(n.rst) == 1L, n.rst >= 2, n.rst <= trees$n_trees)
         
-        # --- RNG handling --------------------------------------------------------
+        # --- RNG handling ---- *---- *---- *---- *---- *---- *---- *---- *---- *---- *---- *-
         if (!is.null(seed)) {
                 if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
                         .old_seed <- get(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
@@ -817,7 +816,7 @@ tune_regions <- function(graph,
                 set.seed(seed)
         }
         
-        # --- Cache ensemble memberships keyed by intermediate_regions ------------------
+        # --- Cache ensemble memberships keyed by intermediate_regions ---- *---- *---- *---
         memb_cache <- new.env(parent = emptyenv())
         get_memb <- function(sr) {
                 key <- as.character(sr)
@@ -839,7 +838,7 @@ tune_regions <- function(graph,
         cvi_cols <- c("PC", "PE", "MPC", "PEN",
                       "XB_star", "SIL_F", "STAB", "SILH_HARD")
         
-        # --- Score one (sr, fr) pair -> one row of CVI columns -------------------
+        # --- Score one (sr, fr) pair -> one row of CVI columns ---- *---- *---- *----
         score_pair <- function(sr, fr) {
                 memb_mat <- get_memb(sr)
                 res <- cluster_consensus(
@@ -871,7 +870,7 @@ tune_regions <- function(graph,
                 data.frame(intermediate_regions = sr, final_regions = fr, cvis)
         }
         
-        # --- tuning_log accumulator (CVI columns + derived score) ----------------
+        # --- tuning_log accumulator (CVI columns + derived score) ---- *---- *---- *-
         tuning_log <- NULL
         
         rebuild_score_column <- function() {
@@ -926,7 +925,7 @@ tune_regions <- function(graph,
                 tuning_log[[vary_col]][idx][which.max(sc)]
         }
         
-        # --- Run the chosen strategy ---------------------------------------------
+        # --- Run the chosen strategy ---- *---- *---- *---- *---- *---- *---- *---- *---- *
         if (verbose) message(sprintf("Tuning (%s strategy, metric = %s) ...",
                                      strategy, metric))
         
@@ -1001,7 +1000,7 @@ tune_regions <- function(graph,
                 }
         }
         
-        # --- Deduplicate and pick the best pair ----------------------------------
+        # --- Deduplicate and pick the best pair ---- *---- *---- *---- *---- *---- *----
         tuning_log <- tuning_log[!duplicated(
                 tuning_log[, c("intermediate_regions", "final_regions")]
         ), , drop = FALSE]
@@ -1159,7 +1158,7 @@ get_regions <- function(graph,
         stopifnot(is.numeric(prior_strength), length(prior_strength) == 1L,
                   prior_strength >= 0)
         
-        # --- Exact prior reproduction short-circuit ------------------------------
+        # --- Exact prior reproduction short-circuit ---- *---- *---- *---- *---- *---- *
         if (is.infinite(prior_strength)) {
                 if (is.null(prior_typology)) {
                         stop("`prior_strength = Inf` requires `prior_typology`.", call. = FALSE)
@@ -1178,7 +1177,7 @@ get_regions <- function(graph,
                      igraph::vcount(graph), ").", call. = FALSE)
         }
         
-        # --- Sample the tree ensemble (largest requested n.rst) ------------------
+        # --- Sample the tree ensemble (largest requested n.rst) ---- *---- *---- *---
         trees <- sample_spanning_trees(graph, n = max(n.rst_values),
                                        seed = seed, verbose = verbose,
                                        prior_typology = prior_typology)
@@ -1274,48 +1273,7 @@ get_regions <- function(graph,
 # HELPERS (internal, not exported)
 #
 
-#' Format seconds into a human-readable duration
-#'
-#' @param seconds Numeric scalar. Elapsed seconds.
-#' @return Character scalar such as \code{"3m 05s"}.
-#' @keywords internal
-#' @noRd
-.format_duration <- function(seconds) {
-        if (is.na(seconds) || !is.finite(seconds) || seconds < 0) return("--:--")
-        seconds <- round(seconds)
-        if (seconds < 60)   return(sprintf("%ds", seconds))
-        if (seconds < 3600) return(sprintf("%dm %02ds", seconds %/% 60, seconds %% 60))
-        sprintf("%dh %02dm %02ds", seconds %/% 3600, (seconds %% 3600) %/% 60, seconds %% 60)
-}
 
-#' Build a throttled progress reporter for a loop of known length
-#'
-#' Returns a closure \code{f(i)} that prints an elapsed/ETA line at most once
-#' per \code{report_every} fraction of progress.
-#'
-#' @param total Integer loop length.
-#' @param stage_label Character label for the progress line.
-#' @param report_every Numeric in (0, 1]; minimum progress increment between
-#'   messages. Default 0.10.
-#' @return A function of one argument \code{i} (the current iteration).
-#' @keywords internal
-#' @noRd
-.make_progress <- function(total, stage_label, report_every = 0.10) {
-        t0        <- proc.time()[["elapsed"]]
-        last_frac <- -Inf
-        function(i) {
-                frac <- i / total
-                if (frac < 1 && (frac - last_frac) < report_every) return(invisible(NULL))
-                last_frac <<- frac
-                elapsed <- proc.time()[["elapsed"]] - t0
-                eta <- if (i > 0 && frac < 1) elapsed / frac * (1 - frac) else 0
-                message(sprintf(
-                        "  %s  %d/%d (%3.0f%%) | elapsed %s | ETA %s",
-                        stage_label, i, total,
-                        frac * 100, .format_duration(elapsed), .format_duration(eta)
-                ))
-        }
-}
 
 #' Knee-point detection via maximum perpendicular distance
 #'
@@ -1745,8 +1703,6 @@ get_regions <- function(graph,
                silhouette                     = df$SILH_HARD,
                partition_coefficient          = df$PC,
                modified_partition_coefficient = df$MPC,
-               MPC                            = df$MPC,
-               PE                             = -df$PE,
                PEN                            = -df$PEN,
                XB_star                        = -df$XB_star,
                SIL_F                          = df$SIL_F,
@@ -1809,13 +1765,13 @@ get_regions <- function(graph,
         N <- nrow(U); k <- ncol(U)
         eps <- sqrt(.Machine$double.eps)
         
-        # --- PC / PE / MPC / PEN (membership-only diagnostics) -------------------
+        # --- PC / PE / MPC / PEN (membership-only diagnostics) ---- *---- *---- *----
         PC  <- mean(rowSums(U^2))
         PE  <- -mean(rowSums(U * log(pmax(U, eps))))
         MPC <- if (k > 1L) 1 - (k / (k - 1)) * (1 - PC) else NA_real_
         PEN <- if (k > 1L) PE / log(k) else NA_real_
         
-        # --- XB* (Hamming-medoid Xie-Beni) ---------------------------------------
+        # --- XB* (Hamming-medoid Xie-Beni) ---- *---- *---- *---- *---- *---- *---- *----
         # Numerator: sum_{i,k} u_ik^m * d_ik^2 (compactness via medoid distances).
         # Denominator: N * min_{k != l} D_kl^2 (separation via inter-medoid dist).
         # medoid_dist's diagonal is 0; mask with lower.tri to get k != l pairs.
@@ -1828,7 +1784,7 @@ get_regions <- function(graph,
                 XB_star <- NA_real_
         }
         
-        # --- SIL_F (Campello-Hruschka fuzzy silhouette) --------------------------
+        # --- SIL_F (Campello-Hruschka fuzzy silhouette) ---- *---- *---- *---- *---- *-
         # Requires a dissimilarity matrix over the SAME rows U indexes. For large N
         # this is intractable, so subsample stratified by argmax(U) and recompute.
         SIL_F <- NA_real_
@@ -1854,7 +1810,7 @@ get_regions <- function(graph,
                 )
         }
         
-        # --- STAB (bootstrap ARI) ------------------------------------------------
+        # --- STAB (bootstrap ARI) ---- *---- *---- *---- *---- *---- *---- *---- *---- *---
         STAB <- NA_real_
         if (!is.null(memb_mat) && stability_B > 0L) {
                 if (is.null(hard_clusters)) hard_clusters <- max.col(U, ties.method = "first")

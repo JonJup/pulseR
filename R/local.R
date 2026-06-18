@@ -7,24 +7,21 @@
 #' membership in the corresponding region and concatenated into a single wide
 #' probability matrix.
 #'
-#' @param all_data An \code{sf} object or \code{data.frame} containing the
-#'   complete dataset to be classified. Must contain (at least) every predictor
-#'   variable used by the regional models. Any \code{sf} geometry column is
-#'   dropped automatically.
+#' @param graph The output of \code{\link{polygon_to_network}}. Contains a, 
+#'   \code{igraph} graph object and an \code{sf} object containing the complete 
+#'   dataset to be classified. 
+#'   Any \code{sf} geometry column is dropped automatically.
 #' @param core_regions A non-empty list of \code{sf} objects or
 #'   \code{data.frame}s. Each element holds the training observations for one
 #'   region. All elements must contain the same predictor columns.
+#' @param cutoff numeric in range \code{0,1}`. Sets the membership degree threshold 
+#'   for deriving core regions. Directly passed to \code{\link{get_core_regions}} 
+#'   inside the function.
 #' @param n_local_types Integer scalar or vector passed to the \code{G} argument
 #'   of \code{\link[mclust]{Mclust}}; the number(s) of mixture components to
 #'   consider. When a vector is supplied, \code{Mclust} selects the best value
 #'   by BIC. Default \code{1:9}.
-#' @param membership_id A numeric matrix or \code{data.frame} of regional
-#'   membership weights with one row per observation in \code{all_data} and one
-#'   column per element of \code{core_regions} (in the same order). Used to
-#'   weight each regional model's predictions.
-#' @param membership_cols Character vector naming prior-membership columns in
-#'   \code{core_regions} that must be excluded from training. When \code{NULL}
-#'   (default) it is set to \code{paste0("X", seq_len(ncol(membership_id)))}.
+#' @param regions The ouput of \code{\link{get_regions}} or \code{\link{tune_regions}}. 
 #' @param non_value_cols Character vector of identifier columns to drop before
 #'   training (e.g. primary keys). Default \code{"ID"}. The column
 #'   \code{"core_region_id"} is always dropped from the training data.
@@ -47,26 +44,16 @@
 #'   \item Columns that are constant in \emph{any} region are removed from
 #'     \emph{all} regions, since a zero-variance predictor produces a singular
 #'     covariance matrix in \code{Mclust}.
-#'   \item Compositional geology handling: the variables \code{area_sediment},
-#'     \code{area_calcareous} and \code{area_siliceous} sum to a constant, so
-#'     including all three is perfectly collinear. If any one is found constant,
-#'     all three are dropped (see \strong{Note}).
 #' }
 #'
 #' For region \eqn{r} and local type \eqn{k} the returned weighted probability
 #' is \eqn{P(\mathrm{Type}_k \mid \mathrm{Region}_r)\, W_r}, where \eqn{W_r} is
 #' the membership weight in column \eqn{r} of \code{membership_id}.
 #'
-#' @note The geology rule drops \emph{all three} compositional variables when
-#'   \emph{any one} is constant. This is more aggressive than strictly required
-#'   to break the simplex (sum-to-constant) constraint, for which dropping a
-#'   single component would suffice. The behaviour is preserved from the
-#'   original implementation; verify it matches your intended preprocessing.
-#'
 #' @return A named list with:
 #' \describe{
 #'   \item{\code{localtypes}}{Numeric matrix of membership-weighted local-type
-#'     probabilities, one row per observation in \code{all_data}. Columns are
+#'     probabilities, one row per observation in \code{graph$polygons}. Columns are
 #'     named \code{"Region{i}localType{k}"}.}
 #'   \item{\code{localtypes_raw}}{List (one element per region, named
 #'     \code{"Region{i}"}) of the \emph{unweighted} predicted probability
@@ -88,13 +75,19 @@
 #'     rainfall = stats::rnorm(n)
 #'   )
 #' }
-#' regions  <- list(make_region(100, 0), make_region(100, 3))
-#' all_data <- rbind(make_region(50, 0), make_region(50, 3))
-#'
-#' memb <- matrix(stats::runif(nrow(all_data) * 2), ncol = 2)
+#' core_regions  <- list(make_region(100, 0), make_region(100, 3))
+#' graph <- list()
+#' regions <- list()
+#' graph$polygons <- rbind(make_region(50, 0), make_region(50, 3))
+#' 
+#' memb <- matrix(stats::runif(nrow(graph$polygons) * 2), ncol = 2)
 #' memb <- memb / rowSums(memb)                    # fuzzy weights summing to 1
-#'
-#' res <- get_local_types(all_data, regions, n_local_types = 1:4, membership_id = memb)
+#' regions$memberships <- memb
+#' 
+#' res <- get_local_types(graph = graph,
+#'                        core_regions = core_regions,
+#'                        regions = regions,
+#'                        n_local_types = 1:4)
 #' head(res$localtypes)
 #' }
 #'
@@ -103,30 +96,28 @@
 #' @importFrom stats predict complete.cases
 #'
 #' @export
-get_local_types <- function(all_data,
-                        core_regions,
+get_local_types <- function(graph,
+                        core_regions = NULL,
+                        cutoff = NULL,
                         n_local_types = 1:9,
-                        membership_id,
-                        membership_cols = NULL,
+                        regions,
                         non_value_cols  = "ID",
                         crisp           = FALSE,
                         verbose         = FALSE,
                         modelNames = NULL) {
         
-        ## ---- 0. Input validation --------------------------------------------------
-        if (!is.data.frame(all_data)) {
-                stop("`all_data` must be a data.frame or sf object.", call. = FALSE)
+        ## ---- 0. Input validation -------------------------------------------*
+        if (is.null(core_regions) & is.null(cutoff)){
+                stop("Either core_regions or cutoff must be specified.")
+        } else if (!is.null(core_regions) & !is.null(cutoff)){
+                stop("You should only specify core_regions (a list of sf objects created with get_core_regions()) or cutoff. The latter option creates core_regions on the fly in the function.")
         }
-        if (!is.list(core_regions) || length(core_regions) == 0L) {
-                stop("`core_regions` must be a non-empty list of data.frames / sf objects.",
-                     call. = FALSE)
+        if (!is.data.frame(graph$polygons)) {
+                stop("`graph$polygons` must be a data.frame or sf object.", call. = FALSE)
         }
         if (!all(vapply(core_regions, is.data.frame, logical(1)))) {
                 stop("Every element of `core_regions` must be a data.frame or sf object.",
                      call. = FALSE)
-        }
-        if (missing(membership_id)) {
-                stop("`membership_id` is required.", call. = FALSE)
         }
         if (!is.logical(crisp) || length(crisp) != 1L || is.na(crisp)) {
                 stop("`crisp` must be a single TRUE/FALSE value.", call. = FALSE)
@@ -141,34 +132,21 @@ get_local_types <- function(all_data,
         if (!is.null(non_value_cols) && !is.character(non_value_cols)) {
                 stop("`non_value_cols` must be a character vector or NULL.", call. = FALSE)
         }
-        if (!is.null(membership_cols) && !is.character(membership_cols)) {
-                stop("`membership_cols` must be a character vector or NULL.", call. = FALSE)
-        }
-        
-        n_regions <- length(core_regions)
-        
+        # if (!is.null(membership_cols) && !is.character(membership_cols)) {
+        #         stop("`membership_cols` must be a character vector or NULL.", call. = FALSE)
+        # }
+
+        n_regions <- ncol(regions$memberships)
         ## Coerce membership weights to a numeric matrix for predictable indexing,
         ## then check that its dimensions are consistent with the other inputs.
-        membership_id <- as.matrix(membership_id)
+        membership_id <- as.matrix(regions$memberships)
         if (!is.numeric(membership_id)) {
                 stop("`membership_id` must be numeric.", call. = FALSE)
         }
-        if (ncol(membership_id) != n_regions) {
+        if (nrow(membership_id) != nrow(graph$polygons)) {
                 stop(sprintf(
-                        "`membership_id` has %d columns but there are %d core regions; they must match.",
-                        ncol(membership_id), n_regions), call. = FALSE)
-        }
-        if (nrow(membership_id) != nrow(all_data)) {
-                stop(sprintf(
-                        "`membership_id` has %d rows but `all_data` has %d; they must match.",
-                        nrow(membership_id), nrow(all_data)), call. = FALSE)
-        }
-        
-        ## Default prior-membership column names are derived from the number of
-        ## regions (X1, X2, ...). These are columns to *exclude from training*, not
-        ## the weights themselves.
-        if (is.null(membership_cols)) {
-                membership_cols <- paste0("X", seq_len(ncol(membership_id)))
+                        "`membership_id` has %d rows but `graph$polygons` has %d; they must match.",
+                        nrow(membership_id), nrow(graph$polygons)), call. = FALSE)
         }
         
         ## Local helper: harden each row of a numeric matrix to a 0/1 indicator of
@@ -183,16 +161,26 @@ get_local_types <- function(all_data,
                 if (any(all_na)) out[all_na, ] <- 0
                 out
         }
-        
-        ## ---- 1. Pre-processing ----------------------------------------------------
+
+        ## ---- 1. Pre-processing --------------------------------------------- *
+        ## Finding Core regions 
+        if (is.null(core_regions)){
+                # No core regions where provided so we will compute them here. 
+                core_regions <- get_core_regions(
+                        graph = graph, 
+                        regions = regions,
+                        cutoff = cutoff
+                        )
+                
+        }
         
         ## Drop sf geometry (no-op on a plain data.frame) and standardise to data.frame.
         train_list   <- lapply(core_regions, function(x) as.data.frame(sf::st_drop_geometry(x)))
-        predict_data <- as.data.frame(sf::st_drop_geometry(all_data))
+        predict_data <- as.data.frame(sf::st_drop_geometry(graph$polygons))
         
         ## Columns that must never enter a model: the region key, the prior-membership
         ## columns and any user-supplied identifier columns.
-        drop_cols  <- unique(c("core_region_id", membership_cols, non_value_cols))
+        drop_cols  <- unique(c("core_region_id", non_value_cols, paste0("region",1:n_regions)))
         train_list <- lapply(train_list, function(x) x[, !names(x) %in% drop_cols, drop = FALSE])
         
         ## Prediction data only needs the identifier columns removed; the predictors
@@ -269,7 +257,7 @@ get_local_types <- function(all_data,
         }
         names(models) <- paste0("Region", seq_len(n_regions))
         
-        ## ---- 4. Predict on `all_data` and weight by regional membership -----------
+        ## ---- 4. Predict on `graph$polygons` and weight by regional membership -----------
         raw      <- vector("list", n_regions)
         weighted <- vector("list", n_regions)
         
@@ -279,7 +267,7 @@ get_local_types <- function(all_data,
                 ## Every training variable must be present in the target data.
                 missing_vars <- setdiff(vars_i, names(predict_data))
                 if (length(missing_vars)) {
-                        stop(sprintf("`all_data` is missing variable(s) required by region %d: %s.",
+                        stop(sprintf("`graph$polygons` is missing variable(s) required by region %d: %s.",
                                      i, paste(missing_vars, collapse = ", ")), call. = FALSE)
                 }
                 
@@ -299,7 +287,7 @@ get_local_types <- function(all_data,
                 if (any(bad)) {
                         offenders <- which(bad)
                         stop(sprintf(
-                                "%d row(s) in `all_data` have missing/non-finite values for region %d predictors (%s). First offending row(s): %s.",
+                                "%d row(s) in `graph$polygons` have missing/non-finite values for region %d predictors (%s). First offending row(s): %s.",
                                 length(offenders), i, paste(vars_i, collapse = ", "),
                                 paste(offenders[seq_len(min(6L, length(offenders)))], collapse = ", ")),
                              call. = FALSE)
@@ -334,3 +322,187 @@ get_local_types <- function(all_data,
                 models         = models
         )
 }
+
+
+#' Determine Core Regions from Fuzzy Membership Degrees
+#'
+#' @description
+#' Identifies *core regions* for each region from per-polygon membership
+#' degrees. A core region is a set of spatially contiguous polygons whose
+#' membership degree for that class meets or exceeds a threshold (`cutoff`).
+#'
+#' @param graph The output of \code{\link{polygon_to_network}}.
+#' @param regions The result of \code{\link{get_regions}} or \code{.$best_result} of the result 
+#'   \code{\link{tune_regions}}. 
+#' @param cutoff Single numeric in `[0, 1]`. Minimum membership degree for a
+#'   polygon to be included in a class's core region. Default `0.5`.
+#' @param queen Logical scalar. If `TRUE` (default) neighbours are defined by
+#'   queen contiguity (polygons sharing an edge *or* a single vertex). If
+#'   `FALSE`, rook contiguity is used (only polygons sharing an edge of
+#'   positive length).
+#'
+#' @return
+#' A named `list` with one element per membership column. Each element is an
+#' `sf` object containing the polygons that belong to that class's core
+#' region(s), with an additional **first** column `core_region_id` (integer)
+#' labelling distinct contiguous regions. Classes with no qualifying polygons
+#' yield a zero-row `sf` object with the same columns. The `core_region_id`
+#' labels are arbitrary integers and are only comparable within a single class.
+#'
+#' @details
+#' For each membership column the function:
+#' \enumerate{
+#'   \item selects polygons whose membership degree is `>= cutoff`
+#'     (missing values are treated as *not* meeting the threshold);
+#'   \item builds a sparse spatial neighbour list using the requested
+#'     contiguity rule;
+#'   \item derives an undirected graph and extracts its connected components,
+#'     each of which is one contiguous core region;
+#'   \item returns the selected polygons annotated with their region id.
+#' }
+#'
+#' Contiguity is evaluated with DE-9IM relate patterns: `"F***T****"` for queen
+#' (boundaries meet at a point *or* a line) and `"F***1****"` for rook
+#' (boundaries meet along a line only). The neighbor list is kept sparse so the
+#' routine scales to large polygon sets without materializing an
+#' \eqn{n \times n} adjacency matrix. Contiguity is only meaningful for
+#' polygonal geometries.
+#'
+#' @examples
+#' \dontrun{
+#' # 'fuzzy_data' is an sf object with one membership column per class.
+#' core_regions <- get_core_regions(
+#'   graph = g,
+#'   regions = regions,
+#'   cutoff = 0.6,
+#'   queen = TRUE
+#' )
+#'
+#' # Core regions for class_A (sf object, 'core_region_id' is the first column):
+#' core_regions$class_A
+#' }
+#'
+#' @importFrom sf st_drop_geometry st_relate
+#' @importFrom igraph graph_from_adj_list components simplify
+#' @export
+get_core_regions <- function(graph,
+                             regions,
+                             cutoff = 0.5,
+                             queen = TRUE) {
+        
+        
+        x <- graph$polygons
+        U <- regions$memberships
+        ## ---- Argument validation -----------------------------------*
+        
+        
+        # `x` must be an sf object; we rely on its geometry and sf subsetting rules.
+        if (!inherits(x, "sf")) {
+                stop("'x' must be an sf object.", call. = FALSE)
+        }
+        
+        # `cutoff` must be a single, non-missing number in the unit interval, because
+        # membership degrees are fuzzy weights in [0, 1]. (An NA here would otherwise
+        # crash the range test below, which combines NAs with `||`.)
+        if (!is.numeric(cutoff) || length(cutoff) != 1L || is.na(cutoff)) {
+                stop("'cutoff' must be a single non-missing numeric value.", call. = FALSE)
+        }
+        if (cutoff < 0 || cutoff > 1) {
+                stop("'cutoff' must be between 0 and 1.", call. = FALSE)
+        }
+        
+        # `queen` selects the contiguity rule and must be an unambiguous flag.
+        if (!is.logical(queen) || length(queen) != 1L || is.na(queen)) {
+                stop("'queen' must be a single logical value (TRUE or FALSE).",
+                     call. = FALSE)
+        }
+        
+        # Warn before silently overwriting a pre-existing column of the same name.
+        if ("core_region_id" %in% names(x)) {
+                warning("'x' already contains a 'core_region_id' column; ",
+                        "it will be overwritten in the output.", call. = FALSE)
+        }
+        
+        # Resolve the active geometry column by name
+        geom_col <- attr(x, "sf_column")
+        #x <- x[,geom_col]
+        colnames(U) <- paste0("region",1:ncol(U))
+        x <- cbind(U,x)
+        rangeBound <- all(U <= 1) & all(U>=0)
+        if (rangeBound==FALSE){
+                warning("Some membership values fall outside [0, 1]; check that ",
+                        "'membership_cols' hold fuzzy membership degrees.", call. = FALSE)
+        }
+        
+        ## ---- Local helpers -------------------------------------------*
+        
+        # DE-9IM relate pattern for the chosen contiguity rule.
+        #   queen  "F***T****": interiors disjoint, boundaries meet at a point OR line
+        #   rook   "F***1****": interiors disjoint, boundaries meet along a line only
+        # (The leading "F" excludes self-matches, since a polygon's interior
+        #  intersects itself, so no manual diagonal removal is required.)
+        contiguity_pattern <- if (queen) "F***T****" else "F***1****"
+        
+        # Move `core_region_id` to the front, preserve all other attribute columns,
+        # and keep the (possibly non-"geometry") geometry column last. Used for both
+        # populated and empty results so every list element shares one column order.
+        place_id_first <- function(obj) {
+                middle <- setdiff(names(obj), c("core_region_id", geom_col))
+                obj[, c("core_region_id", middle, geom_col)]
+        }
+        
+        ## ---- Per-class core region detection --------------------------*
+        
+        core_regions_list <- vector("list", ncol(U))
+        names(core_regions_list) <- colnames(U)#paste0("Region",1:ncol(U))
+        
+        for (class_col in seq_along(colnames(U))) {
+                
+                # Polygons meeting the threshold. Coercing NA comparisons to FALSE excludes
+                # missing memberships; otherwise NA logical indices would inject all-NA
+                # "phantom" rows when used to subset `x`.
+                
+                x2 <- st_drop_geometry(x)
+                itername <- colnames(U)[class_col]
+                x2 <- x2[,itername]
+                core_mask <- !is.na(x2) & st_drop_geometry(x2) >= cutoff
+                
+                if (!any(core_mask)) {
+                        message("No polygons meet the cutoff for class '", class_col, "'.")
+                        empty <- x[0, , drop = FALSE]
+                        empty$core_region_id <- integer(0)
+                        core_regions_list[[class_col]] <- place_id_first(empty)
+                        next
+                }
+                
+                core_polys <- x[core_mask, , drop = FALSE]
+                
+                if (nrow(core_polys) == 1L) {
+                        # A lone qualifying polygon is trivially its own region; skip the (for
+                        # n == 1, unnecessary) graph construction.
+                        core_polys$core_region_id <- 1L
+                } else {
+                        nb <- sf::st_relate(core_polys,
+                                            pattern = contiguity_pattern,
+                                            sparse = TRUE)
+                        
+                        adj_graph <- igraph::simplify(
+                                igraph::graph_from_adj_list(unclass(nb), mode = "all")
+                        )
+                        
+                        comp <- igraph::components(adj_graph)
+                        membership <- as.integer(comp$membership)
+                        
+                        # Keep ONLY the largest contiguous region. 
+                        areas <- as.numeric(sf::st_area(core_polys))
+                        largest_id <- as.integer(names(which.max(tapply(areas, membership, sum))))
+                        core_polys  <- core_polys[membership == largest_id, , drop = FALSE]
+                        core_polys$core_region_id <- class_col
+                }
+                
+                core_regions_list[[class_col]] <- place_id_first(core_polys)
+        }
+        
+        core_regions_list
+}
+

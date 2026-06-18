@@ -353,3 +353,45 @@ utils::globalVariables(c(
         # polygon_to_network
         "from", "connected", "to"
 ))
+
+#' Build a throttled progress reporter for a loop of known length
+#'
+#' Returns a closure \code{f(i)} that prints an elapsed/ETA line at most once
+#' per \code{report_every} fraction of progress.
+#'
+#' @param total Integer loop length.
+#' @param stage_label Character label for the progress line.
+#' @param report_every Numeric in (0, 1]; minimum progress increment between
+#'   messages. Default 0.10.
+#' @return A function of one argument \code{i} (the current iteration).
+#' @keywords internal
+#' @noRd
+.make_progress <- function(total, stage_label, report_every = 0.10) {
+        t0        <- proc.time()[["elapsed"]]
+        last_frac <- -Inf
+        function(i) {
+                frac <- i / total
+                if (frac < 1 && (frac - last_frac) < report_every) return(invisible(NULL))
+                last_frac <<- frac
+                elapsed <- proc.time()[["elapsed"]] - t0
+                eta <- if (i > 0 && frac < 1) elapsed / frac * (1 - frac) else 0
+                message(sprintf(
+                        "  %s  %d/%d (%3.0f%%) | elapsed %s | ETA %s",
+                        stage_label, i, total,
+                        frac * 100, .format_duration(elapsed), .format_duration(eta)
+                ))
+        }
+}
+#' Format seconds into a human-readable duration
+#'
+#' @param seconds Numeric scalar. Elapsed seconds.
+#' @return Character scalar such as \code{"3m 05s"}.
+#' @keywords internal
+#' @noRd
+.format_duration <- function(seconds) {
+        if (is.na(seconds) || !is.finite(seconds) || seconds < 0) return("--:--")
+        seconds <- round(seconds)
+        if (seconds < 60)   return(sprintf("%ds", seconds))
+        if (seconds < 3600) return(sprintf("%dm %02ds", seconds %/% 60, seconds %% 60))
+        sprintf("%dh %02dm %02ds", seconds %/% 3600, (seconds %% 3600) %/% 60, seconds %% 60)
+}

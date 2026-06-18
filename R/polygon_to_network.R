@@ -1,10 +1,10 @@
-# =============================================================================
+# ===========================================================================*
 # polygon_to_network()  --  build a spatial contiguity network from polygons
 #
 # Public API (unchanged return shape) plus four new, fully-defaulted arguments
 # (verbose, snap, queen, bbox_buffer). Hardened against the silent-corruption
 # and CRS hazards documented in the package NEWS.
-# =============================================================================
+# ===========================================================================*
 
 #' Create a Spatial Network from Polygon Geometries
 #'
@@ -173,7 +173,7 @@ polygon_to_network <- function(polygons,
                                bbox_buffer              = 0.01,
                                verbose                  = TRUE) {
 
-  # ---- Hard dependency checks ------------------------------------------------
+  # ---- Hard dependency checks ---- *
   # spdep is required for both modes; the heavy I/O packages (sfarrow, arrow)
   # are only needed for chunked mode and are checked there so they can live in
   # Suggests rather than Imports.
@@ -181,7 +181,7 @@ polygon_to_network <- function(polygons,
   .need("sf")
   .need("igraph")
 
-  # ---- Scalar argument validation -------------------------------------------
+  # ---- Scalar argument validation ---- *-
   # Fail fast and informatively rather than letting a malformed value surface as
   # a cryptic error deep inside spdep / sf.
   .assert_flag(chunked,                  "chunked")
@@ -235,7 +235,7 @@ polygon_to_network <- function(polygons,
     }
   }
 
-  # ---- Dispatch --------------------------------------------------------------
+  # ---- Dispatch ---- *--------------
   if (!chunked) {
     return(.network_in_memory(
       polygons          = polygons,
@@ -261,9 +261,9 @@ polygon_to_network <- function(polygons,
 }
 
 
-# =============================================================================
+# ===========================================================================*
 # Internal: in-memory implementation
-# =============================================================================
+# ===========================================================================*
 .network_in_memory <- function(polygons, min_shared_length, connect_islands,
                                queen, snap, verbose) {
 
@@ -322,9 +322,9 @@ polygon_to_network <- function(polygons,
 }
 
 
-# =============================================================================
+# ===========================================================================*
 # Internal: chunked, out-of-core implementation
-# =============================================================================
+# ===========================================================================*
 .network_chunked <- function(polygon_paths, control_paths, connect_islands,
                              return_combined_polygons, min_shared_length,
                              queen, snap, bbox_buffer, verbose) {
@@ -343,7 +343,7 @@ polygon_to_network <- function(polygons,
   ref_crs        <- NULL     # CRS of the first non-empty chunk, for consistency
   saw_id         <- FALSE    # whether any chunk carried an id column
 
-  # ---- Phase 1: within-chunk edges ------------------------------------------
+  # ---- Phase 1: within-chunk edges ---- *
   for (k in seq_along(polygon_paths)) {
     .log(verbose, "Processing chunk %d/%d", k, length(polygon_paths))
 
@@ -421,59 +421,120 @@ polygon_to_network <- function(polygons,
 
   n_total <- offset
 
-  # ---- Phase 2: cross-chunk edges -------------------------------------------
+  # ---- Phase 2: cross-chunk edges ---- *-
   # Only inspect chunk pairs whose buffered bounding boxes are adjacent; the
   # rest cannot possibly share a boundary, which is what keeps this scalable.
   for (i in seq_along(chunk_meta)) {
-    if (chunk_meta[[i]]$n == 0L) next
+    if (chunk_meta[[i]]$n == 0L)
+      next
+    
+    # Cheap bbox screen first; collect adjacent partners j > i.
+    j_adj <- integer(0)
     for (j in seq_along(chunk_meta)) {
-      if (j <= i || chunk_meta[[j]]$n == 0L) next
-      if (!bboxes_adjacent(chunk_meta[[i]]$bbox, chunk_meta[[j]]$bbox,
-                           buffer = bbox_buffer)) next
-
+      if (j <= i || chunk_meta[[j]]$n == 0L)
+        next
+      if (bboxes_adjacent(chunk_meta[[i]]$bbox, chunk_meta[[j]]$bbox, buffer = bbox_buffer))
+        j_adj <- c(j_adj, j)
+    }
+    if (length(j_adj) == 0L)
+      next
+    
+    # Load chunk i ONCE, reuse across all its partners.
+    polys_i <- .load_chunk(chunk_meta[[i]]$path, chunk_meta[[i]]$control_path)
+    
+    for (j in j_adj) {
       .log(verbose, "Checking cross-chunk edges: %d x %d", i, j)
-
-      # Reload through the SAME loader as phase 1 to guarantee identical row
-      # order, otherwise global_idx[row] would point at the wrong polygon.
-      polys_i <- .load_chunk(chunk_meta[[i]]$path, chunk_meta[[i]]$control_path)
       polys_j <- .load_chunk(chunk_meta[[j]]$path, chunk_meta[[j]]$control_path)
-
-      # Use the predicate that matches the requested contiguity rule so that
-      # cross-chunk edges obey the same definition as within-chunk edges.
+      
       sgbp <- if (queen) {
         sf::st_touches(polys_i, polys_j)
       } else {
-        # DE-9IM "F***1****": interiors disjoint, boundaries meet in a line.
         sf::st_relate(polys_i, polys_j, pattern = "F***1****")
       }
-
-      # Flatten the sparse predicate into local (row, col) candidate pairs.
-      pairs <- do.call(rbind, lapply(seq_along(sgbp), function(r) {
-        cols <- sgbp[[r]]
-        if (length(cols) == 0L) return(NULL)
-        data.frame(row = r, col = cols)
-      }))
-
+      
+      sgbp   <- unclass(sgbp)
+      counts <- lengths(sgbp)
+      pairs  <- if (sum(counts) > 0L) {
+        data.frame(row = rep.int(seq_along(sgbp), counts),
+                   col = as.integer(unlist(sgbp, use.names = FALSE)))
+      } else
+        NULL
+      
       if (!is.null(pairs) && nrow(pairs) > 0) {
         if (min_shared_length > 0) {
           keep  <- .shared_lengths_pairs(sf::st_geometry(polys_i)[pairs$row],
                                          sf::st_geometry(polys_j)[pairs$col]) >=
-                   min_shared_length
+            min_shared_length
           pairs <- pairs[keep, , drop = FALSE]
         }
         if (nrow(pairs) > 0) {
-          all_edges[[length(all_edges) + 1L]] <- data.frame(
-            from = chunk_meta[[i]]$global_idx[pairs$row],
-            to   = chunk_meta[[j]]$global_idx[pairs$col]
-          )
+          all_edges[[length(all_edges) + 1L]] <- data.frame(from = chunk_meta[[i]]$global_idx[pairs$row],
+                                                            to   = chunk_meta[[j]]$global_idx[pairs$col])
         }
       }
-
-      rm(polys_i, polys_j, sgbp, pairs); gc(verbose = FALSE)
+      rm(polys_j, sgbp, pairs)
     }
+    rm(polys_i)
+    gc(verbose = FALSE)
   }
+  # for (i in seq_along(chunk_meta)) {
+  #   if (chunk_meta[[i]]$n == 0L) next
+  #   for (j in seq_along(chunk_meta)) {
+  #     if (j <= i || chunk_meta[[j]]$n == 0L) next
+  #     if (!bboxes_adjacent(chunk_meta[[i]]$bbox, chunk_meta[[j]]$bbox,
+  #                          buffer = bbox_buffer)) next
+  # 
+  #     .log(verbose, "Checking cross-chunk edges: %d x %d", i, j)
+  # 
+  #     # Reload through the SAME loader as phase 1 to guarantee identical row
+  #     # order, otherwise global_idx[row] would point at the wrong polygon.
+  #     polys_i <- .load_chunk(chunk_meta[[i]]$path, chunk_meta[[i]]$control_path)
+  #     polys_j <- .load_chunk(chunk_meta[[j]]$path, chunk_meta[[j]]$control_path)
+  # 
+  #     # Use the predicate that matches the requested contiguity rule so that
+  #     # cross-chunk edges obey the same definition as within-chunk edges.
+  #     sgbp <- if (queen) {
+  #       sf::st_touches(polys_i, polys_j)
+  #     } else {
+  #       # DE-9IM "F***1****": interiors disjoint, boundaries meet in a line.
+  #       sf::st_relate(polys_i, polys_j, pattern = "F***1****")
+  #     }
+  # 
+  #     # Flatten the sparse predicate into local (row, col) candidate pairs.
+  #     # pairs <- do.call(rbind, lapply(seq_along(sgbp), function(r) {
+  #     #   cols <- sgbp[[r]]
+  #     #   if (length(cols) == 0L) return(NULL)
+  #     #   data.frame(row = r, col = cols)
+  #     # }))
+  #     sgbp   <- unclass(sgbp)          # plain list ops, no sgbp dispatch
+  #     counts <- lengths(sgbp)
+  #     pairs  <- if (sum(counts) > 0L) {
+  #       data.frame(
+  #         row = rep.int(seq_along(sgbp), counts),
+  #         col = as.integer(unlist(sgbp, use.names = FALSE))
+  #       )
+  #     } else NULL
+  # 
+  #     if (!is.null(pairs) && nrow(pairs) > 0) {
+  #       if (min_shared_length > 0) {
+  #         keep  <- .shared_lengths_pairs(sf::st_geometry(polys_i)[pairs$row],
+  #                                        sf::st_geometry(polys_j)[pairs$col]) >=
+  #                  min_shared_length
+  #         pairs <- pairs[keep, , drop = FALSE]
+  #       }
+  #       if (nrow(pairs) > 0) {
+  #         all_edges[[length(all_edges) + 1L]] <- data.frame(
+  #           from = chunk_meta[[i]]$global_idx[pairs$row],
+  #           to   = chunk_meta[[j]]$global_idx[pairs$col]
+  #         )
+  #       }
+  #     }
+  # 
+  #     rm(polys_i, polys_j, sgbp, pairs); gc(verbose = FALSE)
+  #   }
+  # }
 
-  # ---- Phase 3: assemble graph ----------------------------------------------
+  # ---- Phase 3: assemble graph ---- *
   all_edges <- Filter(function(x) is.data.frame(x) && nrow(x) > 0, all_edges)
   edge_df   <- if (length(all_edges) > 0) {
     do.call(rbind, all_edges)
@@ -526,9 +587,9 @@ polygon_to_network <- function(polygons,
 }
 
 
-# =============================================================================
+# ===========================================================================*
 # Helpers (package-internal)
-# =============================================================================
+# ===========================================================================*
 
 #' Identify the polygon identifier column, preferring "ID" then "id"
 #' @return Column name, or \code{NA_character_} if neither is present.
@@ -597,27 +658,45 @@ polygon_to_network <- function(polygons,
 #'   \code{from < to} so each undirected edge appears exactly once.
 #' @keywords internal
 #' @noRd
+# nb_to_edgelist <- function(nb) {
+#   edges <- lapply(seq_along(nb), function(i) {
+#     neighbors <- nb[[i]]
+#     # spdep encodes "no neighbours" as a single 0L.
+#     if (length(neighbors) > 0 && neighbors[1] != 0) {
+#       # Keep only neighbours with a higher index => each edge once, from < to.
+#       valid_neighbors <- neighbors[neighbors > i]
+#       if (length(valid_neighbors) > 0) {
+#         return(data.frame(from = as.integer(i),
+#                           to   = as.integer(valid_neighbors)))
+#       }
+#     }
+#     NULL
+#   })
+#   edges <- Filter(Negate(is.null), edges)
+#   if (length(edges) == 0) {
+#     return(data.frame(from = integer(), to = integer()))
+#   }
+#   do.call(rbind, edges)
+# }
 nb_to_edgelist <- function(nb) {
-  edges <- lapply(seq_along(nb), function(i) {
-    neighbors <- nb[[i]]
-    # spdep encodes "no neighbours" as a single 0L.
-    if (length(neighbors) > 0 && neighbors[1] != 0) {
-      # Keep only neighbours with a higher index => each edge once, from < to.
-      valid_neighbors <- neighbors[neighbors > i]
-      if (length(valid_neighbors) > 0) {
-        return(data.frame(from = as.integer(i),
-                          to   = as.integer(valid_neighbors)))
-      }
-    }
-    NULL
+  n <- length(nb)
+  if (n == 0L) return(data.frame(from = integer(), to = integer()))
+  
+  # Keep only higher-indexed neighbours so each undirected edge appears once
+  # (from < to). spdep encodes "no neighbours" as a single 0L.
+  to_list <- lapply(seq_len(n), function(i) {
+    nbr <- nb[[i]]
+    if (length(nbr) && nbr[1L] != 0L) nbr[nbr > i] else integer(0)
   })
-  edges <- Filter(Negate(is.null), edges)
-  if (length(edges) == 0) {
-    return(data.frame(from = integer(), to = integer()))
-  }
-  do.call(rbind, edges)
+  
+  counts <- lengths(to_list)
+  if (sum(counts) == 0L) return(data.frame(from = integer(), to = integer()))
+  
+  data.frame(
+    from = rep.int(seq_len(n), counts),
+    to   = as.integer(unlist(to_list, use.names = FALSE))
+  )
 }
-
 #' Do two bounding boxes touch or overlap (with a buffer)?
 #'
 #' @param bb1,bb2 Bounding boxes from \code{sf::st_bbox()}.

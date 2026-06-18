@@ -5,11 +5,11 @@
 \title{Classify local Types using Regional Gaussian Mixture Models}
 \usage{
 get_local_types(
-  all_data,
-  core_regions,
+  graph,
+  core_regions = NULL,
+  cutoff = NULL,
   n_local_types = 1:9,
-  membership_id,
-  membership_cols = NULL,
+  regions,
   non_value_cols = "ID",
   crisp = FALSE,
   verbose = FALSE,
@@ -17,28 +17,25 @@ get_local_types(
 )
 }
 \arguments{
-\item{all_data}{An \code{sf} object or \code{data.frame} containing the
-complete dataset to be classified. Must contain (at least) every predictor
-variable used by the regional models. Any \code{sf} geometry column is
-dropped automatically.}
+\item{graph}{The output of \code{\link{polygons_to_network}}. Contains a,
+\code{igraph} graph object and an \code{sf} object containing the complete
+dataset to be classified.
+Any \code{sf} geometry column is dropped automatically.}
 
 \item{core_regions}{A non-empty list of \code{sf} objects or
 \code{data.frame}s. Each element holds the training observations for one
 region. All elements must contain the same predictor columns.}
+
+\item{cutoff}{numeric in range \code{0,1}`. Sets the membership degree threshold
+for deriving core regions. Directly passed to \code{\link{get_core_regions}}
+inside the function.}
 
 \item{n_local_types}{Integer scalar or vector passed to the \code{G} argument
 of \code{\link[mclust]{Mclust}}; the number(s) of mixture components to
 consider. When a vector is supplied, \code{Mclust} selects the best value
 by BIC. Default \code{1:9}.}
 
-\item{membership_id}{A numeric matrix or \code{data.frame} of regional
-membership weights with one row per observation in \code{all_data} and one
-column per element of \code{core_regions} (in the same order). Used to
-weight each regional model's predictions.}
-
-\item{membership_cols}{Character vector naming prior-membership columns in
-\code{core_regions} that must be excluded from training. When \code{NULL}
-(default) it is set to \code{paste0("X", seq_len(ncol(membership_id)))}.}
+\item{regions}{The ouput of \code{\link{get_regions}} or \code{\link{tune_regions}}.}
 
 \item{non_value_cols}{Character vector of identifier columns to drop before
 training (e.g. primary keys). Default \code{"ID"}. The column
@@ -59,7 +56,7 @@ EM phase of clustering. Is passed directly to mclust::Mclust, see there for}
 A named list with:
 \describe{
 \item{\code{localtypes}}{Numeric matrix of membership-weighted local-type
-probabilities, one row per observation in \code{all_data}. Columns are
+probabilities, one row per observation in \code{graph$polygons}. Columns are
 named \code{"Region{i}localType{k}"}.}
 \item{\code{localtypes_raw}}{List (one element per region, named
 \code{"Region{i}"}) of the \emph{unweighted} predicted probability
@@ -85,22 +82,11 @@ Pre-processing applied before fitting:
 \item Columns that are constant in \emph{any} region are removed from
 \emph{all} regions, since a zero-variance predictor produces a singular
 covariance matrix in \code{Mclust}.
-\item Compositional geology handling: the variables \code{area_sediment},
-\code{area_calcareous} and \code{area_siliceous} sum to a constant, so
-including all three is perfectly collinear. If any one is found constant,
-all three are dropped (see \strong{Note}).
 }
 
 For region \eqn{r} and local type \eqn{k} the returned weighted probability
 is \eqn{P(\mathrm{Type}_k \mid \mathrm{Region}_r)\, W_r}, where \eqn{W_r} is
 the membership weight in column \eqn{r} of \code{membership_id}.
-}
-\note{
-The geology rule drops \emph{all three} compositional variables when
-\emph{any one} is constant. This is more aggressive than strictly required
-to break the simplex (sum-to-constant) constraint, for which dropping a
-single component would suffice. The behaviour is preserved from the
-original implementation; verify it matches your intended preprocessing.
 }
 \examples{
 \donttest{
@@ -115,13 +101,19 @@ make_region <- function(n, shift) {
     rainfall = stats::rnorm(n)
   )
 }
-regions  <- list(make_region(100, 0), make_region(100, 3))
-all_data <- rbind(make_region(50, 0), make_region(50, 3))
+core_regions  <- list(make_region(100, 0), make_region(100, 3))
+graph <- list()
+regions <- list()
+graph$polygons <- rbind(make_region(50, 0), make_region(50, 3))
 
-memb <- matrix(stats::runif(nrow(all_data) * 2), ncol = 2)
+memb <- matrix(stats::runif(nrow(graph$polygons) * 2), ncol = 2)
 memb <- memb / rowSums(memb)                    # fuzzy weights summing to 1
+regions$memberships <- memb
 
-res <- get_local_types(all_data, regions, n_local_types = 1:4, membership_id = memb)
+res <- get_local_types(graph = graph,
+                       core_regions = core_regions,
+                       regions = regions,
+                       n_local_types = 1:4)
 head(res$localtypes)
 }
 
