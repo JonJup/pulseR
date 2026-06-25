@@ -215,7 +215,18 @@ print.spanning_trees <- function(x, ...) {
 #' @param seed Integer or \code{NULL}. Seed for the subsample selection; the
 #'   caller's RNG state is restored on exit.
 #' @param verbose Logical. Default \code{TRUE}.
-#'
+#' @param partitions_per_tree Integer scalar \eqn{\ge 1}. Number of independent
+#'   cut-sets applied to each spanning tree. Each cut-set is one regionalisation
+#'   and contributes one ensemble column, so the returned matrix has
+#'   \code{n.rst * partitions_per_tree} columns. Default 1 (one partition per
+#'   tree, the original behaviour). Partitions from the same tree share its
+#'   topology and are more correlated than partitions from distinct trees.
+#' @param weight_exponent Non-negative numeric scalar \eqn{\gamma}. The cut
+#'   probability of an edge is proportional to its (prior-adjusted) weight raised
+#'   to \eqn{\gamma}. \eqn{\gamma = 0} cuts edges uniformly at random,
+#'   \eqn{\gamma = 1} (default) cuts with probability proportional to weight, and
+#'   larger \eqn{\gamma} concentrates cuts on the heaviest edges (approaching
+#'   deterministic heaviest-edge removal as \eqn{\gamma \to \infty}).
 #' @return An object of class \code{"nrst_stability"} — a list with:
 #'   \describe{
 #'     \item{\code{best_nrst}}{Selected ensemble size (knee point).}
@@ -245,10 +256,12 @@ evaluate_nrst_stability <- function(graph,
                                                          "correlation"),
                                     subsample_n    = 5000,
                                     prior_strength = 0,
+                                    partitions_per_tree = 1L,
+                                    weight_exponent     = 1,
                                     seed           = NULL,
                                     verbose        = TRUE) {
         
-        # --- Argument validation ---- *---- *---- *---- *---- *---- *---- *---- *---- *----
+        # --- Argument validation 
         stopifnot(inherits(trees, "spanning_trees"))
         stability_metric <- match.arg(stability_metric)
         
@@ -269,7 +282,7 @@ evaluate_nrst_stability <- function(graph,
                 set.seed(seed)
         }
         
-        # --- Subsample selection (fixed across all candidate sizes) ---- *---- *----
+        # --- Subsample selection (fixed across all candidate sizes) 
         n_v <- trees$n_vertices
         use_subsample <- n_v > subsample_n
         if (use_subsample) {
@@ -292,7 +305,9 @@ evaluate_nrst_stability <- function(graph,
                 memb <- .compute_ensemble_memberships_internal(
                         graph = graph, trees = trees, n.rst = n_use,
                         intermediate_regions = intermediate_regions,
-                        prior_strength = prior_strength
+                        prior_strength       = prior_strength,
+                        partitions_per_tree  = partitions_per_tree,
+                        weight_exponent      = weight_exponent
                 )
                 memb_sub <- memb[sub_idx, , drop = FALSE]
                 parallelDist::parallelDist(memb_sub, method = "hamming")
@@ -425,6 +440,18 @@ plot.nrst_stability <- function(x, ...) {
 #'   \code{prior_strength = Inf} short-circuit of \code{\link{get_regions}} /
 #'   \code{\link{tune_regions}} instead).
 #' @param verbose Logical. Default \code{TRUE}.
+#' @param partitions_per_tree Integer scalar \eqn{\ge 1}. Number of independent
+#'   cut-sets applied to each spanning tree. Each cut-set is one regionalisation
+#'   and contributes one ensemble column, so the returned matrix has
+#'   \code{n.rst * partitions_per_tree} columns. Default 1 (one partition per
+#'   tree, the original behavior). Partitions from the same tree share its
+#'   topology and are more correlated than partitions from distinct trees.
+#' @param weight_exponent Non-negative numeric scalar \eqn{\gamma}. The cut
+#'   probability of an edge is proportional to its (prior-adjusted) weight raised
+#'   to \eqn{\gamma}. \eqn{\gamma = 0} cuts edges uniformly at random,
+#'   \eqn{\gamma = 1} (default) cuts with probability proportional to weight, and
+#'   larger \eqn{\gamma} concentrates cuts on the heaviest edges (approaching
+#'   deterministic heaviest-edge removal as \eqn{\gamma \to \infty}).
 #'
 #' @return An object of class \code{"ensemble_memberships"} — a list with:
 #'   \describe{
@@ -435,54 +462,72 @@ plot.nrst_stability <- function(x, ...) {
 #'     \item{\code{n_vertices}}{Number of vertices.}
 #'     \item{\code{prior_strength}}{The prior strength used.}
 #'   }
-#'
+#'@details When both a prior and \eqn{\gamma \ne 1} are in use, weights are first
+#'   exponentiated and the weighted by the prior. Thus the halvings are relative
+#'   to the exponentiated weights. 
 #' @importFrom igraph E ends make_graph components
 #' @export
 compute_ensemble_memberships <- function(trees,
                                          n.rst,
                                          graph,
                                          intermediate_regions,
-                                         prior_strength = 0,
+                                         prior_strength      = 0,
+                                         partitions_per_tree = 1L,
+                                         weight_exponent     = 1,
                                          verbose = TRUE) {
         
-        # --- Argument validation ---- *---- *---- *---- *---- *---- *---- *---- *---- *----
         stopifnot(inherits(trees, "spanning_trees"))
         stopifnot(length(n.rst) == 1L, n.rst >= 2, n.rst <= trees$n_trees)
         stopifnot(length(intermediate_regions) == 1L, intermediate_regions >= 2,
                   intermediate_regions <= trees$n_vertices)
         stopifnot(is.numeric(prior_strength), length(prior_strength) == 1L,
                   prior_strength >= 0)
+        stopifnot(length(partitions_per_tree) == 1L, is.finite(partitions_per_tree),
+                  partitions_per_tree >= 1)
+        stopifnot(is.numeric(weight_exponent), length(weight_exponent) == 1L,
+                  is.finite(weight_exponent), weight_exponent >= 0)
         if (is.infinite(prior_strength)) {
                 stop("`prior_strength = Inf` is not supported here; use the exact-prior ",
                      "short-circuit in get_regions()/tune_regions().", call. = FALSE)
         }
+        
+        partitions_per_tree <- as.integer(partitions_per_tree)
         
         if (verbose) {
                 msg <- sprintf(
                         "Computing ensemble memberships (n.rst = %d, intermediate_regions = %d",
                         n.rst, intermediate_regions
                 )
-                if (prior_strength > 0 && !is.null(trees$within_prior_edge)) {
+                if (partitions_per_tree > 1L)
+                        msg <- paste0(msg, sprintf(", partitions_per_tree = %d", partitions_per_tree))
+                if (weight_exponent != 1)
+                        msg <- paste0(msg, sprintf(", weight_exponent = %g", weight_exponent))
+                if (prior_strength > 0 && !is.null(trees$within_prior_edge))
                         msg <- paste0(msg, sprintf(", lambda_E = %g", prior_strength))
-                }
                 message(msg, ") ...")
         }
         
         t0 <- proc.time()[["elapsed"]]
         memb <- .compute_ensemble_memberships_internal(
                 graph = graph, trees = trees, n.rst = n.rst,
-                intermediate_regions = intermediate_regions, prior_strength = prior_strength
+                intermediate_regions = intermediate_regions,
+                prior_strength       = prior_strength,
+                partitions_per_tree  = partitions_per_tree,
+                weight_exponent      = weight_exponent
         )
         if (verbose) message(sprintf("  Done in %s",
                                      .format_duration(proc.time()[["elapsed"]] - t0)))
         
         structure(
                 list(
-                        memberships    = memb,
-                        n.rst          = as.integer(n.rst),
+                        memberships         = memb,
+                        n.rst               = as.integer(n.rst),
                         intermediate_regions = as.integer(intermediate_regions),
-                        n_vertices     = trees$n_vertices,
-                        prior_strength = prior_strength
+                        partitions_per_tree = partitions_per_tree,
+                        n_members           = ncol(memb),
+                        weight_exponent     = weight_exponent,
+                        n_vertices          = trees$n_vertices,
+                        prior_strength      = prior_strength
                 ),
                 class = "ensemble_memberships"
         )
@@ -494,10 +539,18 @@ compute_ensemble_memberships <- function(trees,
 #' @return \code{print.ensemble_memberships} returns \code{x} invisibly.
 #' @export
 print.ensemble_memberships <- function(x, ...) {
-        cat(sprintf(
-                "<ensemble_memberships>  %d vertices x %d trees | intermediate_regions = %d\n",
-                x$n_vertices, x$n.rst, x$intermediate_regions
-        ))
+        ppt <- if (is.null(x$partitions_per_tree)) 1L else x$partitions_per_tree
+        if (ppt > 1L) {
+                cat(sprintf(
+                        "<ensemble_memberships>  %d vertices x %d members (%d trees x %d partitions) | intermediate_regions = %d\n",
+                        x$n_vertices, ncol(x$memberships), x$n.rst, ppt, x$intermediate_regions
+                ))
+        } else {
+                cat(sprintf(
+                        "<ensemble_memberships>  %d vertices x %d trees | intermediate_regions = %d\n",
+                        x$n_vertices, x$n.rst, x$intermediate_regions
+                ))
+        }
         invisible(x)
 }
 
@@ -716,6 +769,18 @@ print.fuzzy_clusters <- function(x, ...) {
 #'   through to the membership computation. \code{Inf} short-circuits to an
 #'   exact reproduction of \code{prior_typology} (which must then be supplied).
 #'   Default 0.
+#' @param partitions_per_tree Integer scalar \eqn{\ge 1}. Number of independent
+#'   cut-sets applied to each spanning tree. Each cut-set is one regionalisation
+#'   and contributes one ensemble column, so the returned matrix has
+#'   \code{n.rst * partitions_per_tree} columns. Default 1 (one partition per
+#'   tree, the original behaviour). Partitions from the same tree share its
+#'   topology and are more correlated than partitions from distinct trees.
+#' @param weight_exponent Non-negative numeric scalar \eqn{\gamma}. The cut
+#'   probability of an edge is proportional to its (prior-adjusted) weight raised
+#'   to \eqn{\gamma}. \eqn{\gamma = 0} cuts edges uniformly at random,
+#'   \eqn{\gamma = 1} (default) cuts with probability proportional to weight, and
+#'   larger \eqn{\gamma} concentrates cuts on the heaviest edges (approaching
+#'   deterministic heaviest-edge removal as \eqn{\gamma \to \infty}).
 #' @param prior_typology Optional. Vertex attribute name (single character) or
 #'   length-\code{vcount(graph)} vector of prior labels. Used only by the
 #'   \code{prior_strength = Inf} short-circuit; otherwise prior information is
@@ -760,6 +825,8 @@ tune_regions <- function(graph,
                          silf_subsample_n = 5000L,
                          silf_alpha       = 1,
                          prior_strength   = 0,
+                         partitions_per_tree = 1L,
+                         weight_exponent     = 1,
                          prior_typology   = NULL,
                          max_iter          = 10,
                          large_n_threshold = 20000,
@@ -822,12 +889,14 @@ tune_regions <- function(graph,
                 key <- as.character(sr)
                 if (!exists(key, envir = memb_cache, inherits = FALSE)) {
                         ens <- compute_ensemble_memberships(
-                                trees          = trees,
-                                n.rst          = n.rst,
-                                graph          = graph,
+                                trees                = trees,
+                                n.rst                = n.rst,
+                                graph                = graph,
                                 intermediate_regions = sr,
-                                prior_strength = prior_strength,
-                                verbose        = verbose
+                                prior_strength       = prior_strength,
+                                partitions_per_tree  = partitions_per_tree,
+                                weight_exponent      = weight_exponent,
+                                verbose              = verbose
                         )
                         assign(key, ens$memberships, envir = memb_cache)
                 }
@@ -838,7 +907,7 @@ tune_regions <- function(graph,
         cvi_cols <- c("PC", "PE", "MPC", "PEN",
                       "XB_star", "SIL_F", "STAB", "SILH_HARD")
         
-        # --- Score one (sr, fr) pair -> one row of CVI columns ---- *---- *---- *----
+        # --- Score one (sr, fr) pair -> one row of CVI columns 
         score_pair <- function(sr, fr) {
                 memb_mat <- get_memb(sr)
                 res <- cluster_consensus(
@@ -1000,7 +1069,7 @@ tune_regions <- function(graph,
                 }
         }
         
-        # --- Deduplicate and pick the best pair ---- *---- *---- *---- *---- *---- *----
+        # --- Deduplicate and pick the best pair
         tuning_log <- tuning_log[!duplicated(
                 tuning_log[, c("intermediate_regions", "final_regions")]
         ), , drop = FALSE]
@@ -1084,6 +1153,18 @@ tune_regions <- function(graph,
 #'   prior weighting, \eqn{\lambda_E = 1} halves the weight,
 #'   \eqn{\lambda_E = 2} quarters it, and so on. \code{Inf} returns the prior
 #'   typology exactly (requires \code{prior_typology}).
+#'   #' @param partitions_per_tree Integer scalar \eqn{\ge 1}. Number of independent
+#'   cut-sets applied to each spanning tree. Each cut-set is one regionalisation
+#'   and contributes one ensemble column, so the returned matrix has
+#'   \code{n.rst * partitions_per_tree} columns. Default 1 (one partition per
+#'   tree, the original behaviour). Partitions from the same tree share its
+#'   topology and are more correlated than partitions from distinct trees.
+#' @param weight_exponent Non-negative numeric scalar \eqn{\gamma}. The cut
+#'   probability of an edge is proportional to its (prior-adjusted) weight raised
+#'   to \eqn{\gamma}. \eqn{\gamma = 0} cuts edges uniformly at random,
+#'   \eqn{\gamma = 1} (default) cuts with probability proportional to weight, and
+#'   larger \eqn{\gamma} concentrates cuts on the heaviest edges (approaching
+#'   deterministic heaviest-edge removal as \eqn{\gamma \to \infty}).
 #' @param max_iter Integer. Maximum iterations for the \code{"iterative"}
 #'   tuning strategy. Default 10.
 #' @param verbose Logical. Default \code{TRUE}.
@@ -1146,6 +1227,8 @@ get_regions <- function(graph,
                                                          "correlation"),
                               prior_typology = NULL,
                               prior_strength = 0,
+                              partitions_per_tree = 1L,
+                              weight_exponent     = 1,
                               max_iter = 10,
                               verbose  = TRUE,
                               seed     = NULL) {
@@ -1193,12 +1276,15 @@ get_regions <- function(graph,
         if (length(n.rst_values) > 1L) {
                 sr_anchor <- intermediate_regions[ceiling(length(intermediate_regions) / 2)]
                 n.rst_stability <- evaluate_nrst_stability(
-                        graph, trees, intermediate_regions = sr_anchor,
-                        n.rst_candidates = n.rst_values,
-                        stability_metric = n.rst_stability_metric,
-                        prior_strength   = prior_strength,
-                        seed             = seed,
-                        verbose          = verbose
+                        graph, trees, 
+                        intermediate_regions = sr_anchor,
+                        n.rst_candidates     = n.rst_values,
+                        stability_metric     = n.rst_stability_metric,
+                        prior_strength       = prior_strength,
+                        partitions_per_tree  = partitions_per_tree,
+                        weight_exponent      = weight_exponent,
+                        seed                 = seed,
+                        verbose              = verbose
                 )
                 best_nrst <- n.rst_stability$best_nrst
         } else {
@@ -1221,6 +1307,8 @@ get_regions <- function(graph,
                         silf_subsample_n = silf_subsample_n,
                         silf_alpha       = silf_alpha,
                         prior_strength   = prior_strength,
+                        partitions_per_tree  = partitions_per_tree,
+                        weight_exponent      = weight_exponent,
                         max_iter         = max_iter,
                         verbose          = verbose,
                         seed             = seed
@@ -1242,6 +1330,8 @@ get_regions <- function(graph,
                 ensemble <- compute_ensemble_memberships(
                         trees = trees, n.rst = best_nrst, graph = graph,
                         intermediate_regions = intermediate_regions,
+                        partitions_per_tree  = partitions_per_tree,
+                        weight_exponent      = weight_exponent,
                         prior_strength = prior_strength,
                         verbose = verbose
                 )
@@ -1309,28 +1399,36 @@ get_regions <- function(graph,
         x[which.max(distances)]
 }
 
-#' Internal: compute the N x n_trees ensemble membership matrix
+#' Internal: compute the N x (n.rst * partitions_per_tree) ensemble membership matrix
 #'
 #' Shared by the public \code{compute_ensemble_memberships()} and the stability
-#' evaluator. For each tree, removes \code{intermediate_regions - 1} edges (weighted
-#' sampling without replacement) and labels the resulting connected components.
+#' evaluator. For each tree, removes \code{intermediate_regions - 1} edges
+#' (weighted sampling without replacement) and labels the resulting connected
+#' components. Each tree is cut \code{partitions_per_tree} times independently;
+#' every cut-set contributes one column.
 #'
 #' @param graph Parent \code{igraph} (used only to re-resolve edges when the
 #'   stored tree object is a subgraph rather than an edge sequence).
 #' @param trees A \code{"spanning_trees"} object.
 #' @param n.rst Number of trees to use.
-#' @param intermediate_regions Number of regions per tree.
+#' @param intermediate_regions Number of regions per cut-set.
 #' @param prior_strength Within-prior halving rate.
-#' @return Integer matrix N x n.rst of region labels.
+#' @param partitions_per_tree Integer >= 1. Independent cut-sets per tree.
+#' @param weight_exponent Non-negative numeric. Cut probability is proportional
+#'   to (prior-adjusted edge weight)^weight_exponent. 1 = proportional (default).
+#' @return Integer matrix N x (n.rst * partitions_per_tree) of region labels.
 #' @keywords internal
 #' @noRd
 .compute_ensemble_memberships_internal <- function(graph,
                                                    trees,
                                                    n.rst,
                                                    intermediate_regions,
-                                                   prior_strength = 0) {
+                                                   prior_strength      = 0,
+                                                   partitions_per_tree = 1L,
+                                                   weight_exponent     = 1) {
         n_use   <- as.integer(n.rst)
         n_reg   <- as.integer(intermediate_regions)
+        n_part  <- as.integer(partitions_per_tree)
         n_v     <- trees$n_vertices
         weights <- trees$edge_weights
         ep_all  <- trees$edge_endpoints
@@ -1343,19 +1441,32 @@ get_regions <- function(graph,
         # One cut per extra region (a tree on n_v vertices has n_v - 1 edges).
         n_to_cut <- n_reg - 1L
         
-        # Prior-typology weighting (no-op when no prior or prior_strength == 0).
+        
+        # Normalize within the tree (heaviest edge -> 1) before exponentiating.
+        # sample.int() (further below) rescales what you pass to prop internally,
+        # so dividing by a constant leaves the sampling distribution 
+        # unchanged and prevents over- or underflow errors when weight_exponent 
+        # or weights are large/small. Wrapping in if clause keep legacy applications intact.
+        if (weight_exponent!=1){
+                weights <- (weights / max(weights)) ^ weight_exponent
+        }
+         
+        
+        # Prior-typology weighting (no-op when no prior or prior_strength == 0). This
+        # acts on the exponentiated dissimilarities (just above).
+        # Prior_strength is a fixed number of halvings of the cut probability
+        # regardless of weight_exponent.
         weights <- .apply_prior_weighting(weights, trees$within_prior_edge, prior_strength)
         
-        memb_mat <- matrix(0L, nrow = n_v, ncol = n_use)
+        total_cols <- n_use * n_part
+        memb_mat   <- matrix(0L, nrow = n_v, ncol = total_cols)
+        col        <- 0L
         
         for (j in seq_len(n_use)) {
                 tree <- trees$trees[[j]]
                 
-                # Resolve parent-graph edge IDs spanned by this tree. Modern igraph's
-                # sample_spanning_tree() returns an edge sequence (igraph.es) whose integer
-                # IDs already index into E(graph) — and therefore into `weights`/`ep_all`,
-                # which were captured from E(graph) in sample_spanning_trees(). Older igraph
-                # may return a subgraph; handle both, and error loudly on anything else.
+                # Resolve parent-graph edge IDs spanned by this tree. Done once per tree
+                # and reused across all partitions_per_tree cut-sets.
                 if (inherits(tree, "igraph.es")) {
                         edge_ids <- as.integer(tree)
                 } else if (inherits(tree, "igraph")) {
@@ -1378,23 +1489,24 @@ get_regions <- function(graph,
                         ), call. = FALSE)
                 }
                 
-                # Cut probability proportional to edge weight: high-dissimilarity edges are
-                # the most likely to be removed (the SKATER principle). Guard against
-                # degenerate weight vectors so sample.int() never errors.
+                # Cut-sampling weights for this tree's edges. High-dissimilarity edges are
+                # the most likely to be removed (the SKATER principle). weight_exponent
+                # sharpens (>1) or flattens (<1, toward uniform) that preference.
                 w <- weights[edge_ids]
                 if (anyNA(w) || any(!is.finite(w)) || any(w < 0)) {
                         stop("Edge weights must be finite and non-negative.", call. = FALSE)
                 }
-                if (all(w == 0)) w <- NULL  # fall back to uniform sampling
-                
-                cut_idx    <- sample.int(length(edge_ids), n_to_cut, prob = w, replace = FALSE)
-                kept_edges <- edge_ids[-cut_idx]
-                
-                # Rebuild the graph from surviving edges. n = n_v keeps singleton vertices
-                # so components() counts every node.
-                ep <- ep_all[kept_edges, , drop = FALSE]
-                g  <- igraph::make_graph(as.vector(t(ep)), n = n_v, directed = FALSE)
-                memb_mat[, j] <- igraph::components(g)$membership
+                # partitions_per_tree independent cut-sets of the SAME tree; each is an
+                # independent draw contributing one ensemble column.
+                for (p in seq_len(n_part)) {
+                        col        <- col + 1L
+                        cut_idx    <- sample.int(length(edge_ids), n_to_cut,
+                                                 prob = w, replace = FALSE)
+                        kept_edges <- edge_ids[-cut_idx]
+                        ep <- ep_all[kept_edges, , drop = FALSE]
+                        g  <- igraph::make_graph(as.vector(t(ep)), n = n_v, directed = FALSE)
+                        memb_mat[, col] <- igraph::components(g)$membership
+                }
         }
         
         memb_mat
