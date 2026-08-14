@@ -3,14 +3,15 @@
 \name{sample_spanning_trees}
 \alias{sample_spanning_trees}
 \alias{print.spanning_trees}
-\title{Sample Random Spanning Trees from a Spatial Graph}
+\title{Sample spanning trees from a Spatial Graph}
 \usage{
 sample_spanning_trees(
   graph,
   n,
   seed = NULL,
   verbose = TRUE,
-  prior_typology = FALSE
+  prior_typology = FALSE,
+  target_eta = 0.1
 )
 
 \method{print}{spanning_trees}(x, ...)
@@ -39,6 +40,9 @@ weight halving in the SKATER cutting step (see \code{prior_strength}
 in \code{\link{compute_ensemble_memberships}} and
 \code{\link{get_regions}}). Default \code{NULL} (no prior).}
 
+\item{target_eta}{numeric. How many edges of the MST should be altered on
+average in each iteration.}
+
 \item{x}{An object to print (e.g. of class \code{"spanning_trees"}).}
 
 \item{...}{Further arguments passed to or from other methods (unused).}
@@ -64,7 +68,7 @@ within-prior edges, or \code{NULL}.}
 \code{print.spanning_trees} returns \code{x} invisibly.
 }
 \description{
-Draws \code{n} random spanning trees from a weighted, (ideally) connected
+Draws \code{n} spanning trees from a weighted, (ideally) connected
 \code{igraph} object. The trees, together with the parent graph's edge
 weights/endpoints and any resolved prior-typology information, are bundled
 into a \code{"spanning_trees"} object that the rest of the pipeline consumes.

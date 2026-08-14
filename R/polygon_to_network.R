@@ -235,7 +235,7 @@ polygon_to_network <- function(polygons,
     }
   }
 
-  # ---- Dispatch ---- *--------------
+  # ---- Dispatch ---- *
   if (!chunked) {
     return(.network_in_memory(
       polygons          = polygons,
@@ -313,7 +313,9 @@ polygon_to_network <- function(polygons,
   if (comp != 1L && connect_islands) {
     g <- connect_components(g, polygons = polygons)
   }
-
+  
+  igraph::E(g)$eid <- seq_len(ecount(g))
+  
   list(
     graph     = g,
     polygons  = polygons,   # cleaned object, aligned with vertex ids
@@ -561,6 +563,8 @@ polygon_to_network <- function(polygons,
     g <- connect_components(g, centroids = all_centroids)
   }
 
+  igraph::E(g)$eid <- seq_len(ecount(g))
+  
   out <- list(
     graph      = g,
     edge_data  = edge_df,

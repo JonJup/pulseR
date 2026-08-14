@@ -8,18 +8,19 @@ get_regions(
   graph,
   intermediate_regions = 50,
   final_regions,
-  n.rst,
+  env,
+  n_st,
   fuzziness = 2,
+  trees = NULL,
   crisp = FALSE,
   tuning_strategy = c("grid", "sequential", "iterative"),
-  tuning_metric = c("borda", "XB_star", "SIL_F", "stability", "MPC", "PE", "PEN",
-    "silhouette", "partition_coefficient", "modified_partition_coefficient"),
+  tuning_metric = c("borda", "fuzzy_calinski_harabasz", "Fukuyama_Sugeno", "dunn5",
+    "fuzzy_hyper_volume", "stability"),
   stability_B = 25L,
-  silf_subsample_n = 5000L,
-  silf_alpha = 1,
-  n.rst_stability_metric = c("mean_abs_diff", "frobenius", "correlation"),
   prior_typology = NULL,
   prior_strength = 0,
+  partitions_per_tree = 1L,
+  weight_exponent = 1L,
   max_iter = 10,
   verbose = TRUE,
   seed = NULL
@@ -31,12 +32,18 @@ get_regions(
 Vertices may optionally carry a prior-typology attribute (see
 \code{prior_typology}).}
 
-\item{intermediate_regions, final_regions, n.rst}{Integer or integer vectors of
+\item{intermediate_regions, final_regions, n_st}{Integer or integer vectors of
 candidate values. If a vector of length > 1 is supplied for
 \code{intermediate_regions} or \code{final_regions}, tuning is triggered; if
-\code{n.rst} has length > 1, the ensemble size is chosen by stability.}
+\code{n_st} has length > 1, the ensemble size is chosen by stability.}
+
+\item{env}{Environmental data passed through to \code{.compute_fuzzy_cvis()}.
+The same data used to weight the edges in \code{\link{add_edge_weight}}.}
 
 \item{fuzziness}{Numeric \eqn{> 1}. Default 2.}
+
+\item{trees}{A \code{"spanning_trees"} object from
+\code{\link{sample_spanning_trees}}.}
 
 \item{crisp}{Logical. Produce hard memberships? Default \code{FALSE}.}
 
@@ -46,11 +53,9 @@ candidate values. If a vector of length > 1 is supplied for
 \item{tuning_metric}{Character. See \code{\link{tune_regions}}. Default
 \code{"borda"}.}
 
-\item{stability_B, silf_subsample_n, silf_alpha}{Passed through to
-\code{\link{tune_regions}}.}
-
-\item{n.rst_stability_metric}{Character. One of \code{"mean_abs_diff"}
-(default), \code{"frobenius"}, \code{"correlation"}.}
+\item{stability_B}{Integer. Only used if tuning is necesary. Passed to
+\code{\link{tune_regions}}. Bootstrap replicates for the stability
+sub-metric. Set to 0 to skip. Default 25.}
 
 \item{prior_typology}{Optional. Vertex attribute name (single character)
 or vector of length \code{vcount(graph)} giving a prior ecoregion label
@@ -64,6 +69,20 @@ to within-region edge weights: \eqn{\lambda_E = 0} (default) disables
 prior weighting, \eqn{\lambda_E = 1} halves the weight,
 \eqn{\lambda_E = 2} quarters it, and so on. \code{Inf} returns the prior
 typology exactly (requires \code{prior_typology}).}
+
+\item{partitions_per_tree}{Integer scalar \eqn{\ge 1}. Number of independent
+cut-sets applied to each spanning tree. Each cut-set is one regionalisation
+and contributes one ensemble column, so the returned matrix has
+\code{n_st * partitions_per_tree} columns. Default 1 (one partition per
+tree, the original behaviour). Partitions from the same tree share its
+topology and are more correlated than partitions from distinct trees.}
+
+\item{weight_exponent}{Non-negative numeric scalar \eqn{\gamma}. The cut
+probability of an edge is proportional to its (prior-adjusted) weight raised
+to \eqn{\gamma}. \eqn{\gamma = 0} cuts edges uniformly at random,
+\eqn{\gamma = 1} (default) cuts with probability proportional to weight, and
+larger \eqn{\gamma} concentrates cuts on the heaviest edges (approaching
+deterministic heaviest-edge removal as \eqn{\gamma \to \infty}).}
 
 \item{max_iter}{Integer. Maximum iterations for the \code{"iterative"}
 tuning strategy. Default 10.}
@@ -79,13 +98,13 @@ A plain list with:
 \item{\code{memberships}}{Final N x k membership matrix.}
 \item{\code{hard_clusters}}{Integer vector of hard cluster labels.}
 \item{\code{best_intermediate_regions}, \code{best_final_regions},
-\code{best_n.rst}}{The selected hyper-parameters.}
+\code{best_n_st}}{The selected hyper-parameters.}
 \item{\code{best_score}}{For a tuned run, the chosen \code{tuning_metric}
 score; for a single-configuration run, the hardened average silhouette
 width (these are NOT directly comparable).}
 \item{\code{tuning_log}}{The tuning data frame, or \code{NULL} if no
 tuning was performed.}
-\item{\code{n.rst_stability}}{The stability data frame, or \code{NULL}.}
+\item{\code{n_st_stability}}{The stability data frame, or \code{NULL}.}
 \item{\code{trees}}{The \code{"spanning_trees"} object used.}
 \item{\code{cluster_result}}{The raw CLARA/PAM object.}
 \item{\code{prior_strength}}{The prior strength used.}
@@ -106,14 +125,13 @@ library(igraph)
 g <- sample_gnp(200, 0.05)
 E(g)$weight <- runif(ecount(g))
 res <- get_regions(g, intermediate_regions = c(10, 20), final_regions = c(3, 4),
-                         n.rst = 30, seed = 1)
+                         n_st = 30, seed = 1)
 table(res$hard_clusters)
 }
 
 }
 \seealso{
 \code{\link{sample_spanning_trees}},
-\code{\link{evaluate_nrst_stability}},
 \code{\link{compute_ensemble_memberships}},
 \code{\link{cluster_consensus}}, \code{\link{tune_regions}}.
 }

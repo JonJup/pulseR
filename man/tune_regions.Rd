@@ -2,106 +2,170 @@
 % Please edit documentation in R/regions.R
 \name{tune_regions}
 \alias{tune_regions}
+\alias{print.regions_tuning}
 \title{Tune SKATER-CON Hyperparameters}
 \usage{
 tune_regions(
   graph,
+  env,
   trees,
-  n.rst,
+  n_st,
   intermediate_regions = 50,
   final_regions,
+  partitions_per_tree = 1L,
+  weight_exponent = 1,
   fuzziness = 2,
+  metric = c("borda", "fuzzy_calinski_harabasz", "Fukuyama_Sugeno", "dunn5",
+    "fuzzy_hyper_volume", "stability"),
   crisp = FALSE,
   strategy = c("grid", "sequential", "iterative"),
-  metric = c("borda", "XB_star", "SIL_F", "stability", "MPC", "PE", "PEN", "silhouette",
-    "partition_coefficient", "modified_partition_coefficient"),
   stability_B = 25L,
-  silf_subsample_n = 5000L,
-  silf_alpha = 1,
   prior_strength = 0,
   prior_typology = NULL,
   max_iter = 10,
+  max_ensembles = 64L,
   large_n_threshold = 20000,
   seed = NULL,
   verbose = TRUE
 )
+
+\method{print}{regions_tuning}(x, ...)
 }
 \arguments{
 \item{graph}{The parent \code{igraph} object the trees were sampled from.}
 
+\item{env}{Environmental data passed through to \code{.compute_fuzzy_cvis()}.
+The same data used to weight the edges in \code{\link{add_edge_weight}}.}
+
 \item{trees}{A \code{"spanning_trees"} object from
 \code{\link{sample_spanning_trees}}.}
 
-\item{n.rst}{Integer scalar ensemble size to use
-(\eqn{2 \le} \code{n.rst} \eqn{\le} \code{trees$n_trees}).}
+\item{n_st}{Integer or integer vector (each \eqn{\ge 2} and
+\eqn{\le} \code{trees$n_trees}). Candidate ensemble size(s).}
 
-\item{intermediate_regions}{Integer or integer vector (each \eqn{\ge 2}). Candidate
-number(s) of SKATER regions per tree. Default 50.}
+\item{intermediate_regions}{Integer or integer vector (each \eqn{\ge 2}).
+Candidate number(s) of intermediate regions per cut-set. Default 50.}
 
 \item{final_regions}{Integer or integer vector (each \eqn{\ge 2}). Candidate
 number(s) of final consensus clusters \emph{k}.}
 
+\item{partitions_per_tree}{Integer or integer vector (each \eqn{\ge 1}).
+Candidate number(s) of independent cut-sets applied per tree. Default 1.}
+
+\item{weight_exponent}{Numeric or numeric vector (each \eqn{\ge 0}).
+Candidate cut-probability exponent(s) \eqn{\gamma}. Default 1.}
+
 \item{fuzziness}{Numeric \eqn{> 1}. Fuzzifier. Default 2.}
+
+\item{metric}{Character. One of \code{"borda"} (default; rank aggregate),
+\code{"fuzzy_calinski_harabasz"}, \code{"Fukuyama_Sugeno"},
+\code{"dunn5"}, \code{"fuzzy_hyper_volume"}, \code{"stability"}.}
 
 \item{crisp}{Logical. Produce hard memberships? Default \code{FALSE}.}
 
-\item{strategy}{Character. Search strategy: \code{"grid"} (default; full
-factorial), \code{"sequential"} (tune \code{intermediate_regions} then
-\code{final_regions}), or \code{"iterative"} (alternate until convergence
-or \code{max_iter}).}
+\item{strategy}{Character. \code{"grid"} (default), \code{"sequential"}, or
+\code{"iterative"}. See Details.}
 
-\item{metric}{Character. One of \code{"borda"} (default; rank-aggregate
-of \code{XB_star}, \code{SIL_F}, and \code{stability}),
-\code{"XB_star"} (Hamming-medoid Xie–Beni; minimise),
-\code{"SIL_F"} (Campello–Hruschka fuzzy silhouette; maximise),
-\code{"stability"} (bootstrap ARI; maximise),
-\code{"MPC"} / \code{"PE"} / \code{"PEN"} (membership-only diagnostics;
-not recommended as selectors), or the legacy
-\code{"silhouette"} / \code{"partition_coefficient"} /
-\code{"modified_partition_coefficient"} (kept for backward compatibility,
-but bias \emph{k} toward crisp partitions).}
-
-\item{stability_B}{Integer. Bootstrap replicates for the \code{stability}
+\item{stability_B}{Integer. Bootstrap replicates for the stability
 sub-metric. Set to 0 to skip. Default 25.}
 
-\item{silf_subsample_n}{Integer. Stratified subsample size for SIL_F when
-\emph{N} exceeds it. Default 5000.}
+\item{prior_strength}{Non-negative numeric scalar \eqn{\lambda_E}. Passed to
+the membership computation. \code{Inf} short-circuits to an exact
+reproduction of \code{prior_typology}. Default 0. Not a tuning axis.}
 
-\item{silf_alpha}{Numeric. Campello–Hruschka \eqn{\alpha}. Default 1.}
+\item{prior_typology}{Optional. Vertex attribute name or label vector; used
+only by the \code{prior_strength = Inf} short-circuit.}
 
-\item{prior_strength}{Non-negative numeric scalar \eqn{\lambda_E}. Passed
-through to the membership computation. \code{Inf} short-circuits to an
-exact reproduction of \code{prior_typology} (which must then be supplied).
-Default 0.}
+\item{max_iter}{Integer. Maximum passes for \code{"iterative"}. Default 10.}
 
-\item{prior_typology}{Optional. Vertex attribute name (single character) or
-length-\code{vcount(graph)} vector of prior labels. Used only by the
-\code{prior_strength = Inf} short-circuit; otherwise prior information is
-already carried by \code{trees}. Default \code{NULL}.}
+\item{max_ensembles}{Integer or \code{Inf}. Guard against an accidentally
+enormous search: the call fails before any work if the number of distinct
+ensemble triples exceeds this. Default 64.}
 
-\item{max_iter}{Integer. Maximum iterations for the \code{"iterative"}
-strategy. Default 10.}
+\item{large_n_threshold}{Integer. CLARA/PAM cutoff. Default 20000.}
 
-\item{large_n_threshold}{Integer. CLARA/PAM cutoff, mirrors
-\code{\link{cluster_consensus}}. Default 20000.}
-
-\item{seed}{Optional integer seed (controls stability subsampling); the
-caller's RNG state is restored on exit.}
+\item{seed}{Optional integer seed; the caller's RNG state is restored on
+exit.}
 
 \item{verbose}{Logical. Default \code{TRUE}.}
+
+\item{x}{An object of class \code{"regions_tuning"}.}
+
+\item{...}{Further arguments passed to or from other methods (unused).}
 }
 \value{
-An object of class \code{"regions_tuning"} — a list with
-\code{best_result} (a \code{"fuzzy_clusters"} object),
-\code{best_intermediate_regions}, \code{best_final_regions}, \code{best_score},
-\code{tuning_log} (a data frame exposing all CVI columns: PC, PE, MPC,
-PEN, XB_star, SIL_F, STAB, SILH_HARD, plus \code{score}), \code{metric},
-\code{strategy}, and \code{prior_strength}. When
-\code{prior_strength = Inf}, the exact-prior list from
-\code{.exact_prior_result} is returned instead.
+An object of class \code{"regions_tuning"}: a list with
+\code{best_result} (a \code{"fuzzy_clusters"} object), \code{best_config}
+(one-row data frame of the winning values on all five axes), the individual
+slots \code{best_intermediate_regions}, \code{best_final_regions},
+\code{best_partitions_per_tree}, \code{best_weight_exponent},
+\code{best_n_st}, plus \code{best_score}, \code{tuning_log} (one row per
+configuration, with all five axis columns and all CVI columns),
+\code{candidates}, \code{n_ensembles_built}, \code{metric},
+\code{strategy}, and \code{prior_strength}.
+
+\code{print.regions_tuning} returns \code{x} invisibly.
 }
 \description{
-Searches over \code{intermediate_regions} and/or \code{final_regions} to find the
-combination that optimises a clustering-quality metric, operating on a
-pre-computed \code{"spanning_trees"} object.
+Searches over up to five hyper-parameters -- \code{intermediate_regions},
+\code{weight_exponent}, \code{partitions_per_tree}, \code{n_st} and
+\code{final_regions} -- to find the combination optimising a
+clustering-validity criterion, operating on a pre-computed
+\code{"spanning_trees"} object. Any argument supplied as a length-1 vector is
+held fixed; any argument supplied as a vector of length > 1 becomes a search
+axis.
 }
+\section{Cost structure}{
+
+Only \code{final_regions} is cheap to vary: it reuses the cached ensemble
+membership matrix. \code{n_st} is nearly free, because an ensemble of
+\code{n_st} trees is an exact column-subset of an ensemble of more trees
+drawn from the same \code{trees} object; the tuner therefore builds each
+ensemble once at \code{max(n_st)} and slices columns. The remaining three
+axes each require a fresh pass of
+\code{\link{compute_ensemble_memberships}}, so the number of distinct
+\code{(intermediate_regions, weight_exponent, partitions_per_tree)} triples
+is the real cost driver, not the number of grid cells.
+
+Because ensembles are built at \code{max(n_st)} regardless of the incumbent,
+supplying a vector \code{n_st} raises the cost of \emph{every} ensemble
+build. This buys determinism (results do not depend on the order in which
+configurations happen to be visited) and paired comparisons across
+\code{n_st} (all ensemble sizes share the same trees and the same cut
+realisations). When \code{n_st} is scalar there is no penalty.
+}
+
+\section{Caching}{
+
+A single-slot cache holds one ensemble matrix at a time, and evaluation is
+ordered so that configurations sharing an ensemble are visited consecutively.
+A keyed cache over a five-way grid would hold one N x (n_st * ppt) integer
+matrix per ensemble triple, which at continental N is tens of gigabytes.
+Peak memory here is one full matrix plus at most one column slice.
+}
+
+\section{Search strategies}{
+
+\code{"grid"} evaluates the full factorial. \code{"sequential"} runs one
+coordinate-descent pass over the active axes in the order
+\code{intermediate_regions}, \code{weight_exponent},
+\code{partitions_per_tree}, \code{n_st}, \code{final_regions}, starting from
+the median candidate on each axis. \code{"iterative"} repeats that pass until
+the incumbent configuration stops moving or \code{max_iter} is reached.
+}
+
+\section{Caveats on the ensemble-size axes}{
+
+\code{n_st} and \code{partitions_per_tree} both act on the ensemble by adding
+columns (the matrix has \code{n_st * partitions_per_tree} of them), so they
+are partially confounded: what most validity indices respond to is the total
+column count, through the resolution of the Hamming consensus distance
+(quantized in units of 1 / n_columns) and through Monte Carlo noise. Most
+indices therefore drift monotonically in ensemble size rather than exhibiting
+an interior optimum, and a CVI-selected \code{n_st} will typically just be
+the largest candidate. Tuning \code{partitions_per_tree} at fixed
+total columns (trading it against \code{n_st}) is the better-posed version of
+that question: it asks how ensemble diversity should be split between tree
+topologies and cut-sets.
+}
+

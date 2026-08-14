@@ -310,6 +310,7 @@ add_edge_weight <- function(g,
                 directed = FALSE,
                 vertices = data.frame(name = vertex_names, stringsAsFactors = FALSE)
         )
+        igraph::E(out.graph)$eid <- seq_len(ecount(out.graph))
         # Adding the prior typology if provided.
         if (!is.null(prior)){
                 igraph::V(out.graph)$prior <- prior

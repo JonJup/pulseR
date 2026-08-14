@@ -17,7 +17,7 @@ get_local_types(
 )
 }
 \arguments{
-\item{graph}{The output of \code{\link{polygons_to_network}}. Contains a,
+\item{graph}{The output of \code{\link{polygon_to_network}}. Contains a,
 \code{igraph} graph object and an \code{sf} object containing the complete
 dataset to be classified.
 Any \code{sf} geometry column is dropped automatically.}

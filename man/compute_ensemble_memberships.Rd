@@ -7,10 +7,12 @@
 \usage{
 compute_ensemble_memberships(
   trees,
-  n.rst,
+  n_st,
   graph,
   intermediate_regions,
   prior_strength = 0,
+  partitions_per_tree = 1L,
+  weight_exponent = 1,
   verbose = TRUE
 )
 
@@ -19,7 +21,7 @@ compute_ensemble_memberships(
 \arguments{
 \item{trees}{A \code{"spanning_trees"} object.}
 
-\item{n.rst}{Integer scalar. Number of spanning trees to use
+\item{n_st}{Integer scalar. Number of spanning trees to use
 (must be \code{<= trees$n_trees}).}
 
 \item{graph}{The parent \code{igraph} object the trees were sampled from.
@@ -38,6 +40,20 @@ without a \code{prior_typology}. \code{Inf} is not accepted here (use the
 \code{prior_strength = Inf} short-circuit of \code{\link{get_regions}} /
 \code{\link{tune_regions}} instead).}
 
+\item{partitions_per_tree}{Integer scalar \eqn{\ge 1}. Number of independent
+cut-sets applied to each spanning tree. Each cut-set is one regionalisation
+and contributes one ensemble column, so the returned matrix has
+\code{n_st * partitions_per_tree} columns. Default 1 (one partition per
+tree, the original behavior). Partitions from the same tree share its
+topology and are more correlated than partitions from distinct trees.}
+
+\item{weight_exponent}{Non-negative numeric scalar \eqn{\gamma}. The cut
+probability of an edge is proportional to its (prior-adjusted) weight raised
+to \eqn{\gamma}. \eqn{\gamma = 0} cuts edges uniformly at random,
+\eqn{\gamma = 1} (default) cuts with probability proportional to weight, and
+larger \eqn{\gamma} concentrates cuts on the heaviest edges (approaching
+deterministic heaviest-edge removal as \eqn{\gamma \to \infty}).}
+
 \item{verbose}{Logical. Default \code{TRUE}.}
 
 \item{x}{An object of class \code{"ensemble_memberships"}.}
@@ -47,9 +63,9 @@ without a \code{prior_typology}. \code{Inf} is not accepted here (use the
 \value{
 An object of class \code{"ensemble_memberships"} — a list with:
 \describe{
-\item{\code{memberships}}{Integer matrix (\code{N x n.rst}). Each column
+\item{\code{memberships}}{Integer matrix (\code{N x n_st}). Each column
 is a region assignment from one spanning tree.}
-\item{\code{n.rst}}{Ensemble size used.}
+\item{\code{n_st}}{Ensemble size used.}
 \item{\code{intermediate_regions}}{Number of regions per tree.}
 \item{\code{n_vertices}}{Number of vertices.}
 \item{\code{prior_strength}}{The prior strength used.}
@@ -62,4 +78,9 @@ For each spanning tree, removes \code{intermediate_regions - 1} edges (sampled
 without replacement, with probability proportional to edge weight) to produce
 \code{intermediate_regions} connected components, then records each node's region
 label. Returns an integer matrix (one column per tree).
+}
+\details{
+When both a prior and \eqn{\gamma \ne 1} are in use, weights are first
+exponentiated and the weighted by the prior. Thus the halvings are relative
+to the exponentiated weights.
 }

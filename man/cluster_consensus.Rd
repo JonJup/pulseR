@@ -8,6 +8,7 @@
 cluster_consensus(
   ensemble,
   k,
+  graph,
   fuzziness = 2,
   crisp = FALSE,
   large_n_threshold = 20000,
@@ -23,6 +24,8 @@ cluster_consensus(
 matrix (N x n_trees).}
 
 \item{k}{Integer scalar with \eqn{2 \le k < N}. Number of final clusters.}
+
+\item{graph}{The parent \code{igraph} object the trees were sampled from.}
 
 \item{fuzziness}{Numeric \eqn{> 1}. Fuzzifier \emph{m}. Default 2.}
 

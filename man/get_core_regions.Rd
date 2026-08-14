@@ -7,7 +7,7 @@
 get_core_regions(graph, regions, cutoff = 0.5, queen = TRUE)
 }
 \arguments{
-\item{graph}{The output of \code{\link{polgons_to_graph}}.}
+\item{graph}{The output of \code{\link{polygon_to_network}}.}
 
 \item{regions}{The result of \code{\link{get_regions}} or \code{.$best_result} of the result
 \code{\link{tune_regions}}.}
