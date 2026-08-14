@@ -58,7 +58,7 @@
         # Distance from observations to medoids
         D2 <- outer(rowSums(X^2), rep(1, nrow(V))) +
                 outer(rep(1, nrow(X)), rowSums(V^2)) - 2 * as.matrix(X) %*% t(V)
-        d2[d2 < 0] <- 0
+        D2[D2 < 0] <- 0
         # compactness
         J_m <- sum(U^m * D2)
         # 
@@ -654,7 +654,7 @@ cluster_consensus <- function(ensemble, k, graph, fuzziness = 2, crisp = FALSE,
         } else {
                 contiguity_bool <- FALSE
                 h_var = 20
-                print("Checking contiguity")
+                #print("Checking contiguity")
                 while (!contiguity_bool){
                         #print(paste("h = ", h_var))
                         memberships <- .fuzzy_memberships(
@@ -1442,6 +1442,8 @@ get_regions <- function(graph,
                         verbose          = verbose,
                         seed             = seed
                 )
+                typicality <- tuning_result$best_result$d_to_medoids[cbind(1:nrow(tuning_result$best_result$d_to_medoids), tuning_result$best_result$hard_clusters)] 
+                entropy    <- -rowSums(tuning_result$best_result$memberships * log(pmax(tuning_result$best_result$memberships, .Machine$double.eps))) / log(ncol(tuning_result$best_result$memberships))
                 list(
                         memberships         = tuning_result$best_result$memberships,
                         hard_clusters       = tuning_result$best_result$hard_clusters,
@@ -1453,7 +1455,9 @@ get_regions <- function(graph,
                         #n_st_stability     = if (!is.null(n_st_stability)) n_st_stability$stability else NULL,
                         trees               = trees,
                         cluster_result      = tuning_result$best_result$cluster_result,
-                        prior_strength      = prior_strength
+                        prior_strength      = prior_strength,
+                        typicality            = typicality, 
+                        entropy               = entropy
                 )
         } else {
                 print("No Tuning needed")
@@ -1732,15 +1736,15 @@ get_regions <- function(graph,
 #' @noRd
 .adjusted_rand_index <- function(a, b) {
         stopifnot(length(a) == length(b))
-        if (length(a) < 2L) return(NA_real_)
+        if (length(a) < 2) return(NA_real_)
         tab <- table(a, b)
         n   <- sum(tab)
-        if (n < 2L) return(NA_real_)
-        sum_nij <- sum(choose(tab, 2L))
+        if (n < 2) return(NA_real_)
+        sum_nij <- sum(choose(tab, 2))
         ai <- rowSums(tab); bj <- colSums(tab)
-        sum_ai <- sum(choose(ai, 2L))
-        sum_bj <- sum(choose(bj, 2L))
-        expected <- (sum_ai * sum_bj) / choose(n, 2L)
+        sum_ai <- sum(choose(ai, 2))
+        sum_bj <- sum(choose(bj, 2))
+        expected <- (sum_ai * sum_bj) / choose(n, 2)
         max_idx  <- 0.5 * (sum_ai + sum_bj)
         denom    <- max_idx - expected
         # Degenerate case: both partitions are singletons or a single block.

@@ -21,7 +21,7 @@
 #'   of \code{\link[mclust]{Mclust}}; the number(s) of mixture components to
 #'   consider. When a vector is supplied, \code{Mclust} selects the best value
 #'   by BIC. Default \code{1:9}.
-#' @param regions The ouput of \code{\link{get_regions}} or \code{\link{tune_regions}}. 
+#' @param regions The output of \code{\link{get_regions}} or \code{\link{tune_regions}}. 
 #' @param non_value_cols Character vector of identifier columns to drop before
 #'   training (e.g. primary keys). Default \code{"ID"}. The column
 #'   \code{"core_region_id"} is always dropped from the training data.
@@ -388,11 +388,13 @@ get_local_types <- function(graph,
 get_core_regions <- function(graph,
                              regions,
                              cutoff = 0.5,
-                             queen = TRUE) {
+                             queen = TRUE,
+                             typicality = FALSE) {
         
         
         x <- graph$polygons
         U <- regions$memberships
+        Typi <- regions$typicality
         ## ---- Argument validation -----------------------------------*
         
         
@@ -427,7 +429,7 @@ get_core_regions <- function(graph,
         geom_col <- attr(x, "sf_column")
         #x <- x[,geom_col]
         colnames(U) <- paste0("region",1:ncol(U))
-        x <- cbind(U,x)
+        x <- cbind(U,x,Typi)
         rangeBound <- all(U <= 1) & all(U>=0)
         if (rangeBound==FALSE){
                 warning("Some membership values fall outside [0, 1]; check that ",
@@ -464,9 +466,17 @@ get_core_regions <- function(graph,
                 
                 x2 <- st_drop_geometry(x)
                 itername <- colnames(U)[class_col]
+                x3 <- x2[, "Typi"]
                 x2 <- x2[,itername]
-                core_mask <- !is.na(x2) & st_drop_geometry(x2) >= cutoff
+                 
+                if (!typicality) {
+                        core_mask <- !is.na(x2) & x2 >= cutoff
+                } else {
+                        core_mask <- !is.na(x2) & x2 >= cutoff & x3 > cutoff
+                }
                 
+                        
+                        
                 if (!any(core_mask)) {
                         message("No polygons meet the cutoff for class '", class_col, "'.")
                         empty <- x[0, , drop = FALSE]

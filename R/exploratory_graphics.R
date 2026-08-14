@@ -428,79 +428,497 @@ plot_region_membership <- function(regions) {
                 patchwork::plot_annotation(title = "Eco-region membership structure")
 }
 
-#' Hyperparameter tuning surface for the region clustering
+# ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
+# Tuning diagnostics: plotting
+# ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
+
+#' Tuning axes recognised in a `tuning_log`, in canonical order
+#' @keywords internal
+#' @noRd
+.REGION_AXES <- c("intermediate_regions", "weight_exponent",
+                  "partitions_per_tree", "n_st", "final_regions")
+
+#' Axis display labels
+#' @keywords internal
+#' @noRd
+.REGION_AXIS_LABELS <- c(
+        intermediate_regions = "intermediate regions",
+        weight_exponent      = "weight exponent",
+        partitions_per_tree  = "partitions per tree",
+        n_st                 = "spanning trees",
+        final_regions        = "final regions (k)"
+)
+
+#' Optimisation direction of each validity index
 #'
-#' Heatmap of the selection score over the (intermediate_regions x final_regions) grid
-#' from \code{regions$tuning_log}, with the chosen cell marked. Reveals whether the
-#' optimum is a sharp peak or a broad plateau.
+#' MUST stay in sync with `.derive_score_column()`. Keeping the directions in
+#' one place is the point: a silent mismatch between the tuner and the plots
+#' would render a voter-agreement panel that is confidently upside down.
 #'
-#' @param regions Result of a *tuned* \code{skater_con()} run (needs \code{tuning_log}).
-#' @param score_col Column to map to fill. Default "score".
-#' @return A ggplot object.
-#' @export
-plot_region_cvi_grid <- function(regions, score_col = "score") {
-        .region_require("ggplot2")
-        tl <- regions$tuning_log
-        if (is.null(tl)) stop("`regions$tuning_log` is NULL (single-configuration run; nothing to tune).",
-                              call. = FALSE)
-        need_cols <- c("intermediate_regions", "final_regions")
-        if (!all(need_cols %in% names(tl))) {
-                # tolerate alternative column names produced by the tuner
-                alt <- c(sr = grep("intermediate", names(tl), value = TRUE)[1],
-                         fr = grep("final",  names(tl), value = TRUE)[1])
-                names(tl)[match(alt, names(tl))] <- need_cols
+#' @keywords internal
+#' @noRd
+.REGION_CVI_DIRECTION <- c(
+        fch             = "max",   # fuzzy Calinski-Harabasz
+        Fukuyama_Sugeno = "min",
+        gd5             = "max",   # generalised Dunn
+        fhv             = "min",   # fuzzy hyper-volume
+        STAB            = "max"    # bootstrap ARI
+)
+
+#' Extract and normalise a tuning log
+#'
+#' Accepts either a `"regions_tuning"` object or the bare `tuning_log` data
+#' frame, and renames legacy columns (`n.rst` -> `n_st`, `skater_regions` ->
+#' `intermediate_regions`) so plots work on logs written by older versions.
+#'
+#' @keywords internal
+#' @noRd
+.region_tuning_log <- function(regions) {
+        tl <- if (is.data.frame(regions)) regions else regions$tuning_log
+        if (is.null(tl)) {
+                stop("No `tuning_log` found. This looks like a single-configuration run ",
+                     "(no axis had more than one candidate), so there is no tuning ",
+                     "surface to plot.", call. = FALSE)
         }
-        tl$intermediate_regions <- factor(tl$intermediate_regions)
-        tl$final_regions  <- factor(tl$final_regions)
-        best <- tl[which.max(tl[[score_col]]), , drop = FALSE]
-        
-        ggplot2::ggplot(tl, ggplot2::aes(.data$final_regions, .data$intermediate_regions,
-                                         fill = .data[[score_col]])) +
-                ggplot2::geom_tile(colour = "white", linewidth = 0.4) +
-                ggplot2::geom_tile(data = best, fill = NA, colour = "black", linewidth = 1.1) +
-                ggplot2::scale_fill_viridis_c(option = "D", name = score_col) +
-                ggplot2::labs(title = "Eco-region tuning surface",
-                              subtitle = sprintf("Optimum: intermediate_regions = %s, final_regions = %s",
-                                                 best$intermediate_regions, best$final_regions),
-                              x = "final regions (k)", y = "skater regions") +
-                theme_eco()
+        if (!is.data.frame(tl) || nrow(tl) == 0L) {
+                stop("`tuning_log` is empty.", call. = FALSE)
+        }
+        legacy <- c(n.rst = "n_st", skater_regions = "intermediate_regions")
+        for (old in names(legacy)) {
+                new <- legacy[[old]]
+                if (old %in% names(tl) && !new %in% names(tl)) names(tl)[names(tl) == old] <- new
+        }
+        if (!any(.REGION_AXES %in% names(tl))) {
+                stop("`tuning_log` contains none of the expected axis columns (",
+                     paste(.REGION_AXES, collapse = ", "), ").", call. = FALSE)
+        }
+        tl
 }
 
-#' Ensemble-size (n.rst) stability curve, ggplot version
+#' Axes present in a log that actually vary
+#' @keywords internal
+#' @noRd
+.region_active_axes <- function(tl) {
+        present <- intersect(.REGION_AXES, names(tl))
+        present[vapply(present, function(a) length(unique(tl[[a]])) > 1L, logical(1))]
+}
+
+#' Row of the log holding the optimum
+#' @keywords internal
+#' @noRd
+.region_best_row <- function(tl, score_col = "score") {
+        if (!score_col %in% names(tl)) {
+                stop("Column '", score_col, "' not found in `tuning_log`. Available: ",
+                     paste(names(tl), collapse = ", "), ".", call. = FALSE)
+        }
+        if (all(is.na(tl[[score_col]]))) {
+                stop("Column '", score_col, "' is entirely NA.", call. = FALSE)
+        }
+        tl[which.max(tl[[score_col]]), , drop = FALSE]
+}
+
+#' Restrict a log to the slice through the optimum along `free_axes`
 #'
-#' @param regions Result of \code{skater_con()} (uses \code{regions$n.rst_stability}).
-#' @return A ggplot object, or NULL with a message if no stability run was done.
+#' Every active axis not in `free_axes` is pinned at its value in the best row.
+#'
+#' @keywords internal
+#' @noRd
+.region_slice_at_best <- function(tl, free_axes, score_col = "score") {
+        best   <- .region_best_row(tl, score_col)
+        pinned <- setdiff(.region_active_axes(tl), free_axes)
+        keep   <- rep(TRUE, nrow(tl))
+        for (a in pinned) keep <- keep & (tl[[a]] == best[[a]])
+        list(data = tl[keep, , drop = FALSE], best = best, pinned = pinned)
+}
+
+#' Human-readable description of the pinned axes
+#' @keywords internal
+#' @noRd
+.region_pin_label <- function(best, pinned) {
+        if (!length(pinned)) return(NULL)
+        paste0("held at optimum: ",
+               paste(sprintf("%s = %s", .REGION_AXIS_LABELS[pinned],
+                             vapply(pinned, function(a) format(best[[a]]), character(1))),
+                     collapse = ", "))
+}
+
+
+# ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
+# 1. Two-axis tuning surface
+# ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
+
+#' Tuning Surface Over Two Hyper-parameter Axes
+#'
+#' Heat map of the tuning score over two chosen axes. With more than two axes
+#' searched, the remaining ones must be disposed of explicitly, because a tile
+#' plot silently overplots duplicated cells and would otherwise show an
+#' arbitrary slice.
+#'
+#' @param regions A `"regions_tuning"` object (or its `tuning_log`).
+#' @param x,y Axis names. `NULL` (default) picks the two active axes, with
+#'   `final_regions` on x when it varies.
+#' @param score_col Column to map to fill. Default `"score"` (higher is better
+#'   by construction, including for Borda, which is stored negated).
+#' @param others How to handle active axes other than `x` and `y`:
+#'   `"slice"` (default) pins them at their value in the best row;
+#'   `"facet"` panels over their combinations; `"max"` projects by taking the
+#'   best score over them (a profile surface, not a slice).
+#' @param max_facets Integer. Refuse to facet beyond this many panels. Default 12.
+#'
+#' @return A `ggplot` object.
 #' @export
-plot_nrst_stability <- function(regions) {
+plot_region_cvi_grid <- function(regions,
+                                 x = NULL, y = NULL,
+                                 score_col = "score",
+                                 others = c("slice", "facet", "max"),
+                                 max_facets = 12L) {
         .region_require("ggplot2")
-        df <- regions$n.rst_stability
-        if (is.null(df)) { message("No n.rst stability data (single n.rst was used)."); return(invisible(NULL)) }
-        df <- df[is.finite(df$change), , drop = FALSE]
-        knee <- df[df$is_knee, , drop = FALSE]
-        ggplot2::ggplot(df, ggplot2::aes(.data$n.rst, .data$change)) +
-                ggplot2::geom_line(colour = "grey50") +
-                ggplot2::geom_point(size = 2, colour = "grey30") +
-                ggplot2::geom_point(data = knee, size = 4, colour = "#D55E00") +
-                ggplot2::geom_text(data = knee, ggplot2::aes(label = paste0("knee = ", .data$n.rst)),
-                                   vjust = -1, colour = "#D55E00") +
-                ggplot2::labs(title = "Ensemble-size stability",
-                              subtitle = "Consensus-structure change as trees are added",
-                              x = "n.rst (number of spanning trees)", y = "change") +
+        others <- match.arg(others)
+        
+        tl     <- .region_tuning_log(regions)
+        active <- .region_active_axes(tl)
+        
+        if (length(active) < 2L) {
+                stop("Only ", length(active), " axis varies in this log (",
+                     paste(active, collapse = ", "), "); a surface needs two. ",
+                     "Use plot_region_profiles() instead.", call. = FALSE)
+        }
+        
+        # --- Choose the plotted axes ----------------------------------------
+        if (is.null(x) && is.null(y)) {
+                x <- if ("final_regions" %in% active) "final_regions" else utils::tail(active, 1L)
+                y <- setdiff(active, x)[1L]
+        } else if (is.null(y)) {
+                y <- setdiff(active, x)[1L]
+        } else if (is.null(x)) {
+                x <- setdiff(active, y)[1L]
+        }
+        for (a in c(x, y)) {
+                if (!a %in% names(tl)) stop("Axis '", a, "' is not a column of `tuning_log`.",
+                                            call. = FALSE)
+        }
+        if (identical(x, y)) stop("`x` and `y` must differ.", call. = FALSE)
+        
+        rest <- setdiff(active, c(x, y))
+        
+        # --- Dispose of the remaining axes ----------------------------------
+        sub     <- tl
+        best    <- .region_best_row(tl, score_col)
+        subtitle_extra <- NULL
+        facet_by <- NULL
+        
+        if (length(rest)) {
+                if (others == "slice") {
+                        sl   <- .region_slice_at_best(tl, free_axes = c(x, y), score_col = score_col)
+                        sub  <- sl$data
+                        subtitle_extra <- .region_pin_label(sl$best, sl$pinned)
+                } else if (others == "facet") {
+                        n_panels <- nrow(unique(tl[, rest, drop = FALSE]))
+                        if (n_panels > max_facets) {
+                                stop(sprintf(paste0(
+                                        "Faceting over %s would need %d panels (max_facets = %d). ",
+                                        "Use others = \"slice\" or \"max\", or name `x`/`y` differently."),
+                                        paste(rest, collapse = " x "), n_panels, max_facets),
+                                     call. = FALSE)
+                        }
+                        sub$.facet <- do.call(paste,
+                                              c(lapply(rest, function(a)
+                                                      sprintf("%s = %s", a, format(tl[[a]]))),
+                                                sep = " | "))
+                        facet_by <- ".facet"
+                } else {                                   # "max"
+                        keys <- do.call(paste, c(sub[, c(x, y), drop = FALSE], sep = "\r"))
+                        ord  <- order(keys, -xtfrm(sub[[score_col]]), na.last = TRUE)
+                        sub  <- sub[ord, , drop = FALSE]
+                        sub  <- sub[!duplicated(keys[ord]), , drop = FALSE]
+                        subtitle_extra <- paste0("best over ", paste(rest, collapse = ", "),
+                                                 " (projection, not a slice)")
+                }
+        }
+        
+        if (!nrow(sub)) {
+                stop("The requested slice is empty. This happens when the optimum was ",
+                     "never evaluated jointly with the plotted axes, which is normal for ",
+                     "coordinate-descent logs; try others = \"max\".", call. = FALSE)
+        }
+        
+        # --- Refuse to draw an overplotted tile map -------------------------
+        dup_key <- do.call(paste, c(sub[, c(x, y, facet_by), drop = FALSE], sep = "\r"))
+        if (anyDuplicated(dup_key)) {
+                stop("Multiple rows share the same (", x, ", ", y, ") cell after handling ",
+                     "the other axes; geom_tile() would silently overplot them. ",
+                     "Set others = \"slice\" or \"max\".", call. = FALSE)
+        }
+        
+        # Coordinate descent produces cross-shaped, non-factorial logs. Say so
+        # rather than letting the user read gaps as failed configurations.
+        n_cells <- length(unique(sub[[x]])) * length(unique(sub[[y]]))
+        if (nrow(sub) < n_cells) {
+                message(sprintf("  %d of %d cells evaluated: the search was not factorial ",
+                                "over these axes (expected for sequential / iterative).",
+                                nrow(sub), n_cells))
+        }
+        
+        sub$.x <- factor(sub[[x]], levels = sort(unique(sub[[x]])))
+        sub$.y <- factor(sub[[y]], levels = sort(unique(sub[[y]])))
+        
+        # The best row may have been sliced out under others = "facet"/"max";
+        # highlight it only if it survived.
+        best_key <- do.call(paste, c(best[, c(x, y), drop = FALSE], sep = "\r"))
+        sub_key  <- do.call(paste, c(sub[,  c(x, y), drop = FALSE], sep = "\r"))
+        best_sub <- sub[sub_key == best_key, , drop = FALSE]
+        
+        p <- ggplot2::ggplot(sub, ggplot2::aes(.data$.x, .data$.y,
+                                               fill = .data[[score_col]])) +
+                ggplot2::geom_tile(colour = "white", linewidth = 0.4)
+        
+        if (nrow(best_sub)) {
+                p <- p + ggplot2::geom_tile(data = best_sub, fill = NA,
+                                            colour = "black", linewidth = 1.1)
+        }
+        
+        p <- p +
+                ggplot2::scale_fill_viridis_c(option = "D", name = score_col) +
+                ggplot2::labs(
+                        title    = "Region tuning surface",
+                        subtitle = paste(c(
+                                sprintf("optimum: %s = %s, %s = %s",
+                                        .REGION_AXIS_LABELS[x], format(best[[x]]),
+                                        .REGION_AXIS_LABELS[y], format(best[[y]])),
+                                subtitle_extra), collapse = "\n"),
+                        x = unname(.REGION_AXIS_LABELS[x]),
+                        y = unname(.REGION_AXIS_LABELS[y])
+                ) +
+                theme_eco()
+        
+        if (!is.null(facet_by)) {
+                p <- p + ggplot2::facet_wrap(stats::as.formula(paste("~", facet_by)))
+        }
+        p
+}
+
+
+# ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
+# 2. One-dimensional profiles through the optimum
+# ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
+
+#' Score Profiles Along Each Tuning Axis
+#'
+#' One panel per axis that varies, showing the score along that axis with every
+#' other axis pinned at the optimum. This is the general replacement for the
+#' two-axis heat map: it works for any number of axes and, unlike a surface,
+#' does not require the search to have been factorial, so it reads correctly for
+#' `"sequential"` and `"iterative"` runs.
+#'
+#' A flat profile means the axis does not matter over the range searched. A
+#' profile still climbing at an endpoint means the candidate range was too
+#' narrow, which is the usual finding for `n_st` and `partitions_per_tree`.
+#'
+#' @param regions A `"regions_tuning"` object (or its `tuning_log`).
+#' @param score_col Column to plot. Default `"score"`.
+#' @param axes Optional character vector restricting which axes are shown.
+#'
+#' @return A `ggplot` object.
+#' @export
+plot_region_profiles <- function(regions, score_col = "score", axes = NULL) {
+        .region_require("ggplot2")
+        
+        tl     <- .region_tuning_log(regions)
+        active <- .region_active_axes(tl)
+        if (!length(active)) {
+                stop("No axis varies in this log; there is nothing to profile.", call. = FALSE)
+        }
+        if (!is.null(axes)) {
+                unknown <- setdiff(axes, active)
+                if (length(unknown)) {
+                        warning("Ignoring axes that do not vary: ",
+                                paste(unknown, collapse = ", "), call. = FALSE)
+                }
+                active <- intersect(active, axes)
+                if (!length(active)) stop("No requested axis varies.", call. = FALSE)
+        }
+        
+        best <- .region_best_row(tl, score_col)
+        
+        prof <- do.call(rbind, lapply(active, function(a) {
+                sl <- .region_slice_at_best(tl, free_axes = a, score_col = score_col)
+                d  <- sl$data
+                if (!nrow(d)) return(NULL)
+                d <- d[order(d[[a]]), , drop = FALSE]
+                data.frame(
+                        axis    = a,
+                        value   = as.numeric(d[[a]]),
+                        score   = d[[score_col]],
+                        is_best = d[[a]] == best[[a]],
+                        stringsAsFactors = FALSE
+                )
+        }))
+        if (is.null(prof) || !nrow(prof)) {
+                stop("No profile rows survived slicing at the optimum.", call. = FALSE)
+        }
+        
+        prof$axis <- factor(prof$axis, levels = intersect(.REGION_AXES, active),
+                            labels = unname(.REGION_AXIS_LABELS[intersect(.REGION_AXES, active)]))
+        
+        ggplot2::ggplot(prof, ggplot2::aes(.data$value, .data$score)) +
+                ggplot2::geom_line(linewidth = 0.5, colour = "grey35") +
+                ggplot2::geom_point(size = 1.8, colour = "grey20") +
+                ggplot2::geom_point(data = prof[prof$is_best, , drop = FALSE],
+                                    size = 3.2, shape = 21, stroke = 1.1,
+                                    fill = NA, colour = "black") +
+                ggplot2::facet_wrap(~ .data$axis, scales = "free_x") +
+                ggplot2::labs(
+                        title    = "Tuning profiles through the optimum",
+                        subtitle = "each panel varies one axis; all others pinned at their best value",
+                        x = NULL, y = score_col
+                ) +
                 theme_eco()
 }
 
-#' Combined region tuning dashboard (surface + stability)
-#' @param regions Result of \code{skater_con()}.
-#' @return A patchwork object.
+
+# ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
+# 3. Voter agreement among the validity indices
+# ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
+
+#' Validity-index Agreement Along One Axis
+#'
+#' Borda aggregation hides whether the constituent indices agree. This plots
+#' each index along a single axis, rescaled to `[0, 1]` and sign-corrected so
+#' that higher is better in every case, with the other axes pinned at the
+#' optimum. Indices that disagree about the location of the optimum are the
+#' signal worth acting on: the Borda winner is only meaningful when the voters
+#' are not pulling in opposite directions.
+#'
+#' @param regions A `"regions_tuning"` object (or its `tuning_log`).
+#' @param axis Axis to plot along. `NULL` (default) picks the axis with the most
+#'   evaluated candidates.
+#' @param score_col Column used to locate the optimum. Default `"score"`.
+#'
+#' @return A `ggplot` object.
 #' @export
-plot_region_tuning <- function(regions) {
-        .region_require("patchwork")
-        g  <- tryCatch(plot_region_cvi_grid(regions = regions), error = function(e) NULL)
-        s  <- tryCatch(plot_nrst_stability(regions = regions),     error = function(e) NULL)
-        ps <- Filter(Negate(is.null), list(g, s))
-        if (!length(ps)) stop("Nothing to plot: no tuning_log and no n.rst_stability.", call. = FALSE)
-        patchwork::wrap_plots(ps, ncol = length(ps))
+plot_region_cvi_votes <- function(regions, axis = NULL, score_col = "score") {
+        .region_require("ggplot2")
+        
+        tl     <- .region_tuning_log(regions)
+        active <- .region_active_axes(tl)
+        if (!length(active)) stop("No axis varies in this log.", call. = FALSE)
+        
+        if (is.null(axis)) {
+                n_vals <- vapply(active, function(a) length(unique(tl[[a]])), integer(1))
+                axis   <- active[which.max(n_vals)]
+        }
+        if (!axis %in% names(tl)) stop("Axis '", axis, "' is not a column of `tuning_log`.",
+                                       call. = FALSE)
+        
+        cvis <- intersect(names(.REGION_CVI_DIRECTION), names(tl))
+        if (!length(cvis)) {
+                stop("No validity-index columns found. Expected some of: ",
+                     paste(names(.REGION_CVI_DIRECTION), collapse = ", "), ".", call. = FALSE)
+        }
+        
+        sl   <- .region_slice_at_best(tl, free_axes = axis, score_col = score_col)
+        d    <- sl$data[order(sl$data[[axis]]), , drop = FALSE]
+        best <- sl$best
+        if (nrow(d) < 2L) stop("Fewer than two points on this axis after slicing.", call. = FALSE)
+        
+        rescale01 <- function(v, direction) {
+                if (all(is.na(v))) return(rep(NA_real_, length(v)))
+                if (direction == "min") v <- -v
+                rng <- range(v, na.rm = TRUE)
+                if (diff(rng) <= 0) return(rep(0.5, length(v)))
+                (v - rng[1L]) / diff(rng)
+        }
+        
+        votes <- do.call(rbind, lapply(cvis, function(cv) {
+                data.frame(
+                        index = cv,
+                        value = as.numeric(d[[axis]]),
+                        norm  = rescale01(d[[cv]], .REGION_CVI_DIRECTION[[cv]]),
+                        stringsAsFactors = FALSE
+                )
+        }))
+        votes <- votes[!is.na(votes$norm), , drop = FALSE]
+        if (!nrow(votes)) stop("All validity indices are NA on this slice.", call. = FALSE)
+        
+        ggplot2::ggplot(votes, ggplot2::aes(.data$value, .data$norm,
+                                            colour = .data$index)) +
+                ggplot2::geom_vline(xintercept = as.numeric(best[[axis]]),
+                                    linetype = "dashed", colour = "grey40") +
+                ggplot2::geom_line(linewidth = 0.6) +
+                ggplot2::geom_point(size = 1.6) +
+                ggplot2::scale_colour_viridis_d(option = "D", name = NULL, end = 0.9) +
+                ggplot2::labs(
+                        title    = "Validity-index agreement",
+                        subtitle = paste(c(
+                                "rescaled to [0, 1], sign-corrected so higher is better",
+                                .region_pin_label(best, sl$pinned),
+                                sprintf("dashed line: selected %s", .REGION_AXIS_LABELS[axis])),
+                                collapse = "\n"),
+                        x = unname(.REGION_AXIS_LABELS[axis]),
+                        y = "rescaled index"
+                ) +
+                theme_eco()
 }
+
+
+# ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
+# 4. Composite wrapper
+# ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
+
+#' Diagnostic Panel for a Region Tuning Run
+#'
+#' Assembles whichever panels the tuning log can support. With two axes searched
+#' this is a surface plus profiles; with one, profiles alone; with three or more,
+#' the surface is a slice through the optimum and the profiles carry the rest.
+#'
+#' @param regions A `"regions_tuning"` object (or its `tuning_log`).
+#' @param panels Character vector; any of `"grid"`, `"profiles"`, `"votes"`.
+#'   Panels that the log cannot support are dropped with a message.
+#' @param score_col Column to plot. Default `"score"`.
+#' @param ncol Columns in the assembled layout. `NULL` lets patchwork decide.
+#' @param ... Passed to `plot_region_cvi_grid()`.
+#'
+#' @return A `patchwork` object, or a single `ggplot` when only one panel applies.
+#' @export
+plot_region_tuning <- function(regions,
+                               panels    = c("grid", "profiles"),
+                               score_col = "score",
+                               ncol      = NULL,
+                               ...) {
+        .region_require("patchwork")
+        panels <- match.arg(panels, choices = c("grid", "profiles", "votes"),
+                            several.ok = TRUE)
+        
+        tl <- .region_tuning_log(regions)   # errors early with a useful message
+        
+        builders <- list(
+                grid     = function() plot_region_cvi_grid(tl, score_col = score_col, ...),
+                profiles = function() plot_region_profiles(tl, score_col = score_col),
+                votes    = function() plot_region_cvi_votes(tl, score_col = score_col)
+        )
+        
+        ps   <- list()
+        skip <- character(0)
+        for (nm in panels) {
+                p <- tryCatch(builders[[nm]](), error = function(e) {
+                        skip[[length(skip) + 1L]] <<- sprintf("%s (%s)", nm, conditionMessage(e))
+                        NULL
+                })
+                if (!is.null(p)) ps[[nm]] <- p
+        }
+        
+        if (!length(ps)) {
+                stop("Nothing to plot. Reasons:\n  - ", paste(skip, collapse = "\n  - "),
+                     call. = FALSE)
+        }
+        if (length(skip)) {
+                message("Skipped panel(s):\n  - ", paste(skip, collapse = "\n  - "))
+        }
+        if (length(ps) == 1L) return(ps[[1L]])
+        
+        patchwork::wrap_plots(ps, ncol = if (is.null(ncol)) min(2L, length(ps)) else ncol)
+}
+
 
 #' Ternary membership plot for the special case of exactly 3 regions
 #'

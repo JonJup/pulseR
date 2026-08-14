@@ -13,7 +13,7 @@ compute_signature(
   coords = NULL,
   kernel = c("none", "gaussian", "exponential", "linear"),
   sigma = NULL,
-  digits = 3L
+  digits = NULL
 )
 }
 \arguments{

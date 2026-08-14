@@ -4,28 +4,17 @@
 \alias{.mosaic_cvis}
 \title{Compute fuzzy-aware validity indices for one mosaic clustering}
 \usage{
-.mosaic_cvis(
-  fz,
-  D_full,
-  stability_B = 25L,
-  silf_alpha = 1,
-  silf_subsample_n = 8000L,
-  seed = NULL
-)
+.mosaic_cvis(fz, Sig, D_full, stability_B = 25L, seed = NULL)
 }
 \arguments{
 \item{fz}{Output of \code{\link{compute_fuzzy}}.}
+
+\item{Sig}{Signature. Output of \code{\link{compute_all_signatures}}}
 
 \item{D_full}{Full \eqn{N \times N} dissimilarity matrix (JS distances over
 complete cases) -- the same one PAM was run on.}
 
 \item{stability_B}{Bootstrap replicates for STAB. 0 to skip.}
-
-\item{silf_alpha}{Campello-Hruschka exponent. Default 1.}
-
-\item{silf_subsample_n}{If \eqn{N} exceeds this, SIL_F is computed on a
-stratified subsample. For this pipeline \eqn{N} is usually small enough to
-skip subsampling.}
 
 \item{seed}{Optional seed (stability).}
 }

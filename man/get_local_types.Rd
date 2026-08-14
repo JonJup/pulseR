@@ -35,7 +35,7 @@ of \code{\link[mclust]{Mclust}}; the number(s) of mixture components to
 consider. When a vector is supplied, \code{Mclust} selects the best value
 by BIC. Default \code{1:9}.}
 
-\item{regions}{The ouput of \code{\link{get_regions}} or \code{\link{tune_regions}}.}
+\item{regions}{The output of \code{\link{get_regions}} or \code{\link{tune_regions}}.}
 
 \item{non_value_cols}{Character vector of identifier columns to drop before
 training (e.g. primary keys). Default \code{"ID"}. The column

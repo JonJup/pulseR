@@ -2,16 +2,33 @@
 % Please edit documentation in R/exploratory_graphics.R
 \name{plot_region_tuning}
 \alias{plot_region_tuning}
-\title{Combined region tuning dashboard (surface + stability)}
+\title{Diagnostic Panel for a Region Tuning Run}
 \usage{
-plot_region_tuning(regions)
+plot_region_tuning(
+  regions,
+  panels = c("grid", "profiles"),
+  score_col = "score",
+  ncol = NULL,
+  ...
+)
 }
 \arguments{
-\item{regions}{Result of \code{skater_con()}.}
+\item{regions}{A \code{"regions_tuning"} object (or its \code{tuning_log}).}
+
+\item{panels}{Character vector; any of \code{"grid"}, \code{"profiles"}, \code{"votes"}.
+Panels that the log cannot support are dropped with a message.}
+
+\item{score_col}{Column to plot. Default \code{"score"}.}
+
+\item{ncol}{Columns in the assembled layout. \code{NULL} lets patchwork decide.}
+
+\item{...}{Passed to \code{plot_region_cvi_grid()}.}
 }
 \value{
-A patchwork object.
+A \code{patchwork} object, or a single \code{ggplot} when only one panel applies.
 }
 \description{
-Combined region tuning dashboard (surface + stability)
+Assembles whichever panels the tuning log can support. With two axes searched
+this is a surface plus profiles; with one, profiles alone; with three or more,
+the surface is a slice through the optimum and the profiles carry the rest.
 }

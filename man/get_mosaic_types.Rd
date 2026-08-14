@@ -9,9 +9,8 @@ get_mosaic_types(
   n_clusters = 2:10,
   method = c("pam"),
   crisp = FALSE,
-  metric = c("borda", "XB_star", "SIL_F", "stability", "silhouette"),
+  metric = c("borda", "FCH", "FS", "stability", "FH", "GD5", "silhouette"),
   stability_B = 25L,
-  silf_alpha = 1,
   seed = NULL
 )
 }
@@ -28,8 +27,6 @@ get_mosaic_types(
 or "silhouette" (legacy crisp).}
 
 \item{stability_B}{Bootstrap replicates for stability. Default 25; 0 skips.}
-
-\item{silf_alpha}{Campello-Hruschka exponent. Default 1.}
 
 \item{seed}{Optional seed. The caller's RNG state is restored on exit.}
 }

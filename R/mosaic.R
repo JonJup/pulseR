@@ -125,7 +125,7 @@ get_reachability <- function(graph, k) {
 compute_signature <- function(focal, P, graph, Rk, A = NULL, coords = NULL,
                               kernel = c("none", "gaussian", "exponential", "linear"),
                               sigma  = NULL,
-                              digits = 3L) {
+                              digits = NULL) {
         kernel  <- match.arg(kernel)
         nc      <- ncol(P)
         sig_len <- nc * (nc + 1L) / 2L
@@ -408,7 +408,8 @@ compute_fuzzy <- function(coassoc, k, fuzziness = 2) {
         memberships <- t(apply(dists_to_med, 1, function(d) {
                 # Exactly on a medoid -> hard membership of 1 to the nearest medoid.
                 if (any(d == 0)) {
-                        u <- rep(0, length(d)); u[which.min(d)] <- 1; return(u)
+                        u <- rep(0, length(d)); u[which.min(d)] <- 1
+                        return(u)
                 }
                 # Standard FCM-style membership derived from distances to medoids.
                 d_pow <- d ^ (-2 / (m - 1))
@@ -440,7 +441,6 @@ compute_fuzzy <- function(coassoc, k, fuzziness = 2) {
 #' @param metric Character: "borda" (default), "XB_star", "SIL_F", "stability",
 #'   or "silhouette" (legacy crisp).
 #' @param stability_B Bootstrap replicates for stability. Default 25; 0 skips.
-#' @param silf_alpha Campello-Hruschka exponent. Default 1.
 #' @param seed Optional seed. The caller's RNG state is restored on exit.
 #'
 #' @return A list with \code{clusters} (final fuzzy or crisp result),
@@ -456,10 +456,9 @@ get_mosaic_types <- function(sigs,
                                n_clusters  = 2:10,
                                method      = c("pam"),
                                crisp       = FALSE,
-                               metric      = c("borda", "XB_star", "SIL_F",
-                                               "stability", "silhouette"),
+                               metric      = c("borda", "FCH", "FS",
+                                               "stability", "FH", "GD5", "silhouette"),
                                stability_B = 25L,
-                               silf_alpha  = 1,
                                seed        = NULL) {
         method <- match.arg(method)
         metric <- match.arg(metric)
@@ -485,7 +484,7 @@ get_mosaic_types <- function(sigs,
         }
         
         message("Computing Jensen-Shannon distances for ", nrow(S), " polygons...")
-        d <- js_distance_fast(S)          # S is already complete; inner filter is a no-op
+        d <- js_distance_fast(S)          
         D_full <- as.matrix(d)
         
         if (crisp && metric != "silhouette") {
@@ -500,15 +499,14 @@ get_mosaic_types <- function(sigs,
                 if (crisp) {
                         pr <- cluster::pam(d, k = nc, diss = TRUE)
                         rows[[i]] <- data.frame(
-                                k = nc, PC = 1, PE = 0, MPC = 1,
-                                XB_star = NA_real_, SIL_F = NA_real_, STAB = NA_real_,
+                                k = nc, FCH = NA_real_, FS = NA_real_, GD5 = NA_real_,
+                                FH = NA_real_, STAB = NA_real_,
                                 SILH_HARD = pr$silinfo$avg.width
                         )
                 } else {
                         fz <- compute_fuzzy(d, nc)
-                        rows[[i]] <- .mosaic_cvis(fz, D_full,
+                        rows[[i]] <- .mosaic_cvis(fz, D_full, Sig = sigs,
                                                      stability_B = stability_B,
-                                                     silf_alpha  = silf_alpha,
                                                      seed        = seed)
                 }
                 message(sprintf("  k=%d | XB*=%.4f SIL_F=%.4f STAB=%.4f (hard sil=%.3f)",
@@ -519,7 +517,8 @@ get_mosaic_types <- function(sigs,
         
         # Selection score (higher = better). Guard against an all-NA score column,
         # which would make which.max() return integer(0) and error downstream.
-        validity$score <- .derive_score_column(validity, metric)
+        #validity$score <- .derive_score_column(validity, metric)
+        validity$score <- .mosaic_score(validity, metric)
         if (all(is.na(validity$score)))
                 stop("Selection metric '", metric, "' produced only NA scores; cannot pick k.",
                      call. = FALSE)
@@ -655,16 +654,24 @@ sweep_k_order <- function(P, graph, coords = NULL, k_range = 1:5, n_clusters = 2
 # Fuzzy CVIs on a compute_fuzzy() result
 # .............................................................................
 
+rowH <- function(P) {                      # Shannon entropy per row, nats
+        P <- as.matrix(P)
+        -rowSums(P * log(P + (P == 0)))          # 0 log 0 := 0
+}
+
+.jsd_to_ref <- function(P, q) {            # JS divergence of each row of P to q
+        Mx <- sweep(P, 2, q, "+") / 2
+        rowH(Mx) - 0.5 * rowH(P) - 0.5 * rowH(matrix(q, nrow = 1L))
+}
+
+
 #' Compute fuzzy-aware validity indices for one mosaic clustering
 #'
 #' @param fz Output of \code{\link{compute_fuzzy}}.
+#' @param Sig Signature. Output of \code{\link{compute_all_signatures}}
 #' @param D_full Full \eqn{N \times N} dissimilarity matrix (JS distances over
 #'   complete cases) -- the same one PAM was run on.
 #' @param stability_B Bootstrap replicates for STAB. 0 to skip.
-#' @param silf_alpha Campello-Hruschka exponent. Default 1.
-#' @param silf_subsample_n If \eqn{N} exceeds this, SIL_F is computed on a
-#'   stratified subsample. For this pipeline \eqn{N} is usually small enough to
-#'   skip subsampling.
 #' @param seed Optional seed (stability).
 #'
 #' @return One-row data.frame: \code{k}, \code{PC}, \code{PE}, \code{MPC},
@@ -672,41 +679,55 @@ sweep_k_order <- function(P, graph, coords = NULL, k_range = 1:5, n_clusters = 2
 #'
 #' @importFrom stats as.dist
 #' @keywords internal
-.mosaic_cvis <- function(fz, D_full,
-                            stability_B = 25L, silf_alpha = 1,
-                            silf_subsample_n = 8000L, seed = NULL) {
-        U <- fz$memberships
-        N <- nrow(U); k <- ncol(U)
-        eps <- sqrt(.Machine$double.eps)
+.mosaic_cvis <- function(fz, Sig, D_full, stability_B = 25L, seed = NULL) {
+        U   <- fz$memberships
+        N   <- nrow(U)
+        k <- ncol(U)
+        m   <- fz$fuzziness
+        med <- fz$pam_result$id.med
+        stopifnot(nrow(Sig) == N, length(med) == k, ncol(fz$d_to_medoids) == k)
         
-        # Partition coefficient, partition entropy, modified PC.
-        PC  <- mean(rowSums(U^2))
-        PE  <- -mean(rowSums(U * log(pmax(U, eps))))
-        MPC <- if (k > 1L) 1 - (k / (k - 1)) * (1 - PC) else NA_real_
+        D   <- fz$d_to_medoids                   # N x k, JS distance
+        D2  <- D^2                               # N x k, JS divergence
+        n_i <- colSums(U)
+        s_w <- colSums(U^m)
+        J_m <- sum(U^m * D2)
         
-        # XB* in JS-distance / medoid space.
-        compact <- sum((U ^ fz$fuzziness) * (fz$d_to_medoids ^ 2))
-        off     <- fz$medoid_dist[lower.tri(fz$medoid_dist)]
-        XB_star <- if (k >= 2L) compact / (N * max(min(off^2), eps)) else NA_real_
+        # --- exact JS decomposition (linear weights; needs rowSums(U) == 1) ---
+        Sbar_i <- crossprod(U, Sig) / n_i        # k x p cluster mixtures
+        sbar   <- colMeans(Sig)                  # grand mixture
+        P_i    <- n_i / N
+        Hc <- rowH(Sbar_i)
+        Hg <- rowH(matrix(sbar, nrow = 1L))
+        Ho <- mean(rowH(Sig))
+        Btw <- Hg - sum(P_i * Hc)
+        Wth <- sum(P_i * Hc) - Ho
+        stopifnot(Btw >= -1e-10, Wth >= -1e-10)
         
-        # SIL_F directly on the full JS matrix (subsample only if very large).
-        if (N > silf_subsample_n) {
-                labels  <- max.col(U, ties.method = "first")
-                sub_idx <- .stratified_subsample(labels, silf_subsample_n)
-                D_sub   <- stats::as.dist(D_full[sub_idx, sub_idx])
-                SIL_F   <- .fuzzy_silhouette(D_sub, U[sub_idx, , drop = FALSE], alpha = silf_alpha)
-        } else {
-                SIL_F <- .fuzzy_silhouette(stats::as.dist(D_full), U, alpha = silf_alpha)
-        }
+        R2_JS <- Btw / (Btw + Wth)
+        CH_JS <- (Btw / (k - 1)) / (Wth / (N - k))
+        
+        # --- medoid-referenced FS (different weighting, keeps the level-1 parallel) ---
+        b_i <- .jsd_to_ref(Sig[med, , drop = FALSE], sbar)
+        FS  <- J_m - sum(s_w * b_i)
+        
+        # --- Generalized Dunn delta5 ---
+        M      <- crossprod(U, D)                # k x k
+        Delta3 <- 2 * diag(M) / n_i
+        S5     <- (M + t(M)) / outer(n_i, n_i, "+")
+        diag(S5) <- Inf
+        GD5 <- min(S5) / max(Delta3)
+        
+        # --- saturation diagnostic: fraction of pairs at the JS ceiling ---
+        SAT <- mean(D_full[upper.tri(D_full)] > 0.95 * sqrt(log(2)))
         
         STAB <- .stability_pam_diss(D_full, fz$pam_result$clustering, k,
                                     B = stability_B, seed = seed)
         
-        data.frame(k = k, PC = PC, PE = PE, MPC = MPC,
-                   XB_star = XB_star, SIL_F = SIL_F, STAB = STAB,
+        data.frame(k = k, R2_JS = R2_JS, CH_JS = CH_JS, FS = FS, GD5 = GD5,
+                   STAB = STAB, SAT = SAT,
                    SILH_HARD = fz$pam_result$silinfo$avg.width)
 }
-
 #' Centroid coordinates for a set of polygons
 #'
 #' Convenience helper that extracts representative point coordinates (centroids
@@ -793,3 +814,20 @@ polygon_to_centroids <- function(polygons,
         if (length(d) == 0L) return(fallback)
         stats::median(d)
 }
+
+
+.mosaic_score <- function(df, metric) {
+        switch(metric,
+               R2_JS     = df$R2_JS,
+               CH_JS     = df$CH_JS,
+               FS        = -df$FS,
+               GD5       = df$GD5,
+               stability = df$STAB,
+               silhouette = df$SILH_HARD,
+               borda     = -.borda_score(df[, c("CH_JS", "GD5", "STAB")],
+                                         c("max", "max", "max")),
+               stop("Unknown metric: ", metric, call. = FALSE))
+}
+
+
+

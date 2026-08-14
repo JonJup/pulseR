@@ -2,20 +2,39 @@
 % Please edit documentation in R/exploratory_graphics.R
 \name{plot_region_cvi_grid}
 \alias{plot_region_cvi_grid}
-\title{Hyperparameter tuning surface for the region clustering}
+\title{Tuning Surface Over Two Hyper-parameter Axes}
 \usage{
-plot_region_cvi_grid(regions, score_col = "score")
+plot_region_cvi_grid(
+  regions,
+  x = NULL,
+  y = NULL,
+  score_col = "score",
+  others = c("slice", "facet", "max"),
+  max_facets = 12L
+)
 }
 \arguments{
-\item{regions}{Result of a \emph{tuned} \code{skater_con()} run (needs \code{tuning_log}).}
+\item{regions}{A \code{"regions_tuning"} object (or its \code{tuning_log}).}
 
-\item{score_col}{Column to map to fill. Default "score".}
+\item{x, y}{Axis names. \code{NULL} (default) picks the two active axes, with
+\code{final_regions} on x when it varies.}
+
+\item{score_col}{Column to map to fill. Default \code{"score"} (higher is better
+by construction, including for Borda, which is stored negated).}
+
+\item{others}{How to handle active axes other than \code{x} and \code{y}:
+\code{"slice"} (default) pins them at their value in the best row;
+\code{"facet"} panels over their combinations; \code{"max"} projects by taking the
+best score over them (a profile surface, not a slice).}
+
+\item{max_facets}{Integer. Refuse to facet beyond this many panels. Default 12.}
 }
 \value{
-A ggplot object.
+A \code{ggplot} object.
 }
 \description{
-Heatmap of the selection score over the (intermediate_regions x final_regions) grid
-from \code{regions$tuning_log}, with the chosen cell marked. Reveals whether the
-optimum is a sharp peak or a broad plateau.
+Heat map of the tuning score over two chosen axes. With more than two axes
+searched, the remaining ones must be disposed of explicitly, because a tile
+plot silently overplots duplicated cells and would otherwise show an
+arbitrary slice.
 }
