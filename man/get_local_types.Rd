@@ -13,7 +13,8 @@ get_local_types(
   non_value_cols = "ID",
   crisp = FALSE,
   verbose = FALSE,
-  modelNames = NULL
+  modelNames = NULL,
+  typicality = FALSE
 )
 }
 \arguments{
@@ -50,7 +51,12 @@ single most probable local type) before weighting. Default \code{FALSE}.}
 via \code{\link{message}}. Default \code{FALSE}.}
 
 \item{modelNames}{Character vector indicating the models to be fitted in the
-EM phase of clustering. Is passed directly to mclust::Mclust, see there for}
+EM phase of clustering. Is passed directly to mclust::Mclust, see there for
+for more details}
+
+\item{typicality}{Logical scalar. If \code{FALSE} (default) the membership matrix
+\code{.$memberships} is used to weight results of mixuter models If \code{TRUE} the
+typicality matrix \code{.$typicality} is used instead.}
 }
 \value{
 A named list with:

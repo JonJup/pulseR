@@ -92,6 +92,405 @@ eco_palette <- function(n) {
         grDevices::hcl.colors(n, palette = "Dark 3")
 }
 
+
+# ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
+# 1. Two-axis tuning surface
+# ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
+
+#' Tuning Surface Over Two Hyper-parameter Axes
+#'
+#' Heat map of the tuning score over two chosen axes. With more than two axes
+#' searched, the remaining ones must be disposed of explicitly, because a tile
+#' plot silently overplots duplicated cells and would otherwise show an
+#' arbitrary slice.
+#'
+#' @param regions A `"regions_tuning"` object (or its `tuning_log`).
+#' @param x,y Axis names. `NULL` (default) picks the two active axes, with
+#'   `final_regions` on x when it varies.
+#' @param score_col Column to map to fill. Default `"score"` (higher is better
+#'   by construction, including for Borda, which is stored negated).
+#' @param others How to handle active axes other than `x` and `y`:
+#'   `"slice"` (default) pins them at their value in the best row;
+#'   `"facet"` panels over their combinations; `"max"` projects by taking the
+#'   best score over them (a profile surface, not a slice).
+#' @param max_facets Integer. Refuse to facet beyond this many panels. Default 12.
+#'
+#' @return A `ggplot` object.
+#' @export
+plot_region_cvi_grid <- function(regions,
+                                 x = NULL, y = NULL,
+                                 score_col = "score",
+                                 others = c("slice", "facet", "max"),
+                                 max_facets = 12L) {
+        .region_require("ggplot2")
+        others <- match.arg(others)
+        
+        tl     <- .region_tuning_log(regions)
+        active <- .region_active_axes(tl)
+        
+        if (length(active) < 2L) {
+                stop("Only ", length(active), " axis varies in this log (",
+                     paste(active, collapse = ", "), "); a surface needs two. ",
+                     "Use plot_region_profiles() instead.", call. = FALSE)
+        }
+        
+        # --- Choose the plotted axes ----------------------------------------*
+        if (is.null(x) && is.null(y)) {
+                x <- if ("final_regions" %in% active) "final_regions" else utils::tail(active, 1L)
+                y <- setdiff(active, x)[1L]
+        } else if (is.null(y)) {
+                y <- setdiff(active, x)[1L]
+        } else if (is.null(x)) {
+                x <- setdiff(active, y)[1L]
+        }
+        for (a in c(x, y)) {
+                if (!a %in% names(tl)) stop("Axis '", a, "' is not a column of `tuning_log`.",
+                                            call. = FALSE)
+        }
+        if (identical(x, y)) stop("`x` and `y` must differ.", call. = FALSE)
+        
+        rest <- setdiff(active, c(x, y))
+        
+        # --- Dispose of the remaining axes ----------------------------------*
+        sub     <- tl
+        best    <- .region_best_row(tl, score_col)
+        subtitle_extra <- NULL
+        facet_by <- NULL
+        
+        if (length(rest)) {
+                if (others == "slice") {
+                        sl   <- .region_slice_at_best(tl, free_axes = c(x, y), score_col = score_col)
+                        sub  <- sl$data
+                        subtitle_extra <- .region_pin_label(sl$best, sl$pinned)
+                } else if (others == "facet") {
+                        n_panels <- nrow(unique(tl[, rest, drop = FALSE]))
+                        if (n_panels > max_facets) {
+                                stop(sprintf(paste0(
+                                        "Faceting over %s would need %d panels (max_facets = %d). ",
+                                        "Use others = \"slice\" or \"max\", or name `x`/`y` differently."),
+                                        paste(rest, collapse = " x "), n_panels, max_facets),
+                                     call. = FALSE)
+                        }
+                        sub$.facet <- do.call(paste,
+                                              c(lapply(rest, function(a)
+                                                      sprintf("%s = %s", a, format(tl[[a]]))),
+                                                sep = " | "))
+                        facet_by <- ".facet"
+                } else {                                   # "max"
+                        keys <- do.call(paste, c(sub[, c(x, y), drop = FALSE], sep = "\r"))
+                        ord  <- order(keys, -xtfrm(sub[[score_col]]), na.last = TRUE)
+                        sub  <- sub[ord, , drop = FALSE]
+                        sub  <- sub[!duplicated(keys[ord]), , drop = FALSE]
+                        subtitle_extra <- paste0("best over ", paste(rest, collapse = ", "),
+                                                 " (projection, not a slice)")
+                }
+        }
+        
+        if (!nrow(sub)) {
+                stop("The requested slice is empty. This happens when the optimum was ",
+                     "never evaluated jointly with the plotted axes, which is normal for ",
+                     "coordinate-descent logs; try others = \"max\".", call. = FALSE)
+        }
+        
+        # --- Refuse to draw an overplotted tile map -------------------------*
+        dup_key <- do.call(paste, c(sub[, c(x, y, facet_by), drop = FALSE], sep = "\r"))
+        if (anyDuplicated(dup_key)) {
+                stop("Multiple rows share the same (", x, ", ", y, ") cell after handling ",
+                     "the other axes; geom_tile() would silently overplot them. ",
+                     "Set others = \"slice\" or \"max\".", call. = FALSE)
+        }
+        
+        # Coordinate descent produces cross-shaped, non-factorial logs. Say so
+        # rather than letting the user read gaps as failed configurations.
+        n_cells <- length(unique(sub[[x]])) * length(unique(sub[[y]]))
+        if (nrow(sub) < n_cells) {
+                message(sprintf("  %d of %d cells evaluated: the search was not factorial ",
+                                "over these axes (expected for sequential / iterative).",
+                                nrow(sub), n_cells))
+        }
+        
+        sub$.x <- factor(sub[[x]], levels = sort(unique(sub[[x]])))
+        sub$.y <- factor(sub[[y]], levels = sort(unique(sub[[y]])))
+        
+        # The best row may have been sliced out under others = "facet"/"max";
+        # highlight it only if it survived.
+        best_key <- do.call(paste, c(best[, c(x, y), drop = FALSE], sep = "\r"))
+        sub_key  <- do.call(paste, c(sub[,  c(x, y), drop = FALSE], sep = "\r"))
+        best_sub <- sub[sub_key == best_key, , drop = FALSE]
+        
+        p <- ggplot2::ggplot(sub, ggplot2::aes(.data$.x, .data$.y,
+                                               fill = .data[[score_col]])) +
+                ggplot2::geom_tile(colour = "white", linewidth = 0.4)
+        
+        if (nrow(best_sub)) {
+                p <- p + ggplot2::geom_tile(data = best_sub, fill = NA,
+                                            colour = "black", linewidth = 1.1)
+        }
+        
+        p <- p +
+                ggplot2::scale_fill_viridis_c(option = "D", name = score_col) +
+                ggplot2::labs(
+                        title    = "Region tuning surface",
+                        subtitle = paste(c(
+                                sprintf("optimum: %s = %s, %s = %s",
+                                        .REGION_AXIS_LABELS[x], format(best[[x]]),
+                                        .REGION_AXIS_LABELS[y], format(best[[y]])),
+                                subtitle_extra), collapse = "\n"),
+                        x = unname(.REGION_AXIS_LABELS[x]),
+                        y = unname(.REGION_AXIS_LABELS[y])
+                ) +
+                theme_eco()
+        
+        if (!is.null(facet_by)) {
+                p <- p + ggplot2::facet_wrap(stats::as.formula(paste("~", facet_by)))
+        }
+        p
+}
+
+
+# ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
+# LEVEL 1: REGIONS  (output of skater_con())
+# ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
+
+#' Map of fuzzy regions, or their assignment uncertainty
+#'
+#' The two faces of a fuzzy regionalisation: \code{fill = "region"} shows the
+#' hard partition (the regions), \code{fill = "uncertainty"} shows where the
+#' partition is *soft* -- the ecotones / transitional catchments that the hard
+#' map hides; \code{fill = "both"} shades the dominant region by its membership degree
+#' (transitional catchments fade out); \code{fill = "core"} does the same but
+#' masks everything outside the supplied core regions.
+#'
+#' @param polys An \code{sf} polygon/line layer, row-aligned to the catchments
+#'   that were clustered (same order as \code{regions$hard_clusters}).
+#'   
+#' @param regions The list returned by \code{skater_con()}.
+#' @param core Optional list of core-region objects (each with an \code{ID}
+#'   field). Required only when \code{fill = "core"}; ignored otherwise.
+#' @param fill One of "region" (default), "uncertainty", "both", or "core".
+#' @param uncertainty_method Passed to the entropy/margin/maxprob helper.
+#' @param weights "memberships" (default) or "typicality".
+#' @return A ggplot object.
+#' @export
+plot_region_map <- function(polys, regions, core = NULL,
+                            fill = c("region", "uncertainty", "both", "core"), 
+                            uncertainty_method = "entropy", 
+                            weights = c("memberships", "typicality")) {
+        fill <- match.arg(fill)
+        if (fill == "region") {
+                lab <- factor(regions$hard_clusters)
+                polys <- .region_attach(polys, lab, ".region")
+                return(.region_choropleth(polys, ".region", discrete = TRUE,
+                                   title = "Regions",
+                                   sub = sprintf("%d regions (hard partition) \u00b7 %d mapping units", nlevels(lab), length(lab)),
+                                   legend = "Region"))
+        } 
+        
+        U <- .region_weights(regions, weights)
+        wt <- attr(U, "wt_label")
+        simplex <- attr(U, "simplex")
+        wt_word <- if(simplex)"membership" else "typicallity"
+        
+        if (fill == "uncertainty"){
+                u <- .region_uncertainty(regions$memberships, uncertainty_method)
+                polys <- .region_attach(polys, u, ".unc")
+                return(
+                        .region_choropleth(
+                                polys,
+                                ".unc",
+                                discrete = FALSE,
+                                title = sprintf("Region assignment uncertainty (%s)", wt),
+                                sub = paste0(.region_unc_label(uncertainty_method, simplex),
+                                             " \u00b7 bright = transitional (ecotone)"),
+                                legend = "Uncertainty"
+                        )
+                )
+                
+        }
+        
+        # "both" / "core": dominant class, shaded by its own weight.
+        n   <- nrow(U)
+        dom <- max.col(U, ties.method = "first")
+        top <- U[cbind(seq_len(n), dom)]
+        cls <- colnames(U)
+        if (is.null(cls)) cls <- as.character(seq_len(ncol(U)))
+        
+        polys <- .region_attach(polys, factor(cls[dom], levels = cls), ".dominant")
+        polys <- .region_attach(polys, top, ".weight")
+        if (fill == "core") {
+                if (is.null(core))
+                        stop("`fill = \"core\"` requires a `core` object.", call. = FALSE)
+                if (!"ID" %in% names(polys))
+                        stop("`fill = \"core\"` needs an `ID` column on `polys` to match the ",
+                             "core-region IDs.", call. = FALSE)
+                core_ids <- unlist(lapply(core, function(x) x$ID), use.names = FALSE)
+                polys$.weight[!polys$ID %in% core_ids] <- 0
+        }
+        
+        .region_choropleth(
+                polys, ".dominant", discrete = TRUE, alpha = ".weight",
+                alpha_name = if (simplex) "Membership degree" else "Typicality",
+                title = if (fill == "core") "Core regions"
+                else sprintf("Continuous region %s", wt_word),
+                sub = if (fill == "core") ""
+                else sprintf("Dominant region shaded by its %s \u00b7 pale = transitional",
+                             wt_word),
+                legend = "Region")
+        # # Calculate dominant region and membership to dominant region
+        # data_summary <- dplyr::rowwise(pd)
+        # data_summary <- dplyr::mutate(data_summary,
+        #                               Max_Memb = max(dplyr::c_across(dplyr::all_of(class_cols))),
+        #                               Dominant_Class = class_cols[which.max(dplyr::c_across(dplyr::all_of(class_cols)))])
+        # data_summary$Dominant_Class <- gsub("V", "", data_summary$Dominant_Class)
+        # data_summary <- dplyr::ungroup(data_summary)
+        # #polys <- .region_attach(polys, u, ".unc")
+        # .region_choropleth(
+        #         data_summary,
+        #         "Dominant_Class",
+        #         discrete = TRUE,
+        #         title = "Continuous Region Membership",
+        #         alpha = "Max_Memb",
+        #         sub = "Degree of Membership for highest membership region \n bright = low membership = transitional (ecotone)",
+        #         legend = "Region"
+        # )
+        # 
+        # 
+        # if (fill == "core"){
+        #         if (is.null(core)){
+        #                 stop("If method core is selected a core object must be provided.")
+        #         }
+        #         u <- regions$memberships
+        #         pd <- dplyr::bind_cols(polys, as.data.frame(u))
+        #         class_cols <- dplyr::setdiff(names(pd), names(polys))
+        #         
+        #         # Calculate dominant region and membership to dominant region
+        #         data_summary <- dplyr::rowwise(pd)
+        #         data_summary <- dplyr::mutate(data_summary,
+        #                                       Max_Memb = max(dplyr::c_across(dplyr::all_of(class_cols))),
+        #                                       Dominant_Class = class_cols[which.max(dplyr::c_across(dplyr::all_of(class_cols)))])
+        #         data_summary <- dplyr::ungroup(data_summary)
+        #         data_summary$Dominant_Class <- gsub("V", "", data_summary$Dominant_Class)
+        #         # Extract IDs of all core regions and subset data_summary
+        #         core_ids <- unlist(sapply(core, function(x) x$ID))
+        #         data_summary$Max_Memb[!data_summary$ID %in% core_ids] <- 0
+        #         
+        #         .region_choropleth(data_summary, "Dominant_Class", discrete = TRUE,
+        #                            title = "Core Regions",
+        #                            alpha = "Max_Memb",
+        #                            sub = "",
+        #                            legend = "Region")
+        # }
+}
+
+#' Eco-region composition and crispness diagnostics
+#'
+#' Left: region "mass" -- hard catchment count vs soft membership mass (column
+#' sums of U); a gap reveals regions that are real but never anyone's argmax.
+#' Right: distribution of per-catchment max membership -- how crisp the
+#' partition is overall.
+#'
+#' @param regions Result of \code{skater_con()}.
+#' @param weights "memberships" (default), "typicality", or a numeric matrix.
+#' @return A patchwork of two ggplots.
+#' @export
+plot_region_membership <- function(regions, weights = c("memberships", "typicality")) {
+        .region_require("ggplot2", "patchwork")
+        U       <- .region_weights(regions, weights)
+        simplex <- attr(U, "simplex")
+        hard    <- regions$hard_clusters
+        k       <- ncol(U)
+        n       <- nrow(U)
+        
+        if (simplex) {
+                comp <- data.frame(
+                        region = factor(rep(seq_len(k), 2)),
+                        kind   = rep(c("Hard count", "Soft mass"), each = k),
+                        value  = c(as.numeric(table(factor(hard, levels = seq_len(k)))),
+                                   colSums(U))
+                )
+                p1 <- ggplot2::ggplot(comp, ggplot2::aes(.data$region, .data$value,
+                                                         fill = .data$kind)) +
+                        ggplot2::geom_col(position = "dodge", width = 0.7) +
+                        ggplot2::scale_fill_manual(
+                                values = c("Hard count" = "grey55", "Soft mass" = "#0072B2"),
+                                name = NULL) +
+                        ggplot2::labs(title = "Region size", x = "Region", y = "Mapping units") +
+                        theme_eco() + ggplot2::theme(legend.position = "top")
+        } else {
+                own <- U[cbind(seq_len(n), hard)]
+                d1  <- data.frame(region = factor(hard, levels = seq_len(k)), value = own)
+                d1  <- d1[is.finite(d1$value), , drop = FALSE]
+                p1 <- ggplot2::ggplot(d1, ggplot2::aes(.data$region, .data$value)) +
+                        ggplot2::geom_boxplot(fill = "#0072B2", alpha = 0.5,
+                                              colour = "grey30", outlier.size = 0.4) +
+                        ggplot2::labs(title = "Region support",
+                                      subtitle = "Typicality of each unit to its own region",
+                                      x = "Region", y = "Typicality") +
+                        theme_eco()
+        }
+        
+        mx <- U[cbind(seq_len(n), max.col(U, ties.method = "first"))]
+        p2 <- ggplot2::ggplot(data.frame(maxU = mx[is.finite(mx)]), ggplot2::aes(.data$maxU)) +
+                ggplot2::geom_histogram(bins = 40, fill = "#009E73", colour = "white")
+        
+        ref     <- if (simplex) 1 / k else regions$chance_floor
+        ref_lab <- if (simplex) "  uniform (1/k)" else "  chance floor"
+        if (!is.null(ref) && any(is.finite(ref))) {
+                ref <- unique(ref[is.finite(ref)])
+                p2  <- p2 +
+                        ggplot2::geom_vline(xintercept = ref, linetype = 2, colour = "grey40") +
+                        ggplot2::annotate("text", x = max(ref), y = Inf, label = ref_lab,
+                                          hjust = 0, vjust = 1.5, size = 3, colour = "grey40")
+        }
+        
+        p2 <- p2 +
+                ggplot2::labs(title = "Partition crispness",
+                              subtitle = sprintf("Per-unit maximum %s",
+                                                 if (simplex) "membership" else "typicality"),
+                              x = if (simplex) "max membership" else "max typicality",
+                              y = "Mapping units") +
+                theme_eco()
+        
+        patchwork::wrap_plots(p1, p2, widths = c(1.1, 1)) +
+                patchwork::plot_annotation(
+                        title = sprintf("Region %s structure", attr(U, "wt_label")))
+}
+
+
+#' Axes present in a log that actually vary
+#' @keywords internal
+#' @noRd
+.region_active_axes <- function(tl) {
+        present <- intersect(.REGION_AXES, names(tl))
+        present[vapply(present, function(a) length(unique(tl[[a]])) > 1L, logical(1))]
+}
+
+
+#' Adjusted Rand Index between two label vectors (NA-tolerant)
+#'
+#' @param a,b Label vectors of equal length; pairs with an \code{NA} in either
+#'   vector are dropped before scoring.
+#' @return The Adjusted Rand Index as a single numeric, \code{0} for the
+#'   degenerate (zero-variance) case, or \code{NA} when fewer than two complete
+#'   pairs are available.
+#' @keywords internal
+.region_ari <- function(a, b) {
+        ok <- !is.na(a) & !is.na(b)
+        a <- a[ok]; b <- b[ok]
+        if (length(a) < 2) return(NA_real_)
+        tab <- table(a, b)
+        sum_comb <- function(x) sum(choose(x, 2))
+        ai <- rowSums(tab); bj <- colSums(tab); n <- sum(tab)
+        idx  <- sum_comb(as.vector(tab))
+        eidx <- sum_comb(ai) * sum_comb(bj) / choose(n, 2)
+        midx <- (sum_comb(ai) + sum_comb(bj)) / 2
+        if (midx - eidx == 0) return(0)
+        (idx - eidx) / (midx - eidx)
+}
+
+
+
+
 #' Row-wise assignment uncertainty of a membership matrix
 #'
 #' @param U Numeric membership matrix (rows need not sum to 1; they are
@@ -104,22 +503,41 @@ eco_palette <- function(n) {
 .region_uncertainty <- function(U, method = c("entropy", "margin", "maxprob")) {
         method <- match.arg(method)
         U <- as.matrix(U)
+        if (!is.numeric(U)) stop("Weight matrix must be numeric.", call. = FALSE)
+        n <- nrow(U)
         k <- ncol(U)
+        out <- rep(NA_real_, n)
+        # margin and normalised entropy undefined at k = 1
+        if (k<2) return(out)
+        
+        bad_row <- rowSums(!is.finite(U)) > 0
+        
+        # Chance-scaled typicality is signed. A negative affinity is evidence of
+        # ABSENCE, not of ambiguity: renormalizing a signed row does not give a
+        # distribution, and a negative row sum reverses the ordering outright, so
+        # maxprob/margin come back upside down. Floor at zero; rows left with no
+        # positive support drop to NA rather than to a clamped fiction.
+        U <- pmax(U, 0)
+        
         rs <- rowSums(U)
-        ok <- is.finite(rs) & rs > 0
-        P <- U
-        P[ok, ] <- U[ok, , drop = FALSE] / rs[ok]
-        out <- rep(NA_real_, nrow(U))
+        ok <- !bad_row & is.finite(rs) & rs > 0
+        if (!any(ok)) return(out)
+        
+        
+        P  <- U[ok, , drop = FALSE] / rs[ok]
+        m  <- nrow(P)
+        ri <- seq_len(m)
+        
         if (method == "entropy") {
-                H <- -rowSums(P * log(pmax(P, .Machine$double.eps)))
-                out[ok] <- (H / log(k))[ok]
+                out[ok] <- -rowSums(P * log(pmax(P, .Machine$double.eps))) / log(k)
         } else {
-                srt <- t(apply(P, 1, sort, decreasing = TRUE))
-                if (method == "margin") {
-                        out[ok] <- (1 - (srt[, 1] - srt[, 2]))[ok]
-                } else {
-                        out[ok] <- (1 - srt[, 1])[ok]
-                }
+                # Top-two by two max.col passes: O(Nk) with no per-row apply(), which
+                # matters at 270k rows and also avoids sort()'s NA-dropping behaviour.
+                i1   <- max.col(P, ties.method = "first")
+                top1 <- P[cbind(ri, i1)]
+                P[cbind(ri, i1)] <- -Inf
+                top2 <- P[cbind(ri, max.col(P, ties.method = "first"))]
+                out[ok] <- if (method == "margin") 1 - (top1 - top2) else 1 - top1
         }
         pmin(pmax(out, 0), 1)
 }
@@ -208,28 +626,6 @@ eco_palette <- function(n) {
         )
 }
 
-#' Adjusted Rand Index between two label vectors (NA-tolerant)
-#'
-#' @param a,b Label vectors of equal length; pairs with an \code{NA} in either
-#'   vector are dropped before scoring.
-#' @return The Adjusted Rand Index as a single numeric, \code{0} for the
-#'   degenerate (zero-variance) case, or \code{NA} when fewer than two complete
-#'   pairs are available.
-#' @keywords internal
-.region_ari <- function(a, b) {
-        ok <- !is.na(a) & !is.na(b)
-        a <- a[ok]; b <- b[ok]
-        if (length(a) < 2) return(NA_real_)
-        tab <- table(a, b)
-        sum_comb <- function(x) sum(choose(x, 2))
-        ai <- rowSums(tab); bj <- colSums(tab); n <- sum(tab)
-        idx  <- sum_comb(as.vector(tab))
-        eidx <- sum_comb(ai) * sum_comb(bj) / choose(n, 2)
-        midx <- (sum_comb(ai) + sum_comb(bj)) / 2
-        if (midx - eidx == 0) return(0)
-        (idx - eidx) / (midx - eidx)
-}
-
 #' Attach a vector to an sf layer by row order, with a length check
 #'
 #' @param polys An \code{sf} object whose row order matches \code{values}.
@@ -243,9 +639,7 @@ eco_palette <- function(n) {
         if (!inherits(polys, "sf"))
                 stop("`polys` must be an sf object whose row order matches the result.", call. = FALSE)
         if (length(values) != nrow(polys))
-                stop(sprintf("Length mismatch: %d values vs %d polygons. The sf layer must be ",
-                             "row-aligned to the clustering input.", length(values), nrow(polys)),
-                     call. = FALSE)
+                stop(sprintf("Length mismatch: %d values vs %d polygons. The sf layer must be row-aligned to the clustering input.", length(values), nrow(polys)), call. = FALSE)
         polys[[name]] <- values
         polys
 }
@@ -266,7 +660,8 @@ eco_palette <- function(n) {
 #' @return A ggplot object.
 #' @keywords internal
 .region_choropleth <- function(polys, col, discrete, title, sub, legend, 
-                               border = "white", alpha = NULL, shuffle = FALSE) {
+                               border = "white", alpha = NULL, shuffle = FALSE,
+                               alpha_name = "Membership degree") {
         .region_require("ggplot2", "sf")
         if (is.null(alpha)){
                 g <- ggplot2::ggplot(polys) +
@@ -277,18 +672,23 @@ eco_palette <- function(n) {
                                                       alpha = .data[[alpha]]),
                                          colour = NA,
                                          linewidth = 0.05) + 
-                        ggplot2::labs(alpha = "Membership Degree")
+                        ggplot2::labs(alpha = alpha_name)
         }
         
         if (discrete) {
-                
-                k <- data.table::uniqueN(polys[[col]])
-                if (shuffle == TRUE){
+                v <- polys[[col]]
+                k <- if(is.factor(v)) nlevels(v) else length(unique(v[!is.na(v)]))
+                final_palette <- eco_palette(k)
+                #k <- data.table::uniqueN(polys[[col]])
+                if (isTRUE(shuffle)){
+                        if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
+                                .old_seed <- get(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
+                                on.exit(assign(".Random.seed", .old_seed, envir = .GlobalEnv),
+                                        add = TRUE)
+                        }
                         set.seed(1)
-                        final_palette <- sample(eco_palette(k))
-                } else if (shuffle == FALSE){
-                        final_palette <- eco_palette(k)
-                }
+                        final_palette <- sample(final_palette)
+                } 
                 g <- g + ggplot2::scale_fill_manual(values = final_palette, na.value = "grey85",
                                                     drop = FALSE, name = legend)
         } else {
@@ -298,135 +698,7 @@ eco_palette <- function(n) {
 }
 
 
-# ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
-# LEVEL 1: REGIONS  (output of skater_con())
-# ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
 
-#' Map of fuzzy regions, or their assignment uncertainty
-#'
-#' The two faces of a fuzzy regionalisation: \code{fill = "region"} shows the
-#' hard partition (the regions), \code{fill = "uncertainty"} shows where the
-#' partition is *soft* -- the ecotones / transitional catchments that the hard
-#' map hides; \code{fill = "both"} shades the dominant region by its membership degree
-#' (transitional catchments fade out); \code{fill = "core"} does the same but
-#' masks everything outside the supplied core regions.
-#'
-#' @param polys An \code{sf} polygon/line layer, row-aligned to the catchments
-#'   that were clustered (same order as \code{regions$hard_clusters}).
-#'   
-#' @param regions The list returned by \code{skater_con()}.
-#' @param core Optional list of core-region objects (each with an \code{ID}
-#'   field). Required only when \code{fill = "core"}; ignored otherwise.
-#' @param fill One of "region" (default), "uncertainty", "both", or "core".
-#' @param uncertainty_method Passed to the entropy/margin/maxprob helper.
-#' @return A ggplot object.
-#' @export
-plot_region_map <- function(polys, regions, core = NULL, fill = c("region",
-                           "uncertainty", "both", "core"), uncertainty_method = 
-                           "entropy") {
-        fill <- match.arg(fill)
-        if (fill == "region") {
-                lab <- factor(regions$hard_clusters)
-                polys <- .region_attach(polys, lab, ".region")
-                .region_choropleth(polys, ".region", discrete = TRUE,
-                                   title = "Regions",
-                                   sub = sprintf("%d regions (hard partition) \u00b7 %d mapping units",
-                                                 nlevels(lab), length(lab)),
-                                   legend = "Region")
-        } else if (fill == "uncertainty"){
-                u <- .region_uncertainty(regions$memberships, uncertainty_method)
-                polys <- .region_attach(polys, u, ".unc")
-                .region_choropleth(polys, ".unc", discrete = FALSE,
-                                   title = "Region assignment uncertainty",
-                                   sub = "Normalised membership entropy\u00b7 bright = transitional (ecotone)",
-                                   legend = "Uncertainty")
-        } else if (fill == "both"){
-                u <- regions$memberships
-                pd <- dplyr::bind_cols(polys, as.data.frame(u))
-                class_cols <- dplyr::setdiff(names(pd), names(polys))
-                
-                # Calculate dominant region and membership to dominant region
-                data_summary <- dplyr::rowwise(pd)
-                data_summary <- dplyr::mutate(data_summary,
-                                              Max_Memb = max(dplyr::c_across(dplyr::all_of(class_cols))),
-                                              Dominant_Class = class_cols[which.max(dplyr::c_across(dplyr::all_of(class_cols)))])
-                data_summary$Dominant_Class <- gsub("V", "", data_summary$Dominant_Class)
-                data_summary <- dplyr::ungroup(data_summary)
-                #polys <- .region_attach(polys, u, ".unc")
-                .region_choropleth(data_summary, "Dominant_Class", discrete = TRUE,
-                                   title = "Continuous Region Membership",
-                                   alpha = "Max_Memb",
-                                   sub = "Degree of Membership for highest membership region \n bright = low membership = transitional (ecotone)",
-                                   legend = "Region")
-        } else if (fill == "core"){
-                if (is.null(core)){
-                        stop("If method core is selected a core object must be provided.")
-                }
-                u <- regions$memberships
-                pd <- dplyr::bind_cols(polys, as.data.frame(u))
-                class_cols <- dplyr::setdiff(names(pd), names(polys))
-                
-                # Calculate dominant region and membership to dominant region
-                data_summary <- dplyr::rowwise(pd)
-                data_summary <- dplyr::mutate(data_summary,
-                                              Max_Memb = max(dplyr::c_across(dplyr::all_of(class_cols))),
-                                              Dominant_Class = class_cols[which.max(dplyr::c_across(dplyr::all_of(class_cols)))])
-                data_summary <- dplyr::ungroup(data_summary)
-                data_summary$Dominant_Class <- gsub("V", "", data_summary$Dominant_Class)
-                # Extract IDs of all core regions and subset data_summary
-                core_ids <- unlist(sapply(core, function(x) x$ID))
-                data_summary$Max_Memb[!data_summary$ID %in% core_ids] <- 0
-                
-                .region_choropleth(data_summary, "Dominant_Class", discrete = TRUE,
-                                   title = "Core Regions",
-                                   alpha = "Max_Memb",
-                                   sub = "",
-                                   legend = "Region")
-        }
-}
-
-#' Eco-region composition and crispness diagnostics
-#'
-#' Left: region "mass" -- hard catchment count vs soft membership mass (column
-#' sums of U); a gap reveals regions that are real but never anyone's argmax.
-#' Right: distribution of per-catchment max membership -- how crisp the
-#' partition is overall.
-#'
-#' @param regions Result of \code{skater_con()}.
-#' @return A patchwork of two ggplots.
-#' @export
-plot_region_membership <- function(regions) {
-        .region_require("ggplot2", "patchwork")
-        U   <- as.matrix(regions$memberships)
-        hard <- regions$hard_clusters
-        k   <- ncol(U)
-        
-        comp <- data.frame(
-                region = factor(rep(seq_len(k), 2)),
-                kind   = rep(c("Hard count", "Soft mass"), each = k),
-                value  = c(as.numeric(table(factor(hard, levels = seq_len(k)))), colSums(U))
-        )
-        p1 <- ggplot2::ggplot(comp, ggplot2::aes(.data$region, .data$value, fill = .data$kind)) +
-                ggplot2::geom_col(position = "dodge", width = 0.7) +
-                ggplot2::scale_fill_manual(values = c("Hard count" = "grey55", "Soft mass" = "#0072B2"),
-                                           name = NULL) +
-                ggplot2::labs(title = "Region size", x = "Eco-region", y = "Catchments") +
-                theme_eco() + ggplot2::theme(legend.position = "top")
-        
-        crisp <- data.frame(maxU = apply(U, 1, max))
-        p2 <- ggplot2::ggplot(crisp, ggplot2::aes(.data$maxU)) +
-                ggplot2::geom_histogram(bins = 40, fill = "#009E73", colour = "white") +
-                ggplot2::geom_vline(xintercept = 1 / k, linetype = 2, colour = "grey40") +
-                ggplot2::annotate("text", x = 1 / k, y = Inf, label = "  uniform (1/k)",
-                                  hjust = 0, vjust = 1.5, size = 3, colour = "grey40") +
-                ggplot2::labs(title = "Partition crispness",
-                              subtitle = "Per-catchment maximum membership",
-                              x = "max membership", y = "Catchments") +
-                theme_eco()
-        
-        patchwork::wrap_plots(p1, p2, widths = c(1.1, 1)) +
-                patchwork::plot_annotation(title = "Eco-region membership structure")
-}
 
 # ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
 # Tuning diagnostics: plotting
@@ -495,14 +767,6 @@ plot_region_membership <- function(regions) {
         tl
 }
 
-#' Axes present in a log that actually vary
-#' @keywords internal
-#' @noRd
-.region_active_axes <- function(tl) {
-        present <- intersect(.REGION_AXES, names(tl))
-        present[vapply(present, function(a) length(unique(tl[[a]])) > 1L, logical(1))]
-}
-
 #' Row of the log holding the optimum
 #' @keywords internal
 #' @noRd
@@ -543,158 +807,62 @@ plot_region_membership <- function(regions) {
 }
 
 
-# ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
-# 1. Two-axis tuning surface
-# ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
+.region_unc_label <- function(method, simplex){
+        base <- switch(
+                method, 
+                entropy = "Normalized Shannon Entropy",
+                margin = "1 - gap between top two values",
+                maxprob = "1 - top value"
+        )
+        if (simplex) return(paste0(base, "of the membership row"))
+        if (identical(method, "entropy")){
+                return(paste0(base, "of the row-normalized typicallity /u00b7 absolute support discarded"))
+        }
+        paste0(base," of the typicality row")
+}
 
-#' Tuning Surface Over Two Hyper-parameter Axes
+
+#' Resolve which weight matrix a region plot should use
 #'
-#' Heat map of the tuning score over two chosen axes. With more than two axes
-#' searched, the remaining ones must be disposed of explicitly, because a tile
-#' plot silently overplots duplicated cells and would otherwise show an
-#' arbitrary slice.
-#'
-#' @param regions A `"regions_tuning"` object (or its `tuning_log`).
-#' @param x,y Axis names. `NULL` (default) picks the two active axes, with
-#'   `final_regions` on x when it varies.
-#' @param score_col Column to map to fill. Default `"score"` (higher is better
-#'   by construction, including for Borda, which is stored negated).
-#' @param others How to handle active axes other than `x` and `y`:
-#'   `"slice"` (default) pins them at their value in the best row;
-#'   `"facet"` panels over their combinations; `"max"` projects by taking the
-#'   best score over them (a profile surface, not a slice).
-#' @param max_facets Integer. Refuse to facet beyond this many panels. Default 12.
-#'
-#' @return A `ggplot` object.
-#' @export
-plot_region_cvi_grid <- function(regions,
-                                 x = NULL, y = NULL,
-                                 score_col = "score",
-                                 others = c("slice", "facet", "max"),
-                                 max_facets = 12L) {
-        .region_require("ggplot2")
-        others <- match.arg(others)
-        
-        tl     <- .region_tuning_log(regions)
-        active <- .region_active_axes(tl)
-        
-        if (length(active) < 2L) {
-                stop("Only ", length(active), " axis varies in this log (",
-                     paste(active, collapse = ", "), "); a surface needs two. ",
-                     "Use plot_region_profiles() instead.", call. = FALSE)
-        }
-        
-        # --- Choose the plotted axes ----------------------------------------
-        if (is.null(x) && is.null(y)) {
-                x <- if ("final_regions" %in% active) "final_regions" else utils::tail(active, 1L)
-                y <- setdiff(active, x)[1L]
-        } else if (is.null(y)) {
-                y <- setdiff(active, x)[1L]
-        } else if (is.null(x)) {
-                x <- setdiff(active, y)[1L]
-        }
-        for (a in c(x, y)) {
-                if (!a %in% names(tl)) stop("Axis '", a, "' is not a column of `tuning_log`.",
-                                            call. = FALSE)
-        }
-        if (identical(x, y)) stop("`x` and `y` must differ.", call. = FALSE)
-        
-        rest <- setdiff(active, c(x, y))
-        
-        # --- Dispose of the remaining axes ----------------------------------
-        sub     <- tl
-        best    <- .region_best_row(tl, score_col)
-        subtitle_extra <- NULL
-        facet_by <- NULL
-        
-        if (length(rest)) {
-                if (others == "slice") {
-                        sl   <- .region_slice_at_best(tl, free_axes = c(x, y), score_col = score_col)
-                        sub  <- sl$data
-                        subtitle_extra <- .region_pin_label(sl$best, sl$pinned)
-                } else if (others == "facet") {
-                        n_panels <- nrow(unique(tl[, rest, drop = FALSE]))
-                        if (n_panels > max_facets) {
-                                stop(sprintf(paste0(
-                                        "Faceting over %s would need %d panels (max_facets = %d). ",
-                                        "Use others = \"slice\" or \"max\", or name `x`/`y` differently."),
-                                        paste(rest, collapse = " x "), n_panels, max_facets),
-                                     call. = FALSE)
-                        }
-                        sub$.facet <- do.call(paste,
-                                              c(lapply(rest, function(a)
-                                                      sprintf("%s = %s", a, format(tl[[a]]))),
-                                                sep = " | "))
-                        facet_by <- ".facet"
-                } else {                                   # "max"
-                        keys <- do.call(paste, c(sub[, c(x, y), drop = FALSE], sep = "\r"))
-                        ord  <- order(keys, -xtfrm(sub[[score_col]]), na.last = TRUE)
-                        sub  <- sub[ord, , drop = FALSE]
-                        sub  <- sub[!duplicated(keys[ord]), , drop = FALSE]
-                        subtitle_extra <- paste0("best over ", paste(rest, collapse = ", "),
-                                                 " (projection, not a slice)")
+#' @param regions Result of \code{get_regions()}.
+#' @param weights "memberships" (default), "typicality", or a numeric N x k
+#'   matrix supplied directly (e.g. \code{compute_typicality(regions,
+#'   scale = "chance")}), which lets the caller pick a typicality scale without
+#'   every plot growing a \code{scale} argument.
+#' @return The matrix, carrying attributes \code{wt_label} and \code{simplex}.
+#'   NOTE: subsetting drops these; read them before you subset.
+#' @keywords internal
+#' @noRd
+
+.region_weights <- function(regions, weights = c("memberships", "typicality")){
+        if (is.matrix(weights) || is.data.frame(weights)){
+                U <- as.matrix(weights)
+                lab <- "supplied weights"
+                rs <- rowSums(U)
+                simplex <- all(is.finite(rs)) && max(abs(rs-1))<1e-0
+        } else {
+                weights <- match.arg(weights)
+                U <- regions[[weights]]
+                if (is.null(U)){
+                        stop("regions$", weights, " is NULL.",
+                        if (identical(weights, "typicality"))
+                                paste0(" get_regions() populates a different field set in its ",
+                                       "tuned and single-configuration branches; pass the matrix ",
+                                       "to `weights` directly if this run did not store it.")
+                        else "", call. = FALSE)
                 }
+                U <- as.matrix(U)
+                lab = "weights"
+                simplex <- identical(weights, "membership")
         }
-        
-        if (!nrow(sub)) {
-                stop("The requested slice is empty. This happens when the optimum was ",
-                     "never evaluated jointly with the plotted axes, which is normal for ",
-                     "coordinate-descent logs; try others = \"max\".", call. = FALSE)
+        if (!is.numeric(U)) stop("The weight matrix must be numeric", call. = FALSE)
+        if (!is.null(regions$hard_clusters) && nrow(U) != length(regions$hard_clusters)){
+                sprintf("Weight matrix had %d rows there are %d hard labels", nrow(U),
+                        length(regions$hard_clusters), call. =FALSE)
         }
-        
-        # --- Refuse to draw an overplotted tile map -------------------------
-        dup_key <- do.call(paste, c(sub[, c(x, y, facet_by), drop = FALSE], sep = "\r"))
-        if (anyDuplicated(dup_key)) {
-                stop("Multiple rows share the same (", x, ", ", y, ") cell after handling ",
-                     "the other axes; geom_tile() would silently overplot them. ",
-                     "Set others = \"slice\" or \"max\".", call. = FALSE)
-        }
-        
-        # Coordinate descent produces cross-shaped, non-factorial logs. Say so
-        # rather than letting the user read gaps as failed configurations.
-        n_cells <- length(unique(sub[[x]])) * length(unique(sub[[y]]))
-        if (nrow(sub) < n_cells) {
-                message(sprintf("  %d of %d cells evaluated: the search was not factorial ",
-                                "over these axes (expected for sequential / iterative).",
-                                nrow(sub), n_cells))
-        }
-        
-        sub$.x <- factor(sub[[x]], levels = sort(unique(sub[[x]])))
-        sub$.y <- factor(sub[[y]], levels = sort(unique(sub[[y]])))
-        
-        # The best row may have been sliced out under others = "facet"/"max";
-        # highlight it only if it survived.
-        best_key <- do.call(paste, c(best[, c(x, y), drop = FALSE], sep = "\r"))
-        sub_key  <- do.call(paste, c(sub[,  c(x, y), drop = FALSE], sep = "\r"))
-        best_sub <- sub[sub_key == best_key, , drop = FALSE]
-        
-        p <- ggplot2::ggplot(sub, ggplot2::aes(.data$.x, .data$.y,
-                                               fill = .data[[score_col]])) +
-                ggplot2::geom_tile(colour = "white", linewidth = 0.4)
-        
-        if (nrow(best_sub)) {
-                p <- p + ggplot2::geom_tile(data = best_sub, fill = NA,
-                                            colour = "black", linewidth = 1.1)
-        }
-        
-        p <- p +
-                ggplot2::scale_fill_viridis_c(option = "D", name = score_col) +
-                ggplot2::labs(
-                        title    = "Region tuning surface",
-                        subtitle = paste(c(
-                                sprintf("optimum: %s = %s, %s = %s",
-                                        .REGION_AXIS_LABELS[x], format(best[[x]]),
-                                        .REGION_AXIS_LABELS[y], format(best[[y]])),
-                                subtitle_extra), collapse = "\n"),
-                        x = unname(.REGION_AXIS_LABELS[x]),
-                        y = unname(.REGION_AXIS_LABELS[y])
-                ) +
-                theme_eco()
-        
-        if (!is.null(facet_by)) {
-                p <- p + ggplot2::facet_wrap(stats::as.formula(paste("~", facet_by)))
-        }
-        p
+        attr(U, "wt_lab") <- lab
+        attr(U, "simplex") <- simplex
+        U
 }
 
 
@@ -927,29 +1095,50 @@ plot_region_tuning <- function(regions,
 #' three-way mixture.
 #'
 #' @param regions Result of \code{skater_con()} with exactly 3 final regions.
+#' @param weights "memberships" (default), "typicality", or a numeric matrix.
+#'   Non-simplex weights are row-normalised for the projection; the absolute
+#'   level is preserved as point transparency, because otherwise a unit typical
+#'   of all three regions and a unit typical of none plot at the same point.
 #' @return A ggplot object.
 #' @export
-plot_membership_ternary <- function(regions) {
+plot_membership_ternary <- function(regions, weights = c("memberships", "typicality")) {
         .region_require("ggplot2")
-        U <- as.matrix(regions$memberships)
-        if (ncol(U) != 3L) stop("Ternary plot requires exactly 3 regions (k = ", ncol(U), ").",
-                                call. = FALSE)
-        U <- U / pmax(rowSums(U), .Machine$double.eps)
-        x <- U[, 2] + U[, 3] / 2
-        y <- U[, 3] * sqrt(3) / 2
-        df <- data.frame(x = x, y = y, region = factor(.region_hard_from_U(U)))
+        U       <- .region_weights(regions, weights)
+        simplex <- attr(U, "simplex")
+        if (ncol(U) != 3L)
+                stop("Ternary plot requires exactly 3 regions (k = ", ncol(U), ").",
+                     call. = FALSE)
+        
+        level <- U[cbind(seq_len(nrow(U)), max.col(U, ties.method = "first"))]
+        P     <- U / pmax(rowSums(U), .Machine$double.eps)
+        df    <- data.frame(x = P[, 2] + P[, 3] / 2,
+                            y = P[, 3] * sqrt(3) / 2,
+                            level  = level,
+                            region = factor(.region_hard_from_U(P)))
         corners <- data.frame(x = c(0, 1, 0.5), y = c(0, 0, sqrt(3) / 2),
                               lab = c("Region 1", "Region 2", "Region 3"))
-        ggplot2::ggplot() +
+        
+        g <- ggplot2::ggplot() +
                 ggplot2::geom_polygon(data = corners, ggplot2::aes(.data$x, .data$y),
-                                      fill = NA, colour = "grey60") +
-                ggplot2::geom_point(data = df, ggplot2::aes(.data$x, .data$y, colour = .data$region),
-                                    alpha = 0.5, size = 1) +
-                ggplot2::geom_text(data = corners, ggplot2::aes(.data$x, .data$y, label = .data$lab),
-                                   vjust = c(2, 2, -1), fontface = "bold") +
+                                      fill = NA, colour = "grey60")
+        g <- if (simplex) {
+                g + ggplot2::geom_point(data = df,
+                                        ggplot2::aes(.data$x, .data$y, colour = .data$region),
+                                        alpha = 0.5, size = 1)
+        } else {
+                g + ggplot2::geom_point(data = df,
+                                        ggplot2::aes(.data$x, .data$y, colour = .data$region,
+                                                     alpha = .data$level), size = 1) +
+                        ggplot2::labs(alpha = "Max typicality")
+        }
+        g + ggplot2::geom_text(data = corners,
+                               ggplot2::aes(.data$x, .data$y, label = .data$lab),
+                               vjust = c(2, 2, -1), fontface = "bold") +
                 ggplot2::scale_colour_manual(values = eco_palette(3), name = "Argmax region") +
                 ggplot2::coord_equal(clip = "off") +
-                ggplot2::labs(title = "Eco-region membership simplex") +
+                ggplot2::labs(title = sprintf("Region %s simplex", attr(U, "wt_label")),
+                              subtitle = if (simplex) NULL
+                              else "Rows renormalised for position; level shown as opacity") +
                 theme_eco(map = TRUE) + ggplot2::theme(legend.position = "right")
 }
 
@@ -1296,13 +1485,20 @@ plot_mosaic_signatures <- function(mosaic, sigs) {
 #' @return A ggplot object.
 #' @export
 plot_mosaic_validity <- function(mosaic,
-                                 metrics = c("XB_star", "SIL_F", "STAB",
-                                             "SILH_HARD", "MPC")) {
+                                 metrics = c("CH_JS", "STAB", "SILH_fuzzy")) {
         .region_require("ggplot2")
         v <- mosaic$validity
         metrics <- intersect(metrics, names(v))
-        dir <- c(XB_star = "min", SIL_F = "max", STAB = "max",
-                 SILH_HARD = "max", MPC = "max", PE = "min", PC = "max")
+        dir <- c(
+                R2_JS = "max",
+                CH_JS = "max",
+                fch             = "max",
+                FS = "min",
+                STAB            = "max",
+                GD5             = "max",
+                fhv             = "min",
+                SILH_fuzzy      = "max"
+        )
         rows <- list()
         for (mt in metrics) {
                 if (all(is.na(v[[mt]]))) next
@@ -1392,36 +1588,43 @@ plot_mosaic_ksweep <- function(sweep_df) {
 #' per-level uncertainties -- the substrate for every cross-level plot.
 #'
 #' @param region,local,mosaic Results of the three pipeline stages (any may be NULL).
+#' @param region_weights "memberships" (default), "typicality", or a matrix.
 #' @return A data.frame with hard-label columns \code{region}, \code{local},
 #'   \code{mosaic} and per-level uncertainty columns \code{u_region},
 #'   \code{u_lt}, \code{u_mosaic} (only those whose input was supplied).
 #' @export
-assemble_typology <- function(region = NULL, local = NULL, mosaic = NULL) {
-        lens <- c(region  = if (!is.null(region))  length(region$hard_clusters) else NA,
-                  local   = if (!is.null(local))   nrow(local$localtypes)       else NA,
-                  mosaic  = if (!is.null(mosaic))  length(mosaic$valid)         else NA)
+assemble_typology <- function(region = NULL, local = NULL, mosaic = NULL,
+                              region_weights = c("memberships", "typicality")) {
+        lens <- c(region = if (!is.null(region)) length(region$hard_clusters) else NA,
+                  local  = if (!is.null(local))  nrow(local$localtypes)       else NA,
+                  mosaic = if (!is.null(mosaic)) length(mosaic$valid)         else NA)
         N <- unique(stats::na.omit(lens))
         if (length(N) > 1) stop("Inputs are not row-aligned (lengths: ",
                                 paste(names(lens), lens, sep = "=", collapse = ", "), ").",
                                 call. = FALSE)
         N <- N[1]
         
-        out <- data.frame(.row = seq_len(N))
+        out     <- data.frame(.row = seq_len(N))
+        reg_lab <- "memberships"
         if (!is.null(region)) {
-                out$region <- factor(region$hard_clusters)
-                out$u_region     <- .region_uncertainty(region$memberships)
+                U       <- .region_weights(region, region_weights)
+                reg_lab <- attr(U, "wt_label")
+                out$region   <- factor(region$hard_clusters)
+                out$u_region <- .region_uncertainty(U)
         }
         if (!is.null(local)) {
                 out$local <- droplevels(.region_lt_hard(local))
-                out$u_lt       <- .region_uncertainty(local$localtypes)
+                out$u_lt  <- .region_uncertainty(local$localtypes)
         }
         if (!is.null(mosaic)) {
                 ls <- rep(NA_integer_, N); ls[mosaic$valid] <- .region_mosaic_hard(mosaic)
                 out$mosaic <- factor(ls)
-                uu <- rep(NA_real_, N); uu[mosaic$valid] <- .region_uncertainty(.region_mosaic_U(mosaic))
+                uu <- rep(NA_real_, N)
+                uu[mosaic$valid] <- .region_uncertainty(.region_mosaic_U(mosaic))
                 out$u_mosaic <- uu
         }
         out$.row <- NULL
+        attr(out, "region_weights") <- reg_lab
         out
 }
 
@@ -1556,20 +1759,26 @@ plot_hierarchy_maps <- function(polys, region = NULL, local = NULL, mosaic = NUL
 plot_hierarchy_uncertainty <- function(typ) {
         .region_require("ggplot2")
         cols <- intersect(c("u_region", "u_lt", "u_mosaic"), names(typ))
-        if (!length(cols)) stop("No uncertainty columns found in the typology table.", call. = FALSE)
+        if (!length(cols)) stop("No uncertainty columns found in the typology table.",
+                                call. = FALSE)
         labmap <- c(u_region = "Region", u_lt = "Local type", u_mosaic = "Mosaic type")
-        rows <- lapply(cols, function(cc)
-                data.frame(level = unname(labmap[cc]), u = typ[[cc]]))
-        df <- do.call(rbind, rows)
+        df <- do.call(rbind, lapply(cols, function(cc)
+                data.frame(level = unname(labmap[cc]), u = typ[[cc]])))
         df <- df[is.finite(df$u), , drop = FALSE]
         df$level <- factor(df$level, levels = labmap[cols])
+        
+        rw  <- attr(typ, "region_weights")
+        sub <- "Normalised membership entropy (0 = crisp, 1 = ambiguous)"
+        if (identical(rw, "typicality"))
+                sub <- paste0(sub, "\nRegion column from row-normalised typicality \u2014 ",
+                              "not on the same scale as the other two levels")
         
         ggplot2::ggplot(df, ggplot2::aes(.data$level, .data$u, fill = .data$level)) +
                 ggplot2::geom_violin(colour = NA, alpha = 0.5, scale = "width") +
                 ggplot2::geom_boxplot(width = 0.16, outlier.shape = NA, fill = "white") +
-                ggplot2::scale_fill_manual(values = eco_palette(nlevels(df$level)), guide = "none") +
+                ggplot2::scale_fill_manual(values = eco_palette(nlevels(df$level)),
+                                           guide = "none") +
                 ggplot2::labs(title = "Assignment uncertainty across levels",
-                              subtitle = "Normalised membership entropy (0 = crisp, 1 = ambiguous)",
-                              x = NULL, y = "Uncertainty") +
+                              subtitle = sub, x = NULL, y = "Uncertainty") +
                 theme_eco()
 }

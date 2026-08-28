@@ -4,10 +4,7 @@
 \alias{plot_mosaic_validity}
 \title{Cluster-validity profile for mosaic-type selection}
 \usage{
-plot_mosaic_validity(
-  mosaic,
-  metrics = c("XB_star", "SIL_F", "STAB", "SILH_HARD", "MPC")
-)
+plot_mosaic_validity(mosaic, metrics = c("CH_JS", "STAB", "SILH_fuzzy"))
 }
 \arguments{
 \item{mosaic}{Result of \code{get_mosaic_types()}.}

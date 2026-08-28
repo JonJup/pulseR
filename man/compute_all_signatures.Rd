@@ -11,7 +11,7 @@ compute_all_signatures(
   verbose = TRUE,
   coords = NULL,
   kernel = c("none", "gaussian", "exponential", "linear"),
-  sigma = 1,
+  sigma = NULL,
   digits = 3L
 )
 }

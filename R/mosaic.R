@@ -36,7 +36,7 @@ get_reachability <- function(graph, k) {
                 stop("`k` must be a single positive integer.", call. = FALSE)
         k <- as.integer(k)
         
-        # Binary adjacency (attr = NULL ignores any edge weights), kept sparse.
+        # Binary adjacency (attr = NULL ignores edge weights), kept sparse.
         A <- igraph::as_adjacency_matrix(graph, sparse = TRUE, attr = NULL)
         n <- nrow(A)
         
@@ -128,15 +128,15 @@ compute_signature <- function(focal, P, graph, Rk, A = NULL, coords = NULL,
                               digits = NULL) {
         kernel  <- match.arg(kernel)
         nc      <- ncol(P)
-        sig_len <- nc * (nc + 1L) / 2L
+        sig_len <- nc * (nc + 1) / 2
         
-        # ---- Neighborhood lookup (includes the focal itself, via the diagonal) ----
+        # ---- Neighborhood lookup (includes the focal itself, via the diagonal) ----*
         if (methods::is(Rk, "CsparseMatrix")) {
                 # Use the column-compressed structure directly; column `focal`'s stored
                 # rows are exactly its k-order neighbors (reachability is symmetric).
                 p <- Rk@p
-                nb_idx <- if (p[focal + 1L] > p[focal]) {
-                        Rk@i[(p[focal] + 1L):p[focal + 1L]] + 1L
+                nb_idx <- if (p[focal + 1] > p[focal]) {
+                        Rk@i[(p[focal] + 1):p[focal + 1]] + 1
                 } else {
                         integer(0)
                 }
@@ -149,12 +149,12 @@ compute_signature <- function(focal, P, graph, Rk, A = NULL, coords = NULL,
                 return(rep(NA_real_, sig_len))
         }
         
-        # ---- Adjacency: reuse the caller's matrix; only rebuild when standalone ----
+        # ---- Adjacency: reuse the caller's matrix; only rebuild when standalone ----*
         if (is.null(A)) {
                 A <- igraph::as_adjacency_matrix(graph, sparse = TRUE, attr = NULL)
         }
         
-        # ---- Distance weights -----------------------------------------------------
+        # ---- Distance weights -----------------------------------------------------*
         # Spatial (Euclidean) distance between the focal centroid and each neighbor
         # centroid, replacing the previous graph shortest-path distance. `graph` is
         # now used only for the adjacency fallback above, not for distances.
@@ -184,7 +184,7 @@ compute_signature <- function(focal, P, graph, Rk, A = NULL, coords = NULL,
                             linear      = pmax(0, 1 - dists / sigma))
         }
         
-        # ---- Local membership / adjacency and weighting ---------------------------
+        # ---- Local membership / adjacency and weighting ---------------------------*
         P_local <- P[nb_idx, , drop = FALSE]
         A_local <- A[nb_idx, nb_idx, drop = FALSE]
         P_w     <- sweep(P_local, 1, w, "*")              # scale each polygon's row by w_i
@@ -238,11 +238,11 @@ compute_signature <- function(focal, P, graph, Rk, A = NULL, coords = NULL,
 #' @export
 compute_all_signatures <- function(P, graph, k, verbose = TRUE, coords = NULL,
                                    kernel = c("none", "gaussian", "exponential", "linear"),
-                                   sigma  = 1,
+                                   sigma  = NULL,
                                    digits = 3L) {
         kernel <- match.arg(kernel)
         
-        # ---- Input validation -----------------------------------------------------
+        # ---- Input validation -----------------------------------------------------*
         if (!igraph::is_igraph(graph))
                 stop("`graph` must be an igraph object.", call. = FALSE)
         P <- as.matrix(P)
@@ -592,7 +592,8 @@ sweep_k_order <- function(P, graph, coords = NULL, k_range = 1:5, n_clusters = 2
                 out[[ki]] <- data.frame(
                         k_order    = k,
                         n_clusters = cl$validity$k,
-                        silhouette = cl$validity$SILH_HARD,
+                        R2_JS = cl$validity$R2_JS,
+                        saturation = cl$validity$SAT,
                         best       = cl$best_k
                 )
         }
@@ -680,9 +681,10 @@ rowH <- function(P) {                      # Shannon entropy per row, nats
 #' @importFrom stats as.dist
 #' @keywords internal
 .mosaic_cvis <- function(fz, Sig, D_full, stability_B = 25L, seed = NULL) {
+        
         U   <- fz$memberships
         N   <- nrow(U)
-        k <- ncol(U)
+        k   <- ncol(U)
         m   <- fz$fuzziness
         med <- fz$pam_result$id.med
         stopifnot(nrow(Sig) == N, length(med) == k, ncol(fz$d_to_medoids) == k)
@@ -724,8 +726,11 @@ rowH <- function(P) {                      # Shannon entropy per row, nats
         STAB <- .stability_pam_diss(D_full, fz$pam_result$clustering, k,
                                     B = stability_B, seed = seed)
         
+        fuzzy_silhouette <- .fuzzy_silhouette(D=D_full,U=U,)
+        
+        
         data.frame(k = k, R2_JS = R2_JS, CH_JS = CH_JS, FS = FS, GD5 = GD5,
-                   STAB = STAB, SAT = SAT,
+                   STAB = STAB, SAT = SAT, SILH_fuzzy = fuzzy_silhouette,
                    SILH_HARD = fz$pam_result$silinfo$avg.width)
 }
 #' Centroid coordinates for a set of polygons
@@ -816,6 +821,43 @@ polygon_to_centroids <- function(polygons,
 }
 
 
+#' Fuzzy Silhouette (Campello & Hruschka 2006)
+#'
+#' Weights the per-object Rousseeuw silhouette by the fuzziness margin
+#' \eqn{(u_{ip} - u_{iq})^\alpha}. \eqn{\alpha = 1} (default) is the canonical
+#' fuzzy generalisation; \eqn{\alpha \to \infty} reduces to the crisp
+#' silhouette; \eqn{\alpha \to 0} is an unweighted average of \eqn{s_i}.
+#'
+#' @param D N x N dissimilarity (or \code{dist}) over the same N rows as U.
+#' @param U N x k membership matrix.
+#' @param alpha Non-negative numeric. Default 1.
+#' @return Numeric scalar; higher is better. \code{NA_real_} if \code{k < 2}.
+#' @keywords internal
+#' @noRd
+.fuzzy_silhouette <- function(D, U, alpha = 1) {
+        N <- nrow(U)       # number of objects
+        k <- ncol(U)       # number of classes
+        D_size <- if (inherits(D, "dist")) attr(D, "Size") else nrow(D)
+        if (N != D_size) stop("Dimensions of D and U disagree.", call. = FALSE)
+        if (k < 2L) return(NA_real_)
+        
+        # Hard labels = highest-probability class per object.
+        labels <- max.col(U, ties.method = "first")
+        s_i    <- .rousseeuw_silhouette(D, labels)
+        
+        # Per-object top-two memberships. apply(..., sort, decreasing = TRUE) returns
+        # a k x N matrix (each column is one sorted row of U); rows 1 and 2 are the
+        # per-object top-1 and top-2 memberships.
+        sorted_U <- apply(U, 1L, sort, decreasing = TRUE)
+        if (!is.matrix(sorted_U)) return(NA_real_)  # extra defense (k == 1)
+        margins <- sorted_U[1L, ] - sorted_U[2L, ]
+        
+        w <- margins ^ alpha
+        if (sum(w) <= 0) return(NA_real_)
+        sum(w * s_i) / sum(w)
+}
+
+
 .mosaic_score <- function(df, metric) {
         switch(metric,
                R2_JS     = df$R2_JS,
@@ -824,10 +866,19 @@ polygon_to_centroids <- function(polygons,
                GD5       = df$GD5,
                stability = df$STAB,
                silhouette = df$SILH_HARD,
-               borda     = -.borda_score(df[, c("CH_JS", "GD5", "STAB")],
+               silhouette_fuzzy = df$SILH_fuzzy,
+               borda     = -.borda_score(df[, c("CH_JS","STAB", "SILH_fuzzy")],
                                          c("max", "max", "max")),
                stop("Unknown metric: ", metric, call. = FALSE))
 }
-
-
-
+# 
+# with(mosiac$validity, cor(rank(-CH_JS), rank(-GD5), method = "spearman"))
+# # within-L rank correlation, pooled
+# r <- with(mosiac$validity, tapply(seq_len(nrow(mosiac$validity)), k, function(i)
+#         cor(rank(-CH_JS[i]), rank(-GD5[i]), method = "spearman")))
+# r   # if these are ~0.3 and the global ρ was 0.85, the trend was doing the work
+# 
+# 
+# b3 <- .borda_score(mosiac$validity[, c("CH_JS","GD5","STAB")], c("max","max","max"))
+# b2 <- .borda_score(mosiac$validity[, c("CH_JS","STAB")],       c("max","max"))
+# log[which.min(b3), c("L","k_order")]; log[which.min(b2), c("L","k_order")]

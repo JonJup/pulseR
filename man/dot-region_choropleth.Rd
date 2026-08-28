@@ -13,7 +13,8 @@
   legend,
   border = "white",
   alpha = NULL,
-  shuffle = FALSE
+  shuffle = FALSE,
+  alpha_name = "Membership degree"
 )
 }
 \arguments{

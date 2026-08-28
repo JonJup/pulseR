@@ -1,6 +1,6 @@
-# =============================================================================
+# =============================================================================*
 # Spatial network construction + package utility helpers
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------*
 # Hardened version. Key fixes over the original (see accompanying notes):
 #   * Removed the `a:b` count-down footguns: `(off+1):(off+n)` and `1:n` both
 #     misbehave when n == 0. Replaced with `seq_len()`-based indexing.
@@ -13,7 +13,7 @@
 #   * Fixed the embedded-newline message string in .warn_if_longlat() and the
 #     duplicate st_is_longlat() call; .assert_nonneg() now rejects Inf/NaN.
 #   * Added roxygen to the previously undocumented functions.
-# =============================================================================
+# =============================================================================*
 
 
 #' Extract internal adjacency edges and boundary ("rim") polygons from one tile

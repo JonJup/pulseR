@@ -8,19 +8,18 @@ get_regions(
   graph,
   intermediate_regions = 50,
   final_regions,
-  env,
   n_st,
   fuzziness = 2,
   trees = NULL,
   crisp = FALSE,
   tuning_strategy = c("grid", "sequential", "iterative"),
-  tuning_metric = c("borda", "fuzzy_calinski_harabasz", "Fukuyama_Sugeno", "dunn5",
-    "fuzzy_hyper_volume", "stability"),
+  tuning_metric = c("borda"),
   stability_B = 25L,
   prior_typology = NULL,
   prior_strength = 0,
   partitions_per_tree = 1L,
   weight_exponent = 1L,
+  size_influence = 2,
   max_iter = 10,
   verbose = TRUE,
   seed = NULL
@@ -36,9 +35,6 @@ Vertices may optionally carry a prior-typology attribute (see
 candidate values. If a vector of length > 1 is supplied for
 \code{intermediate_regions} or \code{final_regions}, tuning is triggered; if
 \code{n_st} has length > 1, the ensemble size is chosen by stability.}
-
-\item{env}{Environmental data passed through to \code{.compute_fuzzy_cvis()}.
-The same data used to weight the edges in \code{\link{add_edge_weight}}.}
 
 \item{fuzziness}{Numeric \eqn{> 1}. Default 2.}
 

@@ -4,7 +4,13 @@
 \alias{get_core_regions}
 \title{Determine Core Regions from Fuzzy Membership Degrees}
 \usage{
-get_core_regions(graph, regions, cutoff = 0.5, queen = TRUE)
+get_core_regions(
+  graph,
+  regions,
+  cutoff = 0.5,
+  queen = TRUE,
+  typicality = FALSE
+)
 }
 \arguments{
 \item{graph}{The output of \code{\link{polygon_to_network}}.}
@@ -19,6 +25,11 @@ polygon to be included in a class's core region. Default \code{0.5}.}
 queen contiguity (polygons sharing an edge \emph{or} a single vertex). If
 \code{FALSE}, rook contiguity is used (only polygons sharing an edge of
 positive length).}
+
+\item{typicality}{Logical scalar. If \code{FALSE} (default) the membership matrix
+is used to compute core regions, i.e., the threshold in \code{cutoff} is used to
+select rows in the membership matrix \code{.$memberships}. If \code{TRUE} the
+typicality matrix \code{.$typicality} is used instead.}
 }
 \value{
 A named \code{list} with one element per membership column. Each element is an

@@ -4,10 +4,15 @@
 \alias{plot_membership_ternary}
 \title{Ternary membership plot for the special case of exactly 3 regions}
 \usage{
-plot_membership_ternary(regions)
+plot_membership_ternary(regions, weights = c("memberships", "typicality"))
 }
 \arguments{
 \item{regions}{Result of \code{skater_con()} with exactly 3 final regions.}
+
+\item{weights}{"memberships" (default), "typicality", or a numeric matrix.
+Non-simplex weights are row-normalised for the projection; the absolute
+level is preserved as point transparency, because otherwise a unit typical
+of all three regions and a unit typical of none plot at the same point.}
 }
 \value{
 A ggplot object.

@@ -4,10 +4,17 @@
 \alias{assemble_typology}
 \title{Assemble a row-aligned typology table across the three levels}
 \usage{
-assemble_typology(region = NULL, local = NULL, mosaic = NULL)
+assemble_typology(
+  region = NULL,
+  local = NULL,
+  mosaic = NULL,
+  region_weights = c("memberships", "typicality")
+)
 }
 \arguments{
 \item{region, local, mosaic}{Results of the three pipeline stages (any may be NULL).}
+
+\item{region_weights}{"memberships" (default), "typicality", or a matrix.}
 }
 \value{
 A data.frame with hard-label columns \code{region}, \code{local},

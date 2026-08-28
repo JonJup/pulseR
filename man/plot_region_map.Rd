@@ -9,7 +9,8 @@ plot_region_map(
   regions,
   core = NULL,
   fill = c("region", "uncertainty", "both", "core"),
-  uncertainty_method = "entropy"
+  uncertainty_method = "entropy",
+  weights = c("memberships", "typicality")
 )
 }
 \arguments{
@@ -24,6 +25,8 @@ field). Required only when \code{fill = "core"}; ignored otherwise.}
 \item{fill}{One of "region" (default), "uncertainty", "both", or "core".}
 
 \item{uncertainty_method}{Passed to the entropy/margin/maxprob helper.}
+
+\item{weights}{"memberships" (default) or "typicality".}
 }
 \value{
 A ggplot object.

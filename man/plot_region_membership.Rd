@@ -4,10 +4,12 @@
 \alias{plot_region_membership}
 \title{Eco-region composition and crispness diagnostics}
 \usage{
-plot_region_membership(regions)
+plot_region_membership(regions, weights = c("memberships", "typicality"))
 }
 \arguments{
 \item{regions}{Result of \code{skater_con()}.}
+
+\item{weights}{"memberships" (default), "typicality", or a numeric matrix.}
 }
 \value{
 A patchwork of two ggplots.

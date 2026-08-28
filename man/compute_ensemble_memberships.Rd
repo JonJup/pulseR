@@ -11,9 +11,10 @@ compute_ensemble_memberships(
   graph,
   intermediate_regions,
   prior_strength = 0,
-  partitions_per_tree = 1L,
+  partitions_per_tree = 1,
   weight_exponent = 1,
-  verbose = TRUE
+  verbose = TRUE,
+  size_influence = 2
 )
 
 \method{print}{ensemble_memberships}(x, ...)
@@ -69,6 +70,7 @@ is a region assignment from one spanning tree.}
 \item{\code{intermediate_regions}}{Number of regions per tree.}
 \item{\code{n_vertices}}{Number of vertices.}
 \item{\code{prior_strength}}{The prior strength used.}
+\item{\code{chance_coassoc}}{Mean chance co-association \eqn{\bar p_0}; the reference scale for typicality.}
 }
 
 \code{print.ensemble_memberships} returns \code{x} invisibly.
