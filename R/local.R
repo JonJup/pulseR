@@ -15,13 +15,40 @@
 #' Accepts a "pulse_regions" object, a "regions_tuning" object (whose fit lives
 #' in $best_result), or a bare numeric matrix. `which = "typicality"` looks for
 #' the possibilistic matrix under any of the names the contract has used.
+#' The same checks (numeric, no NA, non-negative) run for every input type.
 #'
 #' @keywords internal
 #' @noRd
 .region_weights <- function(regions, which = c("memberships", "typicality")) {
         which <- match.arg(which)
         
-        if (is.matrix(regions) || is.data.frame(regions)) return(as.matrix(regions))
+        bare <- is.matrix(regions) || is.data.frame(regions)
+        if (bare) {
+                W <- as.matrix(regions)
+        } else {
+                W <- .region_weights_from_object(regions, which)
+        }
+        
+        if (!is.numeric(W))
+                stop("Region weights must be numeric.", call. = FALSE)
+        if (anyNA(W))
+                stop(sprintf(paste0(
+                        "Region weights contain NA in %d row(s)%s; ",
+                        "Level 2 handling for them is not yet defined. ",
+                        "Remove or fill those rows before calling get_local_types()."),
+                        sum(rowSums(is.na(W)) > 0),
+                        if (bare) "" else paste0(
+                                ". These are units with pi_support == 0 (a one-unit ",
+                                "piece in every ensemble partition)")), call. = FALSE)
+        if (any(W < 0))
+                stop("Region weights must be non-negative.", call. = FALSE)
+        W
+}
+
+#' Pull the region weight matrix out of a "pulse_regions" or "regions_tuning".
+#' @keywords internal
+#' @noRd
+.region_weights_from_object <- function(regions, which) {
         if (!is.list(regions))
                 stop("`regions` must be a 'pulse_regions' / 'regions_tuning' object or a matrix.",
                      call. = FALSE)
@@ -48,18 +75,7 @@
                              if (which == "typicality")
                                      " Refit with a version of cluster_consensus() that returns `cohesion`."
                              else ""), call. = FALSE)
-        W <- as.matrix(W)
-        if (!is.numeric(W))
-                stop("Region weights must be numeric.", call. = FALSE)
-        if (anyNA(W))
-                stop(sprintf(paste0(
-                        "Region weights contain NA in %d row(s). These are units with ",
-                        "pi_support == 0 (a one-unit piece in every ensemble partition); ",
-                        "Level 2 handling for them is not yet defined."),
-                        sum(rowSums(is.na(W)) > 0)), call. = FALSE)
-        if (any(W < 0))
-                stop("Region weights must be non-negative.", call. = FALSE)
-        W
+        as.matrix(W)
 }
 
 #' Weighted BIC of one me.weighted() fit.
