@@ -13,6 +13,7 @@ Imports:
     data.table,
     dplyr,
     ggplot2,
+    grDevices,
     igraph,
     Matrix,
     mclust,
@@ -24,7 +25,9 @@ Imports:
     sf,
     sfarrow,
     spdep,
-    tidyselect
+    stats,
+    tidyselect,
+    utils
 Suggests: 
     knitr,
     rmarkdown,
