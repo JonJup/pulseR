@@ -348,6 +348,11 @@ sample_spanning_trees <- function(weighted_graph, n, seed = NULL, verbose = TRUE
                 stop("Edge `weight`s must be finite and non-negative.", call. = FALSE)
         }
         
+        # Trees are mapped back to parent edges through `eid`, which must be the
+        # edge position. Set it here so any weighted igraph works, and so a
+        # user-supplied, non-positional `eid` cannot mis-map edges.
+        igraph::E(weighted_graph)$eid <- seq_len(igraph::ecount(weighted_graph))
+        
         # Extract properties of weights later used for perturbation
         
         # A disconnected graph yields a spanning *forest* (n_v - n_components edges),
