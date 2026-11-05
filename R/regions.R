@@ -306,8 +306,8 @@ get_regions <- function(graph,
 
 #' Sample spanning trees from a Spatial Graph
 #'
-#' Draws \code{n} spanning trees from a weighted, (ideally) connected
-#' \code{igraph} object. The trees, together with the parent graph's edge
+#' Draws \code{n} spanning trees from a weighted, connected \code{igraph}
+#' object; a disconnected graph is an error. The trees, together with the parent graph's edge
 #' weights/endpoints and any resolved prior-typology information, are bundled
 #' into a \code{"spanning_trees"} object that the rest of the pipeline consumes.
 #'
@@ -403,12 +403,13 @@ sample_spanning_trees <- function(weighted_graph, n, seed = NULL, verbose = TRUE
         # which breaks the "cut n_reg-1 edges of a tree" arithmetic downstream.
         comp <- igraph::components(weighted_graph)
         if (comp$no > 1L) {
-                warning(sprintf(
-                        paste0("`graph` has %d connected components: sample_spanning_tree() will ",
-                               "return a spanning forest and the intermediate region cut counts assume a single ",
-                               "tree. Supply a connected graph for well-defined region counts."),
-                        comp$no
-                ), call. = FALSE)
+                stop(sprintf(paste0(
+                        "`weighted_graph` has %d connected components (largest %d, smallest %d ",
+                        "vertices). Each tree would be a forest, every partition would get ",
+                        "%d extra pieces, and `regions_per_partition` would lose its meaning. ",
+                        "Connect the graph first, e.g. polygon_to_network(connect_islands = TRUE) ",
+                        "or connect_components()."),
+                        comp$no, max(comp$csize), min(comp$csize), comp$no - 1L), call. = FALSE)
         }
         
         # --- RNG handling: seed locally, restore the caller's state on exit ---- *-

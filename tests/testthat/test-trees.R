@@ -43,3 +43,10 @@ test_that(".subtree_sizes() matches brute force on random spanning trees", {
                 expect_equal(got, ref)
         }
 })
+
+test_that("a disconnected graph stops", {
+        g <- igraph::disjoint_union(igraph::make_lattice(c(4, 4)), igraph::make_ring(3))
+        igraph::E(g)$weight <- 1
+        expect_error(sample_spanning_trees(g, n = 2, verbose = FALSE),
+                     "2 connected components")
+})
