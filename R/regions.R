@@ -56,7 +56,8 @@
 #'   \code{"ch_env"}, \code{"r2_env"}, \code{"stability"},
 #'   \code{"silhouette_ca"}, \code{"expected_vi"}. See
 #'   \code{\link{tune_regions}}.
-#' @param stability_B Integer. Replicates for the \code{STAB} index during
+#' @param stability_B Integer. Random splits for the \code{STAB} index
+#'   (split-half ensemble agreement, see \code{\link{tune_regions}}) during
 #'   tuning. 0 skips it. Default 25.
 #' @param large_n_threshold Integer. Above this number of vertices, salso
 #'   runs on a sample of units and the rest are assigned and refined. Default
@@ -1740,6 +1741,19 @@ print.spanning_trees <- function(x, ...) {
 #' showing an interior optimum, so a CVI-selected \code{N_tree} will typically
 #' just be the largest candidate. Choose it by convergence, not by tuning.
 #'
+#' @section Validity indices:
+#' \code{CH_ENV} and \code{R2_ENV}: pseudo-F and \eqn{R^2} of the hard labels
+#' on \code{env}. \code{STAB}: split-half ensemble agreement. The ensemble
+#' columns are split at random into two disjoint halves, the consensus is
+#' computed at the same \code{final_regions} on each half, and the ARI
+#' between the two partitions is averaged over \code{stability_B} splits.
+#' The halves share no trees and no cuts, so \code{STAB} asks whether new
+#' trees and cuts would give the same regions. Each half has half the
+#' columns, so the value is conservative for the full ensemble, and it rises
+#' with \code{N_tree}. \code{SIL_CA}, \code{CERT}, \code{EVI} and \code{PAC}
+#' are computed from the ensemble itself and are reported, not used by the
+#' default Borda vote.
+#'
 #' @param graph The parent \code{igraph} object the trees were sampled from.
 #' @param env Optional data frame or matrix, one row per vertex of
 #'   \code{graph}, for the validity indices \code{CH_ENV} and \code{R2_ENV}.
@@ -1769,8 +1783,9 @@ print.spanning_trees <- function(x, ...) {
 #'   information between ensemble columns and the consensus).
 #' @param strategy Character. \code{"grid"} (default), \code{"sequential"}, or
 #'   \code{"iterative"}. See Details.
-#' @param stability_B Integer. Bootstrap replicates for the stability
-#'   sub-metric. Set to 0 to skip. Default 25.
+#' @param stability_B Integer. Random splits for \code{STAB} (see
+#'   Validity indices). Each split costs two consensus runs at half the
+#'   ensemble size. 0 skips it. Default 25.
 #' @param voters Character. Validity columns that vote in the Borda aggregate
 #'   (\code{metric = "borda"}). Default \code{c("CH_ENV", "STAB")}. Check
 #'   \code{STAB} against \code{\link{compute_null_baseline}} before relying on it.
@@ -1801,7 +1816,7 @@ print.spanning_trees <- function(x, ...) {
 #'   exit.
 #' @param stability_seed Optional integer. Seeds the subsampling inside the
 #'   \code{STAB} metric, identically for every configuration, so configurations
-#'   are compared on the same subsamples. Defaults to \code{seed}.
+#'   are compared on the same column splits. Defaults to \code{seed}.
 #' @param verbose Logical. Default \code{TRUE}.
 #'
 #' @return An object of class \code{"regions_tuning"}: a list with
@@ -1996,7 +2011,7 @@ tune_regions <- function(graph,
                 fit$step <- as.raw(fit$step)
                 cvis <- .consensus_cvis(
                         res, memb = memb_mat$memberships, env = env,
-                        stability_B = stability_B, stability_subsample_frac = 0.8,
+                        stability_B = stability_B,
                         stability_seed = stability_seed, large_n_threshold = large_n_threshold,
                         sample_size = sample_size, n_cores = n_cores, verbose = verbose)
                 list(out = cbind(cfg[, axis_cols, drop = FALSE],
@@ -2495,7 +2510,7 @@ print.pulse_regions <- function(x, ...) {
 #'   ensemble configuration under test (e.g. \code{tune_regions()$best_config}).
 #' @param size_influence,target_edge_turnover As in \code{\link{get_regions}}.
 #' @param B Integer. Null replicates. Default 19.
-#' @param stability_B Integer. Subsamples for \code{STAB}; use the value of
+#' @param stability_B Integer. Random splits for \code{STAB}; use the value of
 #'   the observed run.
 #' @param observed Optional \code{"regions_tuning"} object or a data frame
 #'   with \code{final_regions} and validity columns (e.g. a \code{tuning_log}).

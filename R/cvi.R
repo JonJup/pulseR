@@ -35,27 +35,40 @@
         mean(ca > lower & ca < upper)
 }
 
-#' Unit-subsampling stability of the consensus (mean ARI vs. reference).
-#' Refits with the SAME consensus procedure, so it measures how much the
-#' regionalisation depends on which units are present.
+#' Split-half ensemble agreement of the consensus (STAB)
+#'
+#' Splits the ensemble columns at random into two disjoint halves, runs the
+#' same consensus procedure at \code{k} on each half, and records the ARI
+#' between the two half-ensemble partitions; repeated \code{B} times. The
+#' halves share no trees and no cuts, so STAB measures whether independent
+#' sets of trees and cuts give the same regions. Each half has half the
+#' columns, so STAB is a conservative estimate for the full ensemble.
+#'
+#' @param memb Integer label matrix, N x M.
+#' @param k Target region count.
+#' @param B Number of random splits. 0 returns \code{NA}.
+#' @return Mean ARI over splits, or \code{NA} if \code{M < 4}.
 #' @keywords internal
 #' @noRd
-.stability_consensus <- function(memb, hard, k, B = 25L, subsample_frac = 0.8,
+.stability_consensus <- function(memb, k, B = 25L,
                                  large_n_threshold = 20000, sample_size = 5000L,
                                  n_runs = 4L, n_cores = 1L, seed = NULL) {
         if (B <= 0L) return(NA_real_)
-        N <- nrow(memb); n_sub <- floor(N * subsample_frac)
-        if (n_sub < 2L * k) return(NA_real_)
+        M <- ncol(memb)
+        if (M < 4L || nrow(memb) < 2L * k) return(NA_real_)
         .local_seed(seed)
+        half <- M %/% 2L
+        fit_half <- function(cols) tryCatch(
+                .consensus_partition(memb[, cols, drop = FALSE], k, large_n_threshold,
+                                     sample_size, refine_iter = 3L, n_runs, n_cores,
+                                     verbose = FALSE)$labels,
+                error = function(e) NULL)
         aris <- vapply(seq_len(B), function(b) {
-                idx   <- sort(sample.int(N, n_sub))
-                lab_b <- tryCatch(
-                        .consensus_partition(memb[idx, , drop = FALSE], k, large_n_threshold,
-                                             sample_size, refine_iter = 3L, n_runs, n_cores,
-                                             verbose = FALSE)$labels,
-                        error = function(e) NULL)
-                if (is.null(lab_b)) return(NA_real_)
-                .adjusted_rand_index(lab_b, hard[idx])
+                perm <- sample.int(M)
+                la <- fit_half(sort(perm[seq_len(half)]))
+                lb <- fit_half(sort(perm[half + seq_len(half)]))
+                if (is.null(la) || is.null(lb)) return(NA_real_)
+                .adjusted_rand_index(la, lb)
         }, numeric(1))
         mean(aris, na.rm = TRUE)
 }
@@ -64,7 +77,7 @@
 #'
 #' Columns and their direction:
 #'   CH_ENV, R2_ENV  external (environment)          higher better   NA if env = NULL
-#'   STAB            unit-subsampling ARI            higher better
+#'   STAB            split-half ensemble ARI         higher better
 #'   SIL_CA          mean co-association silhouette  higher better   ensemble-internal
 #'   CERT            mean own-region Pi membership   higher better   ensemble-internal
 #'   EVI             expected VI(draw, consensus)    lower better    ensemble-internal
@@ -72,14 +85,13 @@
 #' @keywords internal
 #' @noRd
 .consensus_cvis <- function(res, memb, env = NULL,
-                            stability_B = 25L, stability_subsample_frac = 0.8,
+                            stability_B = 25L,
                             stability_seed = NULL, large_n_threshold = 20000,
                             sample_size = 5000L, n_cores = 1L, verbose = FALSE) {
         k <- res$k; hard <- res$hard_clusters
         fe <- if (is.null(env)) c(CH_ENV = NA_real_, R2_ENV = NA_real_) else .pseudo_F_env(env, hard, k)
         if (verbose && stability_B > 0L) message(sprintf("    stability (B = %d) ...", stability_B))
-        stab <- .stability_consensus(memb, hard, k, B = stability_B,
-                                     subsample_frac = stability_subsample_frac,
+        stab <- .stability_consensus(memb, k, B = stability_B,
                                      large_n_threshold = large_n_threshold,
                                      sample_size = sample_size, n_cores = n_cores,
                                      seed = stability_seed)
