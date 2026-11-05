@@ -8,7 +8,6 @@
 #' by \code{\link{tune_regions}}; otherwise one ensemble and one consensus are
 #' computed.
 #'
-#' @inheritParams sample_spanning_trees
 #' @param graph A weighted \code{igraph} object, usually from
 #'   \code{\link{add_edge_weight}}. Edges must carry a numeric \code{weight}
 #'   attribute (finite, non-negative).
@@ -1638,16 +1637,6 @@ print.spanning_trees <- function(x, ...) {
 
 
 
-#' Canonical tuning axes, in coordinate-descent sweep order
-#'
-#' Order is deliberate: ensemble-shape parameters that change *which* partitions
-#' the ensemble contains are swept before parameters that change *how many*, and
-#' \code{final_regions} is swept last because it is conditionally cheap (it
-#' reuses the cached ensemble) so the reported optimum has a \emph{k} that is
-#' optimal for the selected ensemble.
-#'
-#' @keywords internal
-#' @noRd
 #' Environment for the validity indices and the null baseline
 #'
 #' \code{NULL} falls back to the matrix \code{add_edge_weight()} stored on the
@@ -1682,6 +1671,16 @@ print.spanning_trees <- function(x, ...) {
         env
 }
 
+#' Canonical tuning axes, in coordinate-descent sweep order
+#'
+#' Order is deliberate: ensemble-shape parameters that change *which* partitions
+#' the ensemble contains are swept before parameters that change *how many*, and
+#' \code{final_regions} is swept last because it is conditionally cheap (it
+#' reuses the cached ensemble) so the reported optimum has a \emph{k} that is
+#' optimal for the selected ensemble.
+#'
+#' @keywords internal
+#' @noRd
 .TUNE_AXES <- c("regions_per_partition", "weight_exponent",
                 "N_tree", "final_regions")
 
