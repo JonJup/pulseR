@@ -1367,6 +1367,12 @@ sweep_native_regions <- function(trees, graph,
         # salso's search for a solves a step function, and its final rerun at the
         # root can land on the low side (k - 1). Step a down until >= k regions.
         a_fit <- if (is.null(info$a)) NA_real_ else as.numeric(info$a)
+        if (length(a_fit) != 1L || !is.finite(a_fit))
+                stop(sprintf(paste0(
+                        "salso %s did not report the search parameter `a` ",
+                        "(attr(est, \"info\")$a). pulseR needs it for the loss terms and ",
+                        "the sampled path. Update salso: install.packages(\"salso\")."),
+                        as.character(utils::packageVersion("salso"))), call. = FALSE)
         n_retry <- 0L
         while (length(unique(raw)) < k && is.finite(a_fit) && a_fit > 0 && n_retry < 10L) {
                 n_retry <- n_retry + 1L

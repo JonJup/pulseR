@@ -14,7 +14,7 @@ Imports:
     Matrix,
     mclust,
     methods,
-    salso,
+    salso (>= 0.3.57),
     sf,
     spdep,
     stats,
