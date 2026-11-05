@@ -157,8 +157,6 @@
 #'
 #' @importFrom spdep poly2nb
 #' @importFrom sf st_make_valid st_is_empty st_centroid st_geometry st_bbox st_touches st_relate st_length st_intersection st_collection_extract st_crs st_is_longlat
-#' @importFrom sfarrow st_read_parquet
-#' @importFrom arrow read_parquet
 #' @importFrom igraph make_empty_graph add_edges set_vertex_attr vcount ecount components simplify
 #'
 #' @export

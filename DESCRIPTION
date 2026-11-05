@@ -8,29 +8,27 @@ License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 Imports: 
-    arrow,
     cluster,
-    data.table,
-    dplyr,
-    ggplot2,
     grDevices,
     igraph,
     Matrix,
     mclust,
     methods,
+    salso,
+    sf,
+    spdep,
+    stats,
+    utils
+Suggests: 
+    arrow,
+    dplyr,
+    ggplot2,
+    knitr,
     nngeo,
     patchwork,
     RANN,
-    salso,
-    sf,
-    sfarrow,
-    spdep,
-    stats,
-    tidyselect,
-    utils
-Suggests: 
-    knitr,
     rmarkdown,
+    sfarrow,
     terra,
     testthat (>= 3.0.0)
 VignetteBuilder: knitr

@@ -109,10 +109,6 @@
 #' @importFrom igraph as_adjacency_matrix graph_from_data_frame
 #' @importFrom spdep mat2listw nbcosts
 #' @importFrom sf st_drop_geometry
-#' @importFrom dplyr select
-#' @importFrom tidyselect all_of any_of
-#' @importFrom arrow read_parquet
-#' @importFrom data.table rbindlist
 #' @importFrom stats sd
 #'
 #' @export
@@ -382,12 +378,28 @@ add_edge_weight <- function(g,
         # the active sf geometry.
         geom_like <- c("Shape", "SHAPE", "Shape_Length", "Shape_Area",
                        "geom", "geometry")
-        out <- if (!is.null(variables)) {
-                dplyr::select(polygons, tidyselect::all_of(variables)) # errors if missing
-        } else {
-                dplyr::select(polygons, !tidyselect::any_of(c(id_col, geom_like)))
+        df <- sf::st_drop_geometry(polygons)
+        .select_env_cols(df, variables, c(id_col, geom_like))
+}
+
+#' Keep the requested columns, or drop the excluded ones
+#'
+#' @param df A data frame.
+#' @param variables Character vector of columns to keep, or \code{NULL}.
+#' @param exclude Character vector of columns to drop when \code{variables}
+#'   is \code{NULL}.
+#' @return \code{df} restricted to the selected columns.
+#' @keywords internal
+#' @noRd
+.select_env_cols <- function(df, variables, exclude) {
+        if (!is.null(variables)) {
+                miss <- setdiff(variables, names(df))
+                if (length(miss))
+                        stop(sprintf("Column(s) not found: %s.",
+                                     paste(miss, collapse = ", ")), call. = FALSE)
+                return(df[, variables, drop = FALSE])
         }
-        sf::st_drop_geometry(out)
+        df[, setdiff(names(df), exclude), drop = FALSE]
 }
 
 #' Read and concatenate environmental data from parquet files
@@ -403,6 +415,7 @@ add_edge_weight <- function(g,
 #' @keywords internal
 #' @noRd
 .env_from_parquet <- function(files, variables, id_col) {
+        .need("arrow")
         geom_like <- c("Shape", "SHAPE", "Shape_Length", "Shape_Area",
                        "geom", "geometry")
         
@@ -411,18 +424,18 @@ add_edge_weight <- function(g,
                 if (!is.null(variables)) {
                         # Read only the requested columns -- a large memory saving on wide,
                         # continental-scale parquet files. Errors clearly if a column is absent.
-                        chunks[[i]] <- arrow::read_parquet(
-                                files[[i]],
-                                col_select = tidyselect::all_of(variables)
-                        )
+                        d <- as.data.frame(arrow::read_parquet(files[[i]],
+                                                               col_select = variables))
+                        chunks[[i]] <- .select_env_cols(d, variables, NULL)
                 } else {
-                        d <- arrow::read_parquet(files[[i]])
-                        chunks[[i]] <- dplyr::select(d, !tidyselect::any_of(c(id_col, geom_like)))
+                        d <- as.data.frame(arrow::read_parquet(files[[i]]))
+                        chunks[[i]] <- .select_env_cols(d, NULL, c(id_col, geom_like))
                 }
         }
         
-        # use.names = TRUE aligns columns by name across files; fill = FALSE (default)
-        # makes a column-set mismatch an explicit error rather than silently padding
-        # with NA.
-        as.data.frame(data.table::rbindlist(chunks, use.names = TRUE))
+        # rbind() on data frames matches columns by name and stops on a
+        # column-set mismatch instead of padding with NA.
+        out <- do.call(rbind, chunks)
+        rownames(out) <- NULL
+        out
 }

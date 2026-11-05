@@ -53,7 +53,6 @@
 #' @seealso [polygon_to_network()], [add_edge_weight()], [sf::st_union()]
 #'
 #' @importFrom sf st_as_sf st_crs st_geometry st_sfc st_union
-#' @importFrom dplyr bind_rows mutate tibble union
 #' @importFrom igraph ecount E ends
 #' 
 #' @export
@@ -86,6 +85,7 @@ merge_catchments <- function(
         # Initial checks
         # ------------------------------------------------------------*
         
+        .need("dplyr")
         stopifnot(inherits(x, "sf"))
         
         if (!id_col %in% names(x)) {
@@ -105,9 +105,7 @@ merge_catchments <- function(
         x[[id_col]] <- as.character(x[[id_col]])
         geom_col <- attr(x, "sf_column")
         # Keep original IDs as a list column
-        x <- dplyr::mutate(x,
-                           .original_ids = as.list(.data[[id_col]])
-        )
+        x$.original_ids <- as.list(x[[id_col]])
         
         round <- 0
         
@@ -316,7 +314,7 @@ merge_catchments <- function(
                 
                 att_u <- sf::st_drop_geometry(unchanged)
                 att_n <- sf::st_drop_geometry(new_rows)
-                cols  <- dplyr::union(names(att_u), names(att_n))
+                cols  <- union(names(att_u), names(att_n))
                 for (nm in setdiff(cols, names(att_u))) att_u[[nm]] <- NA
                 for (nm in setdiff(cols, names(att_n))) att_n[[nm]] <- NA
                 

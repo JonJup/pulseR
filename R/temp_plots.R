@@ -311,6 +311,7 @@ plot_regions <- function(x,
                          raster     = "auto",
                          raster_px  = 2000,
                          ...) {
+        .need("ggplot2")
         stopifnot(inherits(x, "pulse_regions"))
         what       <- match.arg(what)
         confidence <- match.arg(confidence)
@@ -547,6 +548,7 @@ plot_local_types <- function(x,
                              raster     = "auto",
                              raster_px  = 2000,
                              ...) {
+        .need("ggplot2")
         stopifnot(inherits(x, "pulse_local_types"))
         what       <- match.arg(what)
         confidence <- match.arg(confidence)
@@ -699,6 +701,7 @@ plot_local_types <- function(x,
 #'   a list of two \code{ggplot} objects.
 #' @export
 plot_levels <- function(regions, local, geom = NULL, confidence = "joint", ...) {
+        .need("ggplot2")
         pal_r <- pulse_palette(regions)
         pal_l <- local_palette(local, pal_r)
         g <- .get_geom(regions, geom)
@@ -946,6 +949,7 @@ plot_meta_types <- function(x,
                             raster  = "auto",
                             raster_px = 2000,
                             ...) {
+        .need("ggplot2")
         stopifnot(inherits(x, "pulse_meta_types"))
         what <- match.arg(what)
         if (is.null(palette)) palette <- meta_palette(x)
@@ -1137,6 +1141,7 @@ plot_mosaic_types <- function(x,
                               raster = "auto",
                               raster_px = 2000,
                               ...) {
+        .need("ggplot2")
         stopifnot(inherits(x, "mosaic_types"))
         what <- match.arg(what)
         if (is.null(palette)) palette <- mosaic_palette(x)
@@ -1334,6 +1339,7 @@ plot_mosaic_types <- function(x,
 #' @export
 plot_hierarchy <- function(regions = NULL, local = NULL, meta = NULL, mosaic = NULL,
                            geom = NULL, sigs = NULL, ...) {
+        .need("ggplot2")
         ps <- list()
         g  <- geom
         if (is.null(g)) {
