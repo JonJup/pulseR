@@ -602,8 +602,9 @@ compute_ensemble_memberships <- function(trees,
 #' Size and prior are both expressed in the unit \eqn{u}, the spread of the
 #' environmental term on the log scale the exponential race competes on, so
 #' \code{size_influence} and \code{prior_strength} are dimensionless and mean
-#' the same on every graph. If \eqn{u = 0} (\eqn{\gamma = 0} or constant
-#' weights) the prior falls back to \eqn{u = \log 2}, one halving per unit of
+#' the same on every graph. Zero weights are floored at the smallest positive
+#' weight of the tree before taking logs. If \eqn{u = 0} (\eqn{\gamma = 0},
+#' constant or all-zero weights) the prior falls back to \eqn{u = \log 2}, one halving per unit of
 #' \eqn{\lambda}, and \code{fallback} is set.
 #'
 #' @param w Tree edge weights (non-negative, finite).
@@ -616,9 +617,15 @@ compute_ensemble_memberships <- function(trees,
 .cut_log_propensity <- function(w, size_f, weight_exponent = 1,
                                 size_influence = 2, prior_strength = 0,
                                 within_prior = NULL) {
-        w_n <- w / max(w)
-        if (any(w_n == 0)) w_n <- w_n + .Machine$double.eps
-        lw   <- weight_exponent * log(w_n)
+        # A zero weight (identical neighbours) is treated as the smallest
+        # positive weight in the tree. log(0 + eps) = -36 would dominate
+        # sd(lw) and change the meaning of size_influence and prior_strength.
+        pos <- w > 0
+        lw <- if (any(pos)) {
+                w_n <- w / max(w)
+                w_n[!pos] <- min(w_n[pos])
+                weight_exponent * log(w_n)
+        } else rep(0, length(w))
         ls   <- log(size_f)
         sd_w <- stats::sd(lw)
         sd_s <- stats::sd(ls)
