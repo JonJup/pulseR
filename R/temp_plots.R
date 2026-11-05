@@ -56,14 +56,6 @@ attach_geometry <- function(x, geom, simplify = NULL) {
 
 #' @keywords internal
 #' @noRd
-.n_units <- function(x) {
-        if (inherits(x, "pulse_regions"))     return(nrow(x$memberships))
-        if (inherits(x, "pulse_local_types")) return(nrow(x$memberships))
-        stop("Unsupported object.", call. = FALSE)
-}
-
-#' @keywords internal
-#' @noRd
 .get_geom <- function(x, geom = NULL) {
         g <- if (!is.null(geom)) geom else attr(x, "pulse_geometry")
         if (is.null(g))

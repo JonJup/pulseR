@@ -177,10 +177,10 @@ local_type_distance <- function(local,
 #'   that still does. Warns if no candidate passes or the largest one does.
 #' @param max_confined Threshold for \code{"auto"}, in \\[0,1\\]. Default 0.2.
 #'   Some confinement is real, so 0 is usually too strict.
-#'   \item{\code{selection}}{Per candidate: confined mass, share of
+#'   \code{selection}. Per candidate: confined mass, share of
 #'   single-region meta-types, regions per meta-type, ARI with region,
-#'   silhouette, and whether it passes.}
-#'   \item{\code{rule}}{How \code{n_meta} was chosen.}
+#'   silhouette, and whether it passes.
+#'   \code{rule}How \code{n_meta} was chosen.
 #' @param candidates Candidate counts for \code{n_meta = "auto"}. Default
 #'   \code{2:12}.
 #' @param method,env,n_sample Passed to \code{\link{local_type_distance}}.
@@ -329,53 +329,6 @@ print.pulse_meta_types <- function(x, ...) {
 # -----------------------------------------------------------------------------*
 # 4. Did it work?
 # -----------------------------------------------------------------------------*
-
-#' Overlap matrix of local types, ordered by the merge tree
-#'
-#' The figure that shows whether merging is doing anything: block structure that
-#' mixes regions means types recur across Europe; block structure that follows
-#' regions means it does not.
-#'
-#' @param meta A \code{"pulse_meta_types"} object.
-#' @param region_colours Optional colours for the region annotation, e.g. from
-#'   \code{pulse_palette()} on the level-1 fit.
-#' @return A \code{ggplot} object.
-#' @export
-plot_meta_types <- function(meta, region_colours = NULL) {
-        if (!requireNamespace("ggplot2", quietly = TRUE))
-                stop("ggplot2 is required.", call. = FALSE)
-        D <- as.matrix(meta$distance)
-        ord <- meta$hclust$order
-        lab <- rownames(D)[ord]
-        df <- expand.grid(i = seq_along(ord), j = seq_along(ord))
-        df$value <- as.vector(D[ord, ord])
-        df$i <- factor(lab[df$i], levels = lab)
-        df$j <- factor(lab[df$j], levels = rev(lab))
-        
-        ann <- data.frame(type = factor(lab, levels = lab),
-                          region = factor(meta$key$region[ord]),
-                          meta = factor(meta$key$meta[ord]))
-        
-        p <- ggplot2::ggplot(df, ggplot2::aes(.data$i, .data$j, fill = .data$value)) +
-                ggplot2::geom_tile() +
-                ggplot2::scale_fill_viridis_c(name = "distance", option = "mako",
-                                              direction = -1) +
-                ggplot2::labs(title = "Local-type overlap, ordered by the merge tree",
-                              subtitle = sprintf(
-                                      "%d meta-types | ARI with region = %.2f (low means types recur across regions)",
-                                      meta$n_meta, meta$crossing$ari_with_region),
-                              x = NULL, y = NULL) +
-                ggplot2::theme_minimal(base_size = 8) +
-                ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 90, vjust = 0.5),
-                               panel.grid = ggplot2::element_blank())
-        
-        p + ggplot2::geom_point(data = ann,
-                                ggplot2::aes(x = .data$type, y = 0.3, colour = .data$region),
-                                inherit.aes = FALSE, size = 1.5, shape = 15) +
-                (if (is.null(region_colours))
-                        ggplot2::scale_colour_discrete(name = "region")
-                 else ggplot2::scale_colour_manual(values = region_colours, name = "region"))
-}
 
 #' Cross-tabulate meta-types against regions
 #'

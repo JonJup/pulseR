@@ -118,26 +118,3 @@
         b <- prior_labels[edge_endpoints[, 2]]
         !is.na(a) & !is.na(b) & a == b
 }
-
-#' Apply the within-prior halving rule to edge weights
-#'
-#' \eqn{\tilde{w}(i,j) = w(i,j) / 2^{\lambda_E}} when both endpoints share a
-#' non-NA prior label; \eqn{\tilde{w}(i,j) = w(i,j)} otherwise. Thus
-#' \eqn{\lambda_E = 0} returns weights unchanged; \eqn{\lambda_E = 1} halves
-#' within-prior weights; \eqn{\lambda_E = 2} quarters them, etc. Lowering these
-#' weights makes the corresponding edges less likely to be cut, so prior regions
-#' tend to stay intact.
-#'
-#' @param weights Numeric edge-weight vector.
-#' @param within_prior_edge Logical vector (same length), or \code{NULL}.
-#' @param prior_strength Non-negative numeric scalar \eqn{\lambda_E}.
-#' @return Numeric vector of (possibly down-weighted) edge weights.
-#' @keywords internal
-#' @noRd
-.apply_prior_weighting <- function(weights, within_prior_edge, prior_strength) {
-        if (is.na(within_prior_edge) || prior_strength == 0) return(weights)
-        weights <- lapply(weights, 
-                          function(x) x / (2 ^ (prior_strength * as.numeric(within_prior_edge))
-                          )
-        )
-}

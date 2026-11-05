@@ -479,63 +479,6 @@ polygon_to_network <- function(polygons,
     rm(polys_i)
     gc(verbose = FALSE)
   }
-  # for (i in seq_along(chunk_meta)) {
-  #   if (chunk_meta[[i]]$n == 0L) next
-  #   for (j in seq_along(chunk_meta)) {
-  #     if (j <= i || chunk_meta[[j]]$n == 0L) next
-  #     if (!bboxes_adjacent(chunk_meta[[i]]$bbox, chunk_meta[[j]]$bbox,
-  #                          buffer = bbox_buffer)) next
-  # 
-  #     .log(verbose, "Checking cross-chunk edges: %d x %d", i, j)
-  # 
-  #     # Reload through the SAME loader as phase 1 to guarantee identical row
-  #     # order, otherwise global_idx[row] would point at the wrong polygon.
-  #     polys_i <- .load_chunk(chunk_meta[[i]]$path, chunk_meta[[i]]$control_path)
-  #     polys_j <- .load_chunk(chunk_meta[[j]]$path, chunk_meta[[j]]$control_path)
-  # 
-  #     # Use the predicate that matches the requested contiguity rule so that
-  #     # cross-chunk edges obey the same definition as within-chunk edges.
-  #     sgbp <- if (queen) {
-  #       sf::st_touches(polys_i, polys_j)
-  #     } else {
-  #       # DE-9IM "F***1****": interiors disjoint, boundaries meet in a line.
-  #       sf::st_relate(polys_i, polys_j, pattern = "F***1****")
-  #     }
-  # 
-  #     # Flatten the sparse predicate into local (row, col) candidate pairs.
-  #     # pairs <- do.call(rbind, lapply(seq_along(sgbp), function(r) {
-  #     #   cols <- sgbp[[r]]
-  #     #   if (length(cols) == 0L) return(NULL)
-  #     #   data.frame(row = r, col = cols)
-  #     # }))
-  #     sgbp   <- unclass(sgbp)          # plain list ops, no sgbp dispatch
-  #     counts <- lengths(sgbp)
-  #     pairs  <- if (sum(counts) > 0L) {
-  #       data.frame(
-  #         row = rep.int(seq_along(sgbp), counts),
-  #         col = as.integer(unlist(sgbp, use.names = FALSE))
-  #       )
-  #     } else NULL
-  # 
-  #     if (!is.null(pairs) && nrow(pairs) > 0) {
-  #       if (min_shared_length > 0) {
-  #         keep  <- .shared_lengths_pairs(sf::st_geometry(polys_i)[pairs$row],
-  #                                        sf::st_geometry(polys_j)[pairs$col]) >=
-  #                  min_shared_length
-  #         pairs <- pairs[keep, , drop = FALSE]
-  #       }
-  #       if (nrow(pairs) > 0) {
-  #         all_edges[[length(all_edges) + 1L]] <- data.frame(
-  #           from = chunk_meta[[i]]$global_idx[pairs$row],
-  #           to   = chunk_meta[[j]]$global_idx[pairs$col]
-  #         )
-  #       }
-  #     }
-  # 
-  #     rm(polys_i, polys_j, sgbp, pairs); gc(verbose = FALSE)
-  #   }
-  # }
-
   # ---- Phase 3: assemble graph ---- *
   all_edges <- Filter(function(x) is.data.frame(x) && nrow(x) > 0, all_edges)
   edge_df   <- if (length(all_edges) > 0) {

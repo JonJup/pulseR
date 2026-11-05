@@ -18,7 +18,6 @@ export(attach_geometry)
 export(check_cut_placement)
 export(check_ensemble_size)
 export(cluster_consensus)
-export(collapse_local)
 export(compute_all_signatures)
 export(compute_ensemble_memberships)
 export(compute_fuzzy)
@@ -43,8 +42,6 @@ export(mosaic_palette)
 export(neighbourhood_weights)
 export(plot_hierarchy)
 export(plot_levels)
-export(plot_local_embedding)
-export(plot_local_similarity)
 export(plot_local_types)
 export(plot_meta_types)
 export(plot_mosaic_types)
@@ -112,7 +109,6 @@ importFrom(mclust,
   unmap
 )
 importFrom(methods,as)
-importFrom(parallelDist,parallelDist)
 importFrom(sf,
   st_as_sf,
   st_as_sfc,

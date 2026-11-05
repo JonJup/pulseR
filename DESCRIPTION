@@ -12,19 +12,15 @@ Imports:
     cluster,
     data.table,
     dplyr,
-    ggalluvial,
     ggplot2,
     igraph,
     Matrix,
     mclust,
     methods,
     nngeo,
-    parallelDist,
     patchwork,
-    philentropy,
-    plotly,
     RANN,
-    scales,
+    salso,
     sf,
     sfarrow,
     spdep,
@@ -32,6 +28,7 @@ Imports:
 Suggests: 
     knitr,
     rmarkdown,
+    terra,
     testthat (>= 3.0.0)
 VignetteBuilder: knitr
 Config/roxygen2/version: 8.1.1

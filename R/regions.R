@@ -1544,25 +1544,6 @@ print.fuzzy_clusters <- function(x, ...) {
 }
 
 
-#' @export
-print.pulse_regions <- function(x, ...) {
-        cat(sprintf("<pulse_regions>  %d units x %d regions\n",
-                    nrow(x$memberships), ncol(x$memberships)))
-        m <- x$fit$ensemble_meta
-        if (!is.null(m)) {
-                cat(sprintf(
-                        "  ensemble: %d members | regions_per_partition = %s | chance floor = %.4f (n_eff = %.1f)\n",
-                        x$fit$n_members, format(m$regions_per_partition),
-                        m$chance_coassoc, 1 / m$chance_coassoc))
-        }
-        cat(sprintf("  mean typicality (assigned region) = %.3f | mean entropy = %.3f\n",
-                    mean(x$typicality[cbind(seq_len(nrow(x$typicality)),
-                                            x$hard_clusters)]),
-                    mean(x$entropy)))
-        invisible(x)
-}
-
-
 #' @rdname sample_spanning_trees
 #' @param x An object to print (e.g. of class \code{"spanning_trees"}).
 #' @param ... Further arguments passed to or from other methods (unused).

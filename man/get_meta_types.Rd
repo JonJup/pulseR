@@ -31,10 +31,10 @@ that still does. Warns if no candidate passes or the largest one does.}
 
 \item{max_confined}{Threshold for \code{"auto"}, in \[0,1\]. Default 0.2.
 Some confinement is real, so 0 is usually too strict.
-\item{\code{selection}}{Per candidate: confined mass, share of
+\code{selection}{Per candidate: confined mass, share of
 single-region meta-types, regions per meta-type, ARI with region,
 silhouette, and whether it passes.}
-\item{\code{rule}}{How \code{n_meta} was chosen.}}
+\code{rule}{How \code{n_meta} was chosen.}}
 
 \item{method, env, n_sample}{Passed to \code{\link{local_type_distance}}.}
 
