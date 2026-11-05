@@ -41,7 +41,14 @@
 #'   is the Euclidean distance between neighbouring nodes in (optionally scaled)
 #'   environmental space. Vertex names from \code{g$graph} are preserved, all
 #'   input vertices are retained (including isolated ones), and each undirected
-#'   edge appears exactly once (no multi-edges).
+#'   edge appears exactly once (no multi-edges). The graph attribute
+#'   \code{env} holds the numeric matrix the distances were computed from
+#'   (after dropping constant columns and, if \code{scale = TRUE},
+#'   standardising), one row per vertex. \code{\link{tune_regions}} and
+#'   \code{\link{compute_null_baseline}} use it as their default \code{env},
+#'   so validity indices are computed in the space the weights live in. For
+#'   weights from another source (for example GDM), store the transformed
+#'   predictors with \code{igraph::graph_attr(g, "env") <- X}.
 #'
 #' @section Node ordering:
 #' This function assumes that the i-th row of the environmental data corresponds
@@ -254,6 +261,8 @@ add_edge_weight <- function(g,
                         "receive NA weights. Impute or remove NAs before clustering.")
         }
         
+        .warn_id_like(env_matrix, "`id_col` or `variables`")
+        
         if (isTRUE(scale))  env_matrix <- base::scale(env_matrix)
         
         
@@ -316,6 +325,12 @@ add_edge_weight <- function(g,
                 vertices = data.frame(name = vertex_names, stringsAsFactors = FALSE)
         )
         igraph::E(out.graph)$eid <- seq_len(igraph::ecount(out.graph))
+        
+        # The matrix behind the weights, in vertex order. Validity indices and
+        # the permutation null default to it (tune_regions(),
+        # compute_null_baseline()).
+        rownames(env_matrix) <- vertex_names
+        out.graph <- igraph::set_graph_attr(out.graph, "env", env_matrix)
         
         if (verbose) {
                 message(sprintf("  %d edges, %d vertices.",

@@ -377,3 +377,31 @@ utils::globalVariables(".data")
         set.seed(seed)
         invisible(NULL)
 }
+
+
+#' Warn about columns that look like unit IDs
+#'
+#' A column whose values are all integers and all distinct is far more likely
+#' an ID than an environmental variable. In a distance or a pseudo-F it
+#' dominates every other column.
+#'
+#' @param X Numeric matrix.
+#' @param how Text naming the argument that excludes columns.
+#' @return \code{X}, invisibly.
+#' @keywords internal
+#' @noRd
+.warn_id_like <- function(X, how) {
+        if (nrow(X) < 10L) return(invisible(X))
+        id_like <- vapply(seq_len(ncol(X)), function(j) {
+                x <- X[, j]
+                !anyNA(x) && all(x == round(x)) && !anyDuplicated(x)
+        }, logical(1))
+        if (any(id_like)) {
+                nm <- colnames(X)
+                if (is.null(nm)) nm <- paste0("column ", seq_len(ncol(X)))
+                warning(sprintf(paste0("Column(s) %s look like unit IDs (integers, all distinct). ",
+                                       "Exclude them via %s."),
+                                paste(nm[id_like], collapse = ", "), how), call. = FALSE)
+        }
+        invisible(X)
+}

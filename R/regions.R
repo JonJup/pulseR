@@ -13,9 +13,11 @@
 #'   \code{\link{add_edge_weight}}. Edges must carry a numeric \code{weight}
 #'   attribute (finite, non-negative).
 #' @param env Optional data frame or matrix, one row per vertex of
-#'   \code{graph} in vertex order. Used only for the validity indices
-#'   \code{CH_ENV} and \code{R2_ENV} during tuning. Non-numeric columns are
-#'   dropped; numeric columns are used as given, without scaling.
+#'   \code{graph} in vertex order, for the validity indices \code{CH_ENV} and
+#'   \code{R2_ENV} during tuning. \code{NULL} (default) uses the matrix
+#'   \code{\link{add_edge_weight}} stored on \code{graph}, so the indices are
+#'   computed in the space of the edge weights. A supplied \code{env} is used
+#'   as given: non-numeric columns are dropped and nothing is scaled.
 #' @param env_id Character vector of columns in \code{env} to exclude from the
 #'   validity indices, for example numeric ID columns. Default \code{NULL}.
 #' @param regions_per_partition Integer, or integer vector of candidates.
@@ -1631,6 +1633,40 @@ print.spanning_trees <- function(x, ...) {
 #'
 #' @keywords internal
 #' @noRd
+#' Environment for the validity indices and the null baseline
+#'
+#' \code{NULL} falls back to the matrix \code{add_edge_weight()} stored on the
+#' graph, which is the space the edge weights were computed in. A supplied
+#' \code{env} is used as given: \code{env_id} and non-numeric columns are
+#' dropped, nothing is scaled.
+#'
+#' @return Numeric matrix with one row per vertex, or \code{NULL}.
+#' @keywords internal
+#' @noRd
+.resolve_env <- function(env, env_id, graph, verbose = FALSE) {
+        if (is.null(env)) {
+                env <- igraph::graph_attr(graph, "env")
+                if (is.null(env)) {
+                        if (verbose)
+                                message("Note: no `env` supplied and none stored on `graph`; ",
+                                        "CH_ENV and R2_ENV are NA.")
+                        return(NULL)
+                }
+                if (verbose)
+                        message("Using the environment matrix stored on `graph` by ",
+                                "add_edge_weight() for CH_ENV and R2_ENV.")
+                env <- as.matrix(env)
+        } else {
+                env <- as.data.frame(env)
+                if (!is.null(env_id)) env <- env[, setdiff(names(env), env_id), drop = FALSE]
+                env <- as.matrix(env[, vapply(env, is.numeric, logical(1)), drop = FALSE])
+                .warn_id_like(env, "`env_id`")
+        }
+        if (nrow(env) != igraph::vcount(graph))
+                stop("`env` must have one row per vertex of `graph`.", call. = FALSE)
+        env
+}
+
 .TUNE_AXES <- c("regions_per_partition", "weight_exponent",
                 "N_tree", "final_regions")
 
@@ -1707,8 +1743,11 @@ print.spanning_trees <- function(x, ...) {
 #' @param graph The parent \code{igraph} object the trees were sampled from.
 #' @param env Optional data frame or matrix, one row per vertex of
 #'   \code{graph}, for the validity indices \code{CH_ENV} and \code{R2_ENV}.
-#'   Non-numeric columns are dropped; numeric columns are used as given,
-#'   without scaling.
+#'   \code{NULL} (default) uses the matrix \code{\link{add_edge_weight}}
+#'   stored on \code{graph} (graph attribute \code{env}), so the indices are
+#'   computed in the space of the edge weights. A supplied \code{env} is used
+#'   as given: non-numeric columns are dropped and nothing is scaled. Columns
+#'   that look like IDs trigger a warning.
 #' @param env_id Character vector of columns in \code{env} to exclude, for
 #'   example numeric ID columns. Default \code{NULL}.
 #' @param trees A \code{"spanning_trees"} object from
@@ -1810,15 +1849,7 @@ tune_regions <- function(graph,
         
         
         # Prepare env ------------------------------------------------------*
-        if (!is.null(env)) {
-                env <- as.data.frame(env)
-                if (!is.null(env_id)) env <- env[, setdiff(names(env), env_id), drop = FALSE]
-                env <- as.matrix(env[, vapply(env, is.numeric, logical(1)), drop = FALSE])
-                if (nrow(env) != igraph::vcount(graph))
-                        stop("`env` must have one row per vertex of `graph`.", call. = FALSE)
-        } else if (verbose) {
-                message("Note: `env` not supplied; the Borda objective reduces to stability.")
-        }
+        env <- .resolve_env(env, env_id, graph, verbose)
         
         
         # --- Argument Matching  -----------------------------------------*

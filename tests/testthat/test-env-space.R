@@ -1,0 +1,48 @@
+test_that("add_edge_weight() stores the matrix behind the weights", {
+        x <- make_grid_sf()
+        net <- suppressMessages(polygon_to_network(x, verbose = FALSE))
+        g <- add_edge_weight(net, id_col = "ID", verbose = FALSE)
+        E <- igraph::graph_attr(g, "env")
+        expect_true(is.matrix(E))
+        expect_identical(colnames(E), c("temp", "prec"))
+        expect_equal(unname(colMeans(E)), c(0, 0), tolerance = 1e-12)
+        expect_equal(unname(apply(E, 2, stats::sd)), c(1, 1))
+        ep <- igraph::ends(g, igraph::E(g), names = FALSE)
+        expect_equal(igraph::E(g)$weight,
+                     unname(sqrt(rowSums((E[ep[, 1], ] - E[ep[, 2], ])^2))))
+})
+
+test_that("ID-like columns trigger a warning", {
+        x <- make_grid_sf()
+        net <- suppressMessages(polygon_to_network(x, verbose = FALSE))
+        expect_warning(add_edge_weight(net, verbose = FALSE), "look like unit IDs")
+        X <- cbind(id = 1:20, v = stats::rnorm(20))
+        expect_warning(.warn_id_like(X, "`env_id`"), "id")
+        expect_silent(.warn_id_like(X[, "v", drop = FALSE], "`env_id`"))
+})
+
+test_that(".resolve_env() defaults to the stored matrix", {
+        x <- make_grid_sf()
+        net <- suppressMessages(polygon_to_network(x, verbose = FALSE))
+        g <- add_edge_weight(net, id_col = "ID", verbose = FALSE)
+        expect_identical(.resolve_env(NULL, NULL, g), igraph::graph_attr(g, "env"))
+        env <- sf::st_drop_geometry(x)
+        expect_warning(.resolve_env(env, NULL, g), "look like unit IDs")
+        expect_silent(r <- .resolve_env(env, "ID", g))
+        expect_identical(colnames(r), c("temp", "prec"))
+        g0 <- igraph::delete_graph_attr(g, "env")
+        expect_null(.resolve_env(NULL, NULL, g0))
+})
+
+test_that("an ID column does not reach CH_ENV under the default env", {
+        x <- make_grid_sf()
+        net <- suppressMessages(polygon_to_network(x, verbose = FALSE))
+        g <- add_edge_weight(net, id_col = "ID", verbose = FALSE)
+        tr <- sample_spanning_trees(g, n = 8, seed = 1, verbose = FALSE)
+        run <- function(env) suppressWarnings(tune_regions(
+                g, tr, N_tree = 8, regions_per_partition = 6, final_regions = 2:3,
+                stability_B = 0, metric = "ch_env", env = env, seed = 1,
+                verbose = FALSE))$tuning_log$CH_ENV
+        expect_equal(run(NULL), run(igraph::graph_attr(g, "env")))
+        expect_false(isTRUE(all.equal(run(NULL), run(sf::st_drop_geometry(x)))))
+})
