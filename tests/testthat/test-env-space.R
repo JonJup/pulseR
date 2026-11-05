@@ -46,3 +46,22 @@ test_that("an ID column does not reach CH_ENV under the default env", {
         expect_equal(run(NULL), run(igraph::graph_attr(g, "env")))
         expect_false(isTRUE(all.equal(run(NULL), run(sf::st_drop_geometry(x)))))
 })
+
+test_that("compute_null_baseline() refuses an env that does not reproduce the weights", {
+        x <- make_grid_sf()
+        net <- suppressMessages(polygon_to_network(x, verbose = FALSE))
+        g <- add_edge_weight(net, id_col = "ID", verbose = FALSE)
+        raw <- sf::st_drop_geometry(x)[, c("temp", "prec")]
+        expect_error(compute_null_baseline(g, raw, final_regions = 2, regions_per_partition = 6,
+                                           N_tree = 8, B = 1, stability_B = 0, verbose = FALSE),
+                     "do not reproduce")
+        g0 <- igraph::delete_graph_attr(g, "env")
+        expect_error(compute_null_baseline(g0, final_regions = 2, regions_per_partition = 6,
+                                           N_tree = 8, B = 1, stability_B = 0, verbose = FALSE),
+                     "`env` is required")
+        nb <- compute_null_baseline(g, final_regions = 2, regions_per_partition = 6,
+                                    N_tree = 8, B = 1, stability_B = 0, seed = 1,
+                                    verbose = FALSE)
+        expect_s3_class(nb, "null_baseline")
+        expect_true(all(is.finite(nb$null$CH_ENV)))
+})

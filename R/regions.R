@@ -2471,10 +2471,14 @@ print.pulse_regions <- function(x, ...) {
 #' map drives the result: the "contiguity-only" floor.
 #'
 #' @details Edge weights are recomputed as Euclidean distance on \code{env},
-#'   which matches \code{\link{add_edge_weight}} when \code{env} is the matrix
-#'   the weights were computed from (scaled raw variables, or GDM-transformed
-#'   predictors with \code{scale = FALSE}). Shuffling leaves column means and
-#'   standard deviations unchanged, so no rescaling is needed. A prior
+#'   the same function \code{\link{add_edge_weight}} uses. This tests
+#'   environmental signal only if \code{env} is the matrix the observed
+#'   weights were computed from, so the function first recomputes the weights
+#'   from the unshuffled \code{env} and stops unless they correlate with
+#'   \code{E(graph)$weight} above 0.999. The default \code{env = NULL} uses
+#'   the matrix \code{add_edge_weight()} stored on \code{graph}, which always
+#'   passes. Shuffling leaves column means and standard deviations unchanged,
+#'   so no rescaling is needed. A prior
 #'   typology is not used in the null. With \code{B} replicates the smallest
 #'   attainable p-value is \eqn{1 / (B + 1)}; \code{B = 19} is the minimum for
 #'   a 5\% test.
@@ -2482,7 +2486,9 @@ print.pulse_regions <- function(x, ...) {
 #'   The shuffle also removes spatial autocorrelation in \code{env}. Smooth
 #'   but ecologically meaningless gradients therefore count as signal here.
 #'
-#' @param graph,env,env_id As in \code{\link{tune_regions}}. \code{env} is required.
+#' @param graph,env,env_id As in \code{\link{tune_regions}}. \code{env}
+#'   must reproduce the edge weights (see Details); \code{NULL} (default)
+#'   uses the matrix stored on \code{graph}.
 #' @param final_regions Integer vector of k values; all are evaluated on each
 #'   null ensemble (k is cheap).
 #' @param regions_per_partition,N_tree,weight_exponent Single values: the
@@ -2504,35 +2510,47 @@ print.pulse_regions <- function(x, ...) {
 #'   observed minus null mean with the sign set so positive is better than the
 #'   null, and the empirical \code{p}), \code{config}, and \code{B}.
 #' @export
-compute_null_baseline <- function(graph, env, env_id = NULL, final_regions,
+compute_null_baseline <- function(graph, env = NULL, env_id = NULL, final_regions,
                                   regions_per_partition = 50, N_tree,
                                   weight_exponent = 1, size_influence = 2,
                                   target_edge_turnover = 0.2,
                                   B = 19L, stability_B = 25L, observed = NULL,
                                   large_n_threshold = 20000, sample_size = 5000L,
                                   n_cores = 1, seed = NULL, verbose = TRUE) {
-        stopifnot(inherits(graph, "igraph"), !is.null(env),
+        stopifnot(inherits(graph, "igraph"),
                   length(regions_per_partition) == 1L, length(N_tree) == 1L,
                   length(weight_exponent) == 1L, B >= 1)
-        env <- as.data.frame(env)
-        if (!is.null(env_id)) env <- env[, setdiff(names(env), env_id), drop = FALSE]
-        env <- as.matrix(env[, vapply(env, is.numeric, logical(1)), drop = FALSE])
-        if (nrow(env) != igraph::vcount(graph))
-                stop("`env` must have one row per vertex of `graph`.", call. = FALSE)
+        env <- .resolve_env(env, env_id, graph, verbose = FALSE)
+        if (is.null(env))
+                stop("`env` is required: supply the matrix the edge weights were computed ",
+                     "from, or build `graph` with add_edge_weight(), which stores it.",
+                     call. = FALSE)
         if (anyNA(env))
                 stop("`env` has missing values; the null needs complete rows.", call. = FALSE)
         final_regions <- sort(unique(as.integer(final_regions)))
         cvi_cols <- names(.CVI_DIRECTION)
+        
+        # The null is only a test of environmental signal if it uses the same
+        # weight function on the same matrix as the observed graph.
+        ep  <- igraph::ends(graph, igraph::E(graph), names = FALSE)
+        .null_weights <- function(X)
+                sqrt(rowSums((X[ep[, 1], , drop = FALSE] - X[ep[, 2], , drop = FALSE])^2))
+        r <- suppressWarnings(stats::cor(.null_weights(env), igraph::E(graph)$weight))
+        if (!is.finite(r) || r < 0.999)
+                stop(sprintf(paste0(
+                        "Euclidean distances on `env` do not reproduce E(graph)$weight ",
+                        "(correlation %.4f, need > 0.999), so the null would not test ",
+                        "environmental signal. Pass the matrix the weights were computed from ",
+                        "(scaled if add_edge_weight(scale = TRUE)), or env = NULL to use the one ",
+                        "stored on `graph`."), r), call. = FALSE)
         .local_seed(seed)
         
-        ep  <- igraph::ends(graph, igraph::E(graph), names = FALSE)
         out <- vector("list", B)
         for (b in seq_len(B)) {
                 if (verbose) message(sprintf("Null replicate %d / %d ...", b, B))
                 env_b <- env[sample.int(nrow(env)), , drop = FALSE]
                 g_b   <- graph
-                igraph::E(g_b)$weight <- sqrt(rowSums(
-                        (env_b[ep[, 1], , drop = FALSE] - env_b[ep[, 2], , drop = FALSE])^2))
+                igraph::E(g_b)$weight <- .null_weights(env_b)
                 tr  <- sample_spanning_trees(g_b, n = N_tree, verbose = FALSE,
                                              target_edge_turnover = target_edge_turnover)
                 ens <- compute_ensemble_memberships(tr, N_tree = N_tree, graph = g_b,
