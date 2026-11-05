@@ -277,7 +277,7 @@ fade_by_confidence <- function(cols, w, floor = 0.12, to_l = 88) {
 #'   \describe{
 #'     \item{\code{"map"}}{Hard regions, faded by confidence. The headline figure.}
 #'     \item{\code{"crisp"}}{Hard regions at full saturation, no fading.}
-#'     \item{\code{"confidence"}}{Own-region typicality as a continuous surface.}
+#'     \item{\code{"confidence"}}{The \code{confidence} quantity as a continuous surface.}
 #'     \item{\code{"entropy"}}{Normalised membership entropy.}
 #'     \item{\code{"transition"}}{Units whose best and second-best regions are
 #'       within \code{margin} — the fuzzy boundaries themselves.}
@@ -288,11 +288,15 @@ fade_by_confidence <- function(cols, w, floor = 0.12, to_l = 88) {
 #'   }
 #' @param geom An \code{sf} object, if not already attached.
 #' @param palette Region colours; defaults to \code{\link{pulse_palette}(x)}.
-#' @param confidence \code{"typicality"} (default) or \code{"membership"}. Which
-#'   quantity drives the fade. Typicality is the better choice: it is a
-#'   co-association probability, so a unit sitting between two regions is low on
-#'   both, whereas normalised memberships are forced to sum to one and can look
-#'   confident about a unit the ensemble never placed anywhere.
+#' @param confidence Which quantity drives the fade and the confidence surface.
+#'   \code{"certainty"} (default): own-region composition membership
+#'   \eqn{\Pi_{i,\mathrm{hard}_i}}. \code{"margin"}: best minus second-best
+#'   \eqn{\Pi}, which isolates boundaries. \code{"typicality"}: own-region
+#'   cohesion. Cohesion shrinks with region size, so large homogeneous regions
+#'   look uncertain; use it only to compare units within one region.
+#'   \code{"membership"} is accepted as an alias for \code{"certainty"}.
+#'   Units with no \eqn{\Pi} row (\code{pi_support == 0}) are drawn fully
+#'   faded.
 #' @param which Integer vector of regions, for \code{what = "membership"}.
 #' @param margin Numeric, for \code{what = "transition"}. Default 0.1.
 #' @param raster,raster_px Rasterisation control, passed to the map builder.
@@ -305,7 +309,7 @@ plot_regions <- function(x,
                                         "ordination", "tuning"),
                          geom       = NULL,
                          palette    = NULL,
-                         confidence = c("typicality", "membership"),
+                         confidence = c("certainty", "margin", "typicality"),
                          which      = NULL,
                          margin     = 0.1,
                          raster     = "auto",
@@ -314,6 +318,7 @@ plot_regions <- function(x,
         .need("ggplot2")
         stopifnot(inherits(x, "pulse_regions"))
         what       <- match.arg(what)
+        if (identical(confidence, "membership")) confidence <- "certainty"
         confidence <- match.arg(confidence)
         if (is.null(palette)) palette <- pulse_palette(x)
         
@@ -446,20 +451,38 @@ plot_regions <- function(x,
 #' @keywords internal
 #' @noRd
 .conf_matrix <- function(x, confidence) {
-        if (confidence == "membership") return(x$memberships)
+        if (confidence != "typicality") return(x$memberships)
         M <- .first_non_null(x$typicality, x$fit$cohesion, x$fit$affinity, x$fit$typicality)
         if (is.null(M)) {
-                warning("No typicality matrix on this fit; using memberships.", call. = FALSE)
+                warning("No cohesion matrix on this fit; using memberships.", call. = FALSE)
                 return(x$memberships)
         }
         M
 }
 
+#' Per-unit confidence of a pulse_regions fit
+#'
+#' \code{"certainty"}: own-region \eqn{\Pi}. \code{"margin"}: best minus
+#' second-best \eqn{\Pi}. \code{"typicality"}: own-region cohesion. Hard
+#' labels can be \code{NA} (uncovered units under an exact prior); those units
+#' and \code{NA} rows get \code{NA}.
 #' @keywords internal
 #' @noRd
-.confidence_vec <- function(x, confidence) {
+.confidence_vec <- function(x, confidence = c("certainty", "margin", "typicality")) {
+        confidence <- match.arg(confidence)
         M <- .conf_matrix(x, confidence)
-        M[cbind(seq_len(nrow(M)), x$hard_clusters)]
+        if (confidence == "margin") {
+                if (ncol(M) < 2L) return(rep(1, nrow(M)))
+                return(apply(M, 1, function(r) {
+                        if (anyNA(r)) return(NA_real_)
+                        s <- sort(r, decreasing = TRUE); s[1] - s[2]
+                }))
+        }
+        h <- x$hard_clusters
+        out <- rep(NA_real_, nrow(M))
+        ok <- !is.na(h)
+        out[ok] <- M[cbind(which(ok), h[ok])]
+        out
 }
 
 #' @keywords internal
@@ -527,7 +550,7 @@ plot_regions <- function(x,
 #' @param palette Local-type colours; defaults to \code{\link{local_palette}}
 #'   built on \code{\link{pulse_palette}(regions)}.
 #' @param confidence \code{"own"} (default) uses the local-type row maximum;
-#'   \code{"joint"} multiplies it by the parent region's confidence, so a unit
+#'   \code{"joint"} multiplies it by the parent region's \eqn{\Pi} certainty, so a unit
 #'   the regionalisation never placed cannot look confident about its local
 #'   type. Use \code{"joint"} for any figure that stands alone.
 #' @param which Integer region, for \code{what = "region"}.
@@ -674,7 +697,7 @@ plot_local_types <- function(x,
         if (confidence == "own") return(own)
         if (is.null(regions))
                 stop("`confidence = \"joint\"` needs the parent `regions` object.", call. = FALSE)
-        rc <- .confidence_vec(regions, "typicality")
+        rc <- .confidence_vec(regions, "certainty")
         own * rc
 }
 

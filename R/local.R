@@ -218,9 +218,13 @@
 #'   a region's core. Must exceed \code{weight_eps}. Default 0.1. Note that its
 #'   meaning differs between the two \code{weights} settings: memberships shrink
 #'   as \eqn{k} grows (a mean membership at \eqn{k = 20} is 0.05), whereas
-#'   typicality is a co-association probability and does not.
-#' @param weights One of \code{"memberships"} (default; row-normalised, rows sum
-#'   to 1) or \code{"typicality"} (possibilistic co-association).
+#'   cohesion does not depend on \eqn{k}.
+#' @param weights One of \code{"memberships"} (default; composition memberships
+#'   \eqn{\Pi}, rows sum to 1) or \code{"typicality"} (the fit's
+#'   \code{cohesion}: mean co-association with the members of each region,
+#'   rows do not sum to 1). Cohesion shrinks as a region grows, so large
+#'   homogeneous regions get low weights and small cores; prefer
+#'   \code{"memberships"}.
 #' @param model_name Character vector of candidate \pkg{mclust} covariance
 #'   models, compared by weighted BIC within each region. Default
 #'   \code{c("VVV", "EEE", "VVI", "VII")}: full, shared full, diagonal,
