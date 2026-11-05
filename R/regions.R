@@ -193,7 +193,7 @@ get_regions <- function(graph,
                 length(weight_exponent) > 1L
         
         if (needs_tuning) {
-                print("Start Tuning")
+                if (verbose) message("Tuning Level 1 configurations ...")
                 tr <- tune_regions(
                         graph = graph, 
                         env = env, 
