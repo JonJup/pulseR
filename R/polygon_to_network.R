@@ -655,52 +655,7 @@ polygon_to_network <- function(polygons,
   igraph::simplify(g, remove.multiple = TRUE, remove.loops = TRUE)
 }
 
-#' Convert an spdep neighbour list to an undirected edgelist
-#'
-#' @param nb An object of class \code{nb} from \code{spdep::poly2nb()}.
-#' @return A data frame with integer columns \code{from} and \code{to}, with
-#'   \code{from < to} so each undirected edge appears exactly once.
-#' @keywords internal
-#' @noRd
-# nb_to_edgelist <- function(nb) {
-#   edges <- lapply(seq_along(nb), function(i) {
-#     neighbors <- nb[[i]]
-#     # spdep encodes "no neighbours" as a single 0L.
-#     if (length(neighbors) > 0 && neighbors[1] != 0) {
-#       # Keep only neighbours with a higher index => each edge once, from < to.
-#       valid_neighbors <- neighbors[neighbors > i]
-#       if (length(valid_neighbors) > 0) {
-#         return(data.frame(from = as.integer(i),
-#                           to   = as.integer(valid_neighbors)))
-#       }
-#     }
-#     NULL
-#   })
-#   edges <- Filter(Negate(is.null), edges)
-#   if (length(edges) == 0) {
-#     return(data.frame(from = integer(), to = integer()))
-#   }
-#   do.call(rbind, edges)
-# }
-nb_to_edgelist <- function(nb) {
-  n <- length(nb)
-  if (n == 0L) return(data.frame(from = integer(), to = integer()))
-  
-  # Keep only higher-indexed neighbours so each undirected edge appears once
-  # (from < to). spdep encodes "no neighbours" as a single 0L.
-  to_list <- lapply(seq_len(n), function(i) {
-    nbr <- nb[[i]]
-    if (length(nbr) && nbr[1L] != 0L) nbr[nbr > i] else integer(0)
-  })
-  
-  counts <- lengths(to_list)
-  if (sum(counts) == 0L) return(data.frame(from = integer(), to = integer()))
-  
-  data.frame(
-    from = rep.int(seq_len(n), counts),
-    to   = as.integer(unlist(to_list, use.names = FALSE))
-  )
-}
+
 #' Do two bounding boxes touch or overlap (with a buffer)?
 #'
 #' @param bb1,bb2 Bounding boxes from \code{sf::st_bbox()}.

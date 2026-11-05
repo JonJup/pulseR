@@ -2,27 +2,21 @@
 % Please edit documentation in R/mosaic.R
 \name{compute_fuzzy}
 \alias{compute_fuzzy}
-\title{Compute fuzzy cluster memberships via PAM}
+\title{Fuzzy PAM on a signature dissimilarity}
 \usage{
-compute_fuzzy(coassoc, k, fuzziness = 2)
+compute_fuzzy(d, k, fuzziness = 2)
 }
 \arguments{
-\item{coassoc}{A \code{dist} object or a symmetric dissimilarity matrix.
-Anything that is not already a \code{dist} is coerced with
-\code{\link[stats]{as.dist}} so PAM never treats it as raw data.}
+\item{d}{A \code{dist}.}
 
-\item{k}{Integer \eqn{\ge 2}. Number of clusters.}
+\item{k}{Integer \eqn{\ge 2}.}
 
-\item{fuzziness}{Numeric \eqn{> 1}. Fuzzifier \emph{m}. Default 2.}
+\item{fuzziness}{Numeric \eqn{> 1}. Default 2.}
 }
 \value{
-A list with \code{memberships} (\eqn{n \times k}), \code{pam_result},
-\code{d_to_medoids} (\eqn{n \times k}), \code{medoid_dist} (\eqn{k \times k}),
-and \code{fuzziness}.
+List with \code{memberships}, \code{pam_result}, \code{d_to_medoids},
+\code{medoid_dist}, \code{fuzziness}.
 }
 \description{
-Performs PAM (Partitioning Around Medoids) clustering and derives fuzzy
-membership values from distances to medoids using a fuzzifier. Also returns
-the per-object distance-to-medoid matrix and the inter-medoid distance
-matrix, which the fuzzy validity indices reuse.
+Fuzzy PAM on a signature dissimilarity
 }

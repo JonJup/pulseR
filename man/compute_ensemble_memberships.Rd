@@ -7,11 +7,10 @@
 \usage{
 compute_ensemble_memberships(
   trees,
-  n_st,
+  N_tree,
   graph,
-  intermediate_regions,
+  regions_per_partition,
   prior_strength = 0,
-  partitions_per_tree = 1,
   weight_exponent = 1,
   verbose = TRUE,
   size_influence = 2
@@ -22,31 +21,25 @@ compute_ensemble_memberships(
 \arguments{
 \item{trees}{A \code{"spanning_trees"} object.}
 
-\item{n_st}{Integer scalar. Number of spanning trees to use
+\item{N_tree}{Integer scalar. Number of spanning trees to use
 (must be \code{<= trees$n_trees}).}
 
 \item{graph}{The parent \code{igraph} object the trees were sampled from.
 Needed only to re-resolve tree edges on older igraph versions; always
 supplied for safety.}
 
-\item{intermediate_regions}{Integer scalar \eqn{\ge 2}. Number of regions per tree;
+\item{regions_per_partition}{Integer scalar \eqn{\ge 2}. Number of regions per tree;
 must not exceed the number of vertices.}
 
-\item{prior_strength}{Non-negative finite numeric scalar \eqn{\lambda_E}.
-Halving rate for within-prior edge weights. \eqn{\lambda_E = 0} (default)
-disables prior weighting and reproduces the unconstrained algorithm.
-\eqn{\lambda_E = 1} halves within-prior weights, \eqn{\lambda_E = 2}
-quarters them, and so on. Has no effect if \code{trees} was constructed
-without a \code{prior_typology}. \code{Inf} is not accepted here (use the
-\code{prior_strength = Inf} short-circuit of \code{\link{get_regions}} /
-\code{\link{tune_regions}} instead).}
-
-\item{partitions_per_tree}{Integer scalar \eqn{\ge 1}. Number of independent
-cut-sets applied to each spanning tree. Each cut-set is one regionalisation
-and contributes one ensemble column, so the returned matrix has
-\code{n_st * partitions_per_tree} columns. Default 1 (one partition per
-tree, the original behavior). Partitions from the same tree share its
-topology and are more correlated than partitions from distinct trees.}
+\item{prior_strength}{Non-negative numeric scalar \eqn{\lambda}. Lowers the
+log cutting propensity of within-prior edges by \eqn{\lambda} standard
+deviations of the environmental term \eqn{\gamma \log w}, computed per
+tree: the same unit as \code{size_influence}, so a value means the same
+on any graph. \eqn{\lambda = 0} (default) ignores the prior;
+\eqn{\lambda = 1} makes a within-prior edge as hard to cut as an edge
+one standard deviation lighter on the log scale. If that spread is zero
+(\code{weight_exponent = 0} or constant weights), one unit halves the
+propensity instead, with a warning.}
 
 \item{weight_exponent}{Non-negative numeric scalar \eqn{\gamma}. The cut
 probability of an edge is proportional to its (prior-adjusted) weight raised
@@ -64,21 +57,21 @@ deterministic heaviest-edge removal as \eqn{\gamma \to \infty}).}
 \value{
 An object of class \code{"ensemble_memberships"} — a list with:
 \describe{
-\item{\code{memberships}}{Integer matrix (\code{N x n_st}). Each column
+\item{\code{memberships}}{Integer matrix (\code{N x N_tree}). Each column
 is a region assignment from one spanning tree.}
-\item{\code{n_st}}{Ensemble size used.}
-\item{\code{intermediate_regions}}{Number of regions per tree.}
+\item{\code{N_tree}}{Ensemble size used.}
+\item{\code{regions_per_partition}}{Number of regions per tree.}
 \item{\code{n_vertices}}{Number of vertices.}
 \item{\code{prior_strength}}{The prior strength used.}
-\item{\code{chance_coassoc}}{Mean chance co-association \eqn{\bar p_0}; the reference scale for typicality.}
+\item{\code{chance_coassoc}}{Mean chance co-association \eqn{\bar p_0}; the reference scale for cohesion.}
 }
 
 \code{print.ensemble_memberships} returns \code{x} invisibly.
 }
 \description{
-For each spanning tree, removes \code{intermediate_regions - 1} edges (sampled
+For each spanning tree, removes \code{regions_per_partition - 1} edges (sampled
 without replacement, with probability proportional to edge weight) to produce
-\code{intermediate_regions} connected components, then records each node's region
+\code{regions_per_partition} connected components, then records each node's region
 label. Returns an integer matrix (one column per tree).
 }
 \details{

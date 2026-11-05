@@ -1,7 +1,7 @@
 #' Add Environmental Dissimilarity Weights to Graph Edges
 #'
-#' Calculates edge weights based on Euclidean distances between neighbouring
-#' nodes using (optionally) scaled environmental variables, and returns a new
+#' Calculates edge weights as Euclidean distances between adjacent
+#' nodes. Can use scaled environmental variables, and returns a new
 #' \pkg{igraph} object with weighted edges. Supports two modes: an in-memory
 #' mode where environmental variables are taken directly from \code{g$polygons},
 #' and a chunked mode where they are read from one or more parquet files and
@@ -35,6 +35,8 @@
 #'   when variables are already on a comparable scale.
 #' @param prior Numeric or character vector with type memberships to priori 
 #'   typology systems.
+#' @param verbose Logical. Report edge and vertex counts.
+#'
 #' @return An undirected \code{igraph} object whose edge \code{weight} attribute
 #'   is the Euclidean distance between neighbouring nodes in (optionally scaled)
 #'   environmental space. Vertex names from \code{g$graph} are preserved, all
@@ -115,14 +117,20 @@
 #'
 #' @export
 add_edge_weight <- function(g,
-                            chunked   = FALSE,
-                            files     = NULL,
-                            id_col    = NULL,
-                            variables = NULL,
-                            scale     = TRUE,
-                            prior     = NULL) {
+                            chunked         = FALSE,
+                            files           = NULL,
+                            id_col          = NULL,
+                            variables       = NULL,
+                            scale           = TRUE,
+                            prior           = NULL,
+                            verbose         = TRUE) {
+        
+        
         
         # ---- Input validation -----------------------------------------------------
+        if (!is.logical(verbose) || length(verbose) != 1L || is.na(verbose)) {
+                stop("`verbose` must be a single non-NA logical value.")
+        }
         # Validate logical scalars first so later branching is well defined.
         if (!is.logical(chunked) || length(chunked) != 1L || is.na(chunked)) {
                 stop("`chunked` must be a single non-NA logical value.")
@@ -189,7 +197,7 @@ add_edge_weight <- function(g,
         
         # style = "B" (binary) is irrelevant here -- we only consume the neighbour
         # structure ($neighbours), not the spatial weights -- but it avoids spdep
-        # row-standardising and is the clearest declaration of intent.
+        # row-standardizing and is the clearest declaration of intent.
         listw_object <- spdep::mat2listw(adj_matrix, style = "B")
         nb_object    <- listw_object$neighbours
         
@@ -250,14 +258,11 @@ add_edge_weight <- function(g,
                         "receive NA weights. Impute or remove NAs before clustering.")
         }
         
-        if (isTRUE(scale)) {
-                # base::scale() is namespaced explicitly because the `scale` argument
-                # shadows the function name.
-                env_matrix <- base::scale(env_matrix)
-        }
+        if (isTRUE(scale))  env_matrix <- base::scale(env_matrix)
         
-        # ---- Neighbour Euclidean costs --------------------------------------------
-        # Identify isolated vertices: spdep encodes a no-neighbour region as a single
+        
+        # ---- Neighbor Euclidean costs --------------------------------------------
+        # Identify isolated vertices: spdep encodes a no-neighbor region as a single
         # element equal to 0L. These are excluded from edge construction below but
         # retained as isolated vertices in the output.
         card     <- lengths(nb_object)
@@ -296,10 +301,14 @@ add_edge_weight <- function(g,
         # self-loops, no multi-edges).
         upper <- from_idx < to_idx
         
+        e_from <- from_idx[upper]
+        e_to   <- to_idx[upper]
+        e_w    <- weight[upper]
+        
         edges_df <- data.frame(
-                from   = vertex_names[from_idx[upper]],
-                to     = vertex_names[to_idx[upper]],
-                weight = weight[upper],
+                from   = vertex_names[e_from],
+                to     = vertex_names[e_to],
+                weight = e_w,
                 stringsAsFactors = FALSE
         )
         
@@ -311,6 +320,12 @@ add_edge_weight <- function(g,
                 vertices = data.frame(name = vertex_names, stringsAsFactors = FALSE)
         )
         igraph::E(out.graph)$eid <- seq_len(igraph::ecount(out.graph))
+        
+        if (verbose) {
+                message(sprintf("  %d edges, %d vertices.",
+                                igraph::ecount(out.graph), igraph::vcount(out.graph)))
+        }
+        
         # Adding the prior typology if provided.
         if (!is.null(prior)){
                 igraph::V(out.graph)$prior <- prior
@@ -322,6 +337,7 @@ add_edge_weight <- function(g,
 #
 # Internal helpers
 #
+
 
 #' Coerce a data frame of environmental variables to a numeric matrix
 #'

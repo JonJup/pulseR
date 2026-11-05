@@ -395,3 +395,111 @@ utils::globalVariables(c(
         if (seconds < 3600) return(sprintf("%dm %02ds", seconds %/% 60, seconds %% 60))
         sprintf("%dh %02dm %02ds", seconds %/% 3600, (seconds %% 3600) %/% 60, seconds %% 60)
 }
+
+
+
+# old regions functions ---------------------------------------------------
+
+#' Adjusted Rand Index (Hubert & Arabie 1985)
+#'
+#' Pure-base implementation. Permutation-invariant; ARI = 1 for identical
+#' partitions (up to label permutation), expected ARI = 0 under random
+#' assignment.
+#'
+#' @param a,b Integer or character label vectors of equal length.
+#' @return Numeric scalar in approximately \code{[-0.5, 1]}; \code{NA_real_}
+#'   if input length < 2.
+#'
+#' @details Used by \code{.stability_fuzzy()} to score how well two hardened
+#'   partitions agree on the overlap of resampled objects. We use the crisp ARI
+#'   on argmax labels rather than a fuzzy-ARI generalisation because (i)
+#'   stability of *structure* is what matters here, not stability of *softness*,
+#'   and (ii) it has no dependencies. If a non-trivial fraction of objects have
+#'   a top-two membership margin below ~0.1, consider substituting a
+#'   Hüllermeier–Rifqi or Campello fuzzy Rand index (not implemented).
+#'
+#' @keywords internal
+#' @noRd
+.adjusted_rand_index <- function(a, b) {
+        stopifnot(length(a) == length(b))
+        if (length(a) < 2) return(NA_real_)
+        tab <- table(a, b)
+        n   <- sum(tab)
+        if (n < 2) return(NA_real_)
+        sum_nij <- sum(choose(tab, 2))
+        ai <- rowSums(tab); bj <- colSums(tab)
+        sum_ai <- sum(choose(ai, 2))
+        sum_bj <- sum(choose(bj, 2))
+        expected <- (sum_ai * sum_bj) / choose(n, 2)
+        max_idx  <- 0.5 * (sum_ai + sum_bj)
+        denom    <- max_idx - expected
+        # Degenerate case: both partitions are singletons or a single block.
+        if (denom == 0) return(1)
+        (sum_nij - expected) / denom
+}
+
+#' Crisp Rousseeuw silhouette from a dissimilarity matrix
+#'
+#' Vectorised over the cluster axis; O(N k) after the N x N matrix is
+#' materialised. Intended for a subsample of moderate size (a few thousand
+#' rows), not the full graph.
+#'
+#' @param D Dissimilarity, either a \code{dist} object or a full N x N matrix.
+#' @param labels Integer vector of cluster labels of length N.
+#' @return Numeric vector of per-object silhouette widths.
+#' @keywords internal
+#' @noRd
+.rousseeuw_silhouette <- function(D, labels) {
+        if (inherits(D, "dist")) D <- as.matrix(D)
+        N <- length(labels)
+        clusters <- sort(unique(labels))
+        K <- length(clusters)
+        if (K < 2L) return(rep(0, N))
+        cluster_sizes <- as.integer(table(factor(labels, levels = clusters)))
+        
+        # N x K matrix of summed distances from each point to each cluster.
+        sums <- matrix(0, nrow = N, ncol = K)
+        for (j in seq_len(K)) {
+                in_j <- labels == clusters[j]
+                sums[, j] <- rowSums(D[, in_j, drop = FALSE])
+        }
+        
+        own_idx <- match(labels, clusters)
+        s   <- numeric(N)
+        eps <- .Machine$double.eps
+        for (i in seq_len(N)) {
+                o <- own_idx[i]
+                if (cluster_sizes[o] <= 1L) { s[i] <- 0; next }
+                means <- sums[i, ] / cluster_sizes
+                # Own-cluster mean excludes self (self-distance is 0, so subtract nothing
+                # from the sum but divide by size - 1).
+                means[o] <- sums[i, o] / (cluster_sizes[o] - 1L)
+                a_i <- means[o]
+                b_i <- min(means[-o])
+                s[i] <- (b_i - a_i) / max(a_i, b_i, eps)
+        }
+        s
+}
+
+#' Seed the RNG for the rest of the calling function
+#'
+#' Sets \code{seed} and registers an exit handler in the caller's frame that
+#' restores the caller's RNG state, including "no state yet" (it then removes
+#' the \code{.Random.seed} that \code{set.seed()} created). \code{NULL} does
+#' nothing.
+#' @keywords internal
+#' @noRd
+.local_seed <- function(seed, envir = parent.frame()) {
+        if (is.null(seed)) return(invisible(NULL))
+        if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
+                old     <- get(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
+                restore <- function() assign(".Random.seed", old, envir = .GlobalEnv)
+        } else {
+                restore <- function()
+                        if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE))
+                                rm(".Random.seed", envir = .GlobalEnv)
+        }
+        do.call(on.exit, list(bquote(.(restore)()), add = TRUE), envir = envir)
+        set.seed(seed)
+        invisible(NULL)
+}

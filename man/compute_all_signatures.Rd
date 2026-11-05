@@ -2,54 +2,56 @@
 % Please edit documentation in R/mosaic.R
 \name{compute_all_signatures}
 \alias{compute_all_signatures}
-\title{Compute fuzzy co-occurrence signatures for all polygons}
+\title{Fuzzy co-occurrence signatures for every polygon}
 \usage{
 compute_all_signatures(
   P,
   graph,
   k,
-  verbose = TRUE,
   coords = NULL,
   kernel = c("none", "gaussian", "exponential", "linear"),
-  sigma = NULL,
-  digits = 3L
+  sigma = "global",
+  drop_zero_cols = TRUE,
+  block = 64L,
+  digits = NULL,
+  verbose = TRUE
 )
 }
 \arguments{
-\item{P}{Numeric matrix (\eqn{n \times c}) of fuzzy membership values. Rows
-must correspond, in order, to the vertices of \code{graph}.}
+\item{P}{Numeric \eqn{n \times c} membership matrix, rows in graph vertex
+order, or the list returned by \code{\link{as_mosaic_P}}.}
 
-\item{graph}{An \code{igraph} graph object representing spatial adjacency.}
+\item{graph}{An \code{igraph} adjacency graph.}
 
-\item{k}{Integer scalar \eqn{\ge 1}. The neighborhood order.}
+\item{k}{Neighbourhood order.}
 
-\item{verbose}{Logical. If \code{TRUE} (default), progress messages print.}
+\item{coords}{Centroid matrix; required when \code{kernel != "none"}.}
 
-\item{coords}{A numeric \eqn{n \times 2} matrix of centroids, rows aligned to P)}
+\item{kernel, sigma}{See \code{\link{neighbourhood_weights}}.}
 
-\item{kernel, sigma}{Distance-weighting kernel and bandwidth; see
-\code{\link{compute_signature}}. Defaults "none" / 1.}
+\item{drop_zero_cols}{Drop class pairs that never occur. Default \code{TRUE}.
+Note this makes signature dimension depend on the data, so matrices from
+two different \code{k} are not column-aligned; \code{\link{sweep_k_order}}
+handles that by clustering each \code{k} separately.}
 
-\item{digits}{Rounding for signatures; see \code{\link{compute_signature}}.
-Default 3.}
+\item{block}{Class-pair columns processed per sparse product. Lower it if
+memory is tight. Default 64.}
+
+\item{digits}{Rounding, or \code{NULL} (default) for none. Rounding is lossy
+and was only ever cosmetic.}
+
+\item{verbose}{Logical.}
 }
 \value{
-A numeric matrix (\eqn{n \times sig\_len}) of signatures, where
-\eqn{sig\_len = c(c+1)/2}. Column names encode class pairs (e.g.
-\code{"c1:c2"}). Columns that are zero across all polygons are removed.
-Rows for isolated / near-isolated polygons contain \code{NA}.
+Numeric \eqn{n \times \binom{c+1}{2}} matrix with \code{"a:b"} column
+names. Rows whose neighbourhood contains no edge are \code{NA}.
 }
 \description{
-Iterates over all polygons to compute their fuzzy co-occurrence signatures
-based on a k-order spatial neighborhood.
-}
-\details{
-The adjacency matrix is computed once here and passed to
-\code{\link{compute_signature}} for every polygon (the original code rebuilt
-it on each call). The number of \code{P} rows is checked against the vertex
-count, since the method relies on row \code{i} of \code{P} corresponding to
-vertex \code{i} of \code{graph}.
-}
-\seealso{
-\code{\link{compute_signature}}, \code{\link{get_reachability}}
+For focal \eqn{f} the signature is the upper triangle of
+\eqn{C^{(f)} = P_w^\top A_{N(f)} P_w}, normalised to a probability
+distribution. Rather than looping over focals, the identity
+\deqn{C^{(f)} = \sum_{e \in N(f)} w_f(u_e)\,w_f(v_e)\, m_e}
+is used, where \eqn{m_e} is the class-pair contribution of edge \eqn{e}. The
+whole matrix is then one sparse product, which is orders of magnitude faster
+than the per-focal implementation at continental \eqn{N}.
 }

@@ -1,707 +1,19 @@
-#' Borda rank-aggregation across sub-metric columns
-#'
-#' For each column of \code{df}, ranks rows (1 = best per the direction); NAs
-#' receive the worst rank within that column; fully-NA columns are dropped;
-#' remaining ranks are summed row-wise. The optimal row MINIMISES the returned
-#' Borda score.
-#'
-#' @param df Data frame of sub-metric values (one column per voter).
-#' @param directions Character vector of length \code{ncol(df)}; each element
-#'   \code{"min"} or \code{"max"}.
-#' @return Numeric vector of length \code{nrow(df)}; all-NA if every voter is NA.
-#'
-#' @details Uses \code{ties.method = "average"} so genuine ties do not falsely
-#'   separate candidates. Weighted Borda is intentionally not used: each voter
-#'   is a different *aspect* of validity (compactness/separation, fuzziness-
-#'   aware silhouette, stability), and over-weighting one would re-introduce the
-#'   bias direction we are trying to balance.
-#'
-#' @keywords internal
-#' @noRd
-.borda_score <- function(df, directions) {
-        stopifnot(ncol(df) == length(directions))
-        if (!is.null(names(directions))) {
-                stopifnot(all(names(directions) %in% names(df)))
-                df <- df[, names(directions), drop = FALSE]
-        }
-        n <- nrow(df)
-        
-        ranks_list <- Map(function(values, dir) {
-                if (all(is.na(values))) return(NULL)
-                r <- switch(dir,
-                            min = rank(values,  na.last = "keep", ties.method = "average"),
-                            max = rank(-values, na.last = "keep", ties.method = "average"),
-                            stop("direction must be 'min' or 'max'", call. = FALSE))
-                na_mask <- is.na(r)
-                if (any(na_mask)) {
-                        # NAs share the average of the unused worst ranks, so every
-                        # column contributes the same total regardless of coverage.
-                        m <- sum(!na_mask)
-                        r[na_mask] <- mean(seq.int(m + 1L, n))
-                }
-                r
-        }, df, directions)
-        
-        ranks_list <- Filter(Negate(is.null), ranks_list)
-        if (!length(ranks_list)) return(rep(NA_real_, n))
-        rowMeans(do.call(cbind, ranks_list))
-}
-
-
-
-#' Chance co-association per ensemble column
-#'
-#' For each column, the probability that two units drawn uniformly at random
-#' share an intermediate region. Averaged over columns this is the floor
-#' against which co-association to a medoid should be read; its reciprocal is
-#' the effective number of intermediate regions (inverse Simpson), which is
-#' the same n_eff diagnostic the size-biased cut fix was tuned against.
-#'
-#' Returned per column so that an ensemble sliced to n_st' < n_st can take
-#' the mean over its own columns without an O(N M) rescan.
-#'
-#' @param memb_mat Integer matrix N x M of intermediate region labels.
-#' @return Numeric vector of length M, each element in (0, 1].
-#' @keywords internal
-#' @noRd
-.chance_coassoc_by_col <- function(memb_mat) {
-        N <- nrow(memb_mat)
-        vapply(seq_len(ncol(memb_mat)), function(t) {
-                n <- tabulate(memb_mat[, t])
-                sum((n / N)^2)
-        }, numeric(1))
-}
-
-
-.check_contiguity <- function(graph, lab) {
-        n  <- igraph::vcount(graph)
-        stopifnot(length(lab) == n)
-        ep <- igraph::ends(graph, igraph::E(graph), names = FALSE)
-        
-        same <- !is.na(lab[ep[, 1]]) & !is.na(lab[ep[, 2]]) & lab[ep[, 1]] == lab[ep[, 2]]
-        g2   <- igraph::make_graph(as.vector(t(ep[same, , drop = FALSE])),
-                                   n = n, directed = FALSE)
-        comp <- igraph::components(g2)$membership
-        
-        keep  <- !is.na(lab)
-        frag  <- tapply(comp[keep], lab[keep], function(x) length(unique(x)))
-        list(contiguous = all(frag == 1L),
-             fragments  = frag[frag > 1L],
-             n_orphans  = sum(keep) - sum(tapply(comp[keep], lab[keep],
-                                                 function(x) max(tabulate(match(x, unique(x)))))))
-}
-
-#' Calinski-Harabasz index computed from a distance matrix
-#'
-#' Ratio of between-group to within-group dispersion, corrected for the number
-#' of groups. Needs only a distance matrix and a membership matrix; no
-#' coordinates and no centroids are required, so the same estimator works on
-#' consensus Hamming distances (level 1) and Jensen-Shannon distances (level 3).
-#'
-#' @param D Distance matrix or \code{dist} object over N objects.
-#' @param U N x k membership matrix.
-#' @param fuzziness Fuzzifier m. Ignored when \code{crisp = TRUE}.
-#' @param square Logical. If TRUE, \code{D} is squared before use. Set this so
-#'   that the quantity entering the formula is the SQUARED distance in the
-#'   sense of an ordinary geometric layout. See details in the notes below.
-#' @param crisp Logical. Use one-hot argmax weights instead of u^m.
-#' @return Numeric scalar; higher is better. NA_real_ if undefined.
-#' @keywords internal
-#' @noRd
-.ch_distance <- function(D, U, fuzziness = 2, square = T, crisp = FALSE){
-        
-        if(inherits(D, "dist")) D <- as.matrix(D)
-        N <- nrow(U) 
-        k <- ncol(U)
-        if (N != nrow(D)) stop("Dimensions of D and N do not agree", call. = FALSE)
-        if (k < 2 || N < k) return(NA_real_)
-        D2 <- if(square) D*D else D
-        if (crisp){
-                Wt <- matrix(0, N, k)
-                Wt[cbind(seq_len(N), max.col(U, ties.method = "first"))] <- 1
-        } else {
-                Wt <- U ^ fuzziness
-        }
-        
-        # Group size-like notion. Excatlcy the group size for crisp. 
-        mass <- colSums(Wt)
-        if (any(!is.finite(mass)) || any(mass<=0)) return(NA_real_)
-        
-        # Within group distance. Wt provides fuzzy notion of within-groupies. 
-        # The 0.5 corrects for counting every relationship twice (once from each side). 
-        within_k <- 0.5 * colSums(Wt * (D2 %*% Wt)) / mass
-        W <- sum(within_k)
-        
-        # Total spread 
-        Tot <- 0.5 * sum(D2) / N
-        # Between groups 
-        s   <- rowSums(D2)
-        h   <- rowSums(Wt)
-        M   <- sum(mass)
-        B   <- sum(h * s) / N - W - M * Tot / N
-        if (!is.finite(B) || !is.finite(W) || B <= 0 || W <= 0) return(NA_real_)
-        (B/(k - 1))/(W/(N-k))
-}
-
-
-#' Compute Ensemble Region Memberships via SKATER Edge Removal
-#'
-#' For each spanning tree, removes \code{intermediate_regions - 1} edges (sampled
-#' without replacement, with probability proportional to edge weight) to produce
-#' \code{intermediate_regions} connected components, then records each node's region
-#' label. Returns an integer matrix (one column per tree).
-#'
-#' @param trees A \code{"spanning_trees"} object.
-#' @param n_st Integer scalar. Number of spanning trees to use
-#'   (must be \code{<= trees$n_trees}).
-#' @param graph The parent \code{igraph} object the trees were sampled from.
-#'   Needed only to re-resolve tree edges on older igraph versions; always
-#'   supplied for safety.
-#' @param intermediate_regions Integer scalar \eqn{\ge 2}. Number of regions per tree;
-#'   must not exceed the number of vertices.
-#' @param prior_strength Non-negative finite numeric scalar \eqn{\lambda_E}.
-#'   Halving rate for within-prior edge weights. \eqn{\lambda_E = 0} (default)
-#'   disables prior weighting and reproduces the unconstrained algorithm.
-#'   \eqn{\lambda_E = 1} halves within-prior weights, \eqn{\lambda_E = 2}
-#'   quarters them, and so on. Has no effect if \code{trees} was constructed
-#'   without a \code{prior_typology}. \code{Inf} is not accepted here (use the
-#'   \code{prior_strength = Inf} short-circuit of \code{\link{get_regions}} /
-#'   \code{\link{tune_regions}} instead).
-#' @param verbose Logical. Default \code{TRUE}.
-#' @param partitions_per_tree Integer scalar \eqn{\ge 1}. Number of independent
-#'   cut-sets applied to each spanning tree. Each cut-set is one regionalisation
-#'   and contributes one ensemble column, so the returned matrix has
-#'   \code{n_st * partitions_per_tree} columns. Default 1 (one partition per
-#'   tree, the original behavior). Partitions from the same tree share its
-#'   topology and are more correlated than partitions from distinct trees.
-#' @param weight_exponent Non-negative numeric scalar \eqn{\gamma}. The cut
-#'   probability of an edge is proportional to its (prior-adjusted) weight raised
-#'   to \eqn{\gamma}. \eqn{\gamma = 0} cuts edges uniformly at random,
-#'   \eqn{\gamma = 1} (default) cuts with probability proportional to weight, and
-#'   larger \eqn{\gamma} concentrates cuts on the heaviest edges (approaching
-#'   deterministic heaviest-edge removal as \eqn{\gamma \to \infty}).
-#'
-#' @return An object of class \code{"ensemble_memberships"} — a list with:
-#'   \describe{
-#'     \item{\code{memberships}}{Integer matrix (\code{N x n_st}). Each column
-#'       is a region assignment from one spanning tree.}
-#'     \item{\code{n_st}}{Ensemble size used.}
-#'     \item{\code{intermediate_regions}}{Number of regions per tree.}
-#'     \item{\code{n_vertices}}{Number of vertices.}
-#'     \item{\code{prior_strength}}{The prior strength used.}
-#'     \item{\code{chance_coassoc}}{Mean chance co-association \eqn{\bar p_0}; the reference scale for typicality.}
-#'   }
-#'@details When both a prior and \eqn{\gamma \ne 1} are in use, weights are first
-#'   exponentiated and the weighted by the prior. Thus the halvings are relative
-#'   to the exponentiated weights. 
-#' @importFrom igraph E ends make_graph components
-#' @export
-compute_ensemble_memberships <- function(trees, 
-                                         n_st, 
-                                         graph, 
-                                         intermediate_regions, 
-                                         prior_strength = 0, 
-                                         partitions_per_tree = 1,
-                                         weight_exponent = 1, 
-                                         verbose = TRUE,
-                                         size_influence = 2) {
-        
-        stopifnot(inherits(trees, "spanning_trees"))
-        stopifnot(length(n_st) == 1L, n_st >= 2, n_st <= trees$n_trees)
-        stopifnot(length(intermediate_regions) == 1L, intermediate_regions >= 2, intermediate_regions <= trees$n_vertices)
-        stopifnot(is.numeric(prior_strength), length(prior_strength) == 1L, prior_strength >= 0)
-        stopifnot(length(partitions_per_tree) == 1L, is.finite(partitions_per_tree), partitions_per_tree >= 1)
-        stopifnot(is.numeric(weight_exponent), length(weight_exponent) == 1L, is.finite(weight_exponent), weight_exponent >= 0)
-        if (is.infinite(prior_strength))  stop("`prior_strength = Inf` is not supported here; use the exact-prior ", "short-circuit in get_regions()/tune_regions().", call. = FALSE)
-        partitions_per_tree <- as.integer(partitions_per_tree)
-        
-        if (verbose) {
-                msg <- sprintf(
-                        "Computing ensemble memberships (n_st = %d, intermediate_regions = %d",
-                        n_st, intermediate_regions
-                )
-                if (partitions_per_tree > 1L)
-                        msg <- paste0(msg, sprintf(", partitions_per_tree = %d", partitions_per_tree))
-                if (weight_exponent != 1)
-                        msg <- paste0(msg, sprintf(", weight_exponent = %g", weight_exponent))
-                if (prior_strength > 0 && !is.null(trees$within_prior_edge))
-                        msg <- paste0(msg, sprintf(", lambda_E = %g", prior_strength))
-                message(msg, ") ...")
-        }
-        
-        t0 <- proc.time()[["elapsed"]]
-        memb <- .compute_ensemble_memberships_internal(
-                graph = graph, 
-                trees = trees, 
-                n_st = n_st,
-                intermediate_regions = intermediate_regions,
-                prior_strength       = prior_strength,
-                partitions_per_tree  = partitions_per_tree,
-                weight_exponent      = weight_exponent,
-                size_influence       = size_influence
-        )
-        if (verbose) message(sprintf("  Done in %s", .format_duration(proc.time()[["elapsed"]] - t0)))
-        
-        structure(
-                list(
-                        memberships         = memb,
-                        n_st                = as.integer(n_st),
-                        intermediate_regions = as.integer(intermediate_regions),
-                        partitions_per_tree = partitions_per_tree,
-                        n_members           = ncol(memb),
-                        weight_exponent     = weight_exponent,
-                        n_vertices          = trees$n_vertices,
-                        prior_strength      = prior_strength,
-                        chance_coassoc      = .chance_coassoc_by_col(memb)
-                ),
-                class = "ensemble_memberships"
-        )
-}
-
-
-#' Compute fuzzy-aware Cluster Validity Indices on a final fuzzy partition
-#'
-#' Returns a 1-row data frame of values, NOT a single scalar. The caller derives
-#' a \code{score} column according to the chosen \code{metric} (see
-#' \code{.derive_score_column}).
-#'
-#' @param res results of cluster_consensus()
-#' @param env Environmental data passed through to \code{.compute_fuzzy_cvis()}.
-#'  The same data used to weight the edges in \code{\link{add_edge_weight}}.
-#' @param env_id Name of any ID columns in `env`, which should not be used in 
-#'   the computation of cluster validity metrics. If `NULL` (default) no columns
-#'   are removed from `env`.
-#' @param d_to_medoids N x k matrix of distances from each object to each
-#'   medoid (from \code{cluster_consensus}).
-#' @param medoid_dist k x k matrix of inter-medoid distances.
-#' @param memb_mat Integer matrix N x n_trees. Required if \code{SIL_F} or
-#'   \code{STAB} are to be computed; may be \code{NULL} otherwise (those entries
-#'   become \code{NA}).
-#' @param fuzziness Fuzzifier \emph{m}; used in the XB* numerator weighting.
-#' @param silhouette_hard Numeric scalar; hardened average silhouette width from
-#'   CLARA/PAM (passed through as \code{SILH_HARD}).
-#' @param stability_B Integer; bootstrap replicates for STAB. \code{0} skips it.
-#' @param stability_subsample_frac Fraction of rows per stability replicate.
-#' @param stability_seed Optional seed.
-#' @param large_n_threshold CLARA/PAM cutoff for stability re-fits.
-#' @param clara_samples,clara_sampsize CLARA controls for stability re-fits.
-#' @param verbose Logical.
-#' @return One-row \code{data.frame} with columns PC, PE, MPC, PEN, XB_star,
-#'   SIL_F, STAB, SILH_HARD.
-#' @keywords internal
-#' @noRd
-.compute_fuzzy_cvis <- function(res,
-                                # env,
-                                # env_id = NULL,
-                                memb_mat = NULL,
-                                
-                                stability_B              = 0L,
-                                stability_subsample_frac = 0.8,
-                                stability_seed           = NULL,
-                                silf_alpha               = 2,
-                                large_n_threshold        = 20000L,
-                                clara_samples            = 20L,
-                                clara_sampsize           = NULL,
-                                verbose                  = FALSE) {
-        
-        
-        if (is.null(memb_mat)) stop("No membership matrix provided", call. = FALSE)
-        fuzziness = res$fuzziness
-        # U = Membership matrix 
-        U <- res$memberships
-        D <- parallelDist::parallelDist(memb_mat, method = "hamming")
-        SIL_F <- .fuzzy_silhouette(D, U, alpha = silf_alpha)
-        # Hamming already plays the role of the squared distance, so square = FALSE.
-        CH_D <- .ch_distance(D, U, fuzziness = fuzziness, square = FALSE)
-        # --- STAB (bootstrap ARI) ---- *
-        STAB <- NA_real_
-        if (stability_B > 0) {
-                hard_clusters <- res$hard_clusters
-                
-                STAB <- tryCatch(
-                        .stability_fuzzy(memb_mat = memb_mat,
-                                         hard_clusters = hard_clusters, 
-                                         k = res$k, 
-                                         fuzziness = res$fuzziness, 
-                                         B = stability_B, 
-                                         subsample_frac = stability_subsample_frac, 
-                                         large_n_threshold = large_n_threshold,
-                                         clara_samples = clara_samples, 
-                                         clara_sampsize = clara_sampsize,
-                                         seed = stability_seed, 
-                                         verbose  = verbose),
-                        error = function(e) {
-                                if (verbose) message("    [STAB] failed: ", conditionMessage(e))
-                                NA_real_
-                        }
-                )
-        }
-        
-        
-        data.frame(SIL_F = SIL_F, 
-                   CH_D = CH_D,
-                   STAB = STAB)
-
-
-    
-}
-
-
-
-
-
-#' Typicality of Each Unit Relative to Each Region
-#'
-#' Reports, for every unit and every region, the fraction of ensemble
-#' partitions in which that unit shared an intermediate region with that
-#' region's medoid.
-#'
-#' @param x A fitted object: a \code{"fuzzy_clusters"} object from
-#'   \code{\link{cluster_consensus}}, or a \code{"pulse_regions"} object from
-#'   \code{\link{get_regions}}.
-#' @param ... Passed to methods.
-#' @return Numeric matrix, N units by k regions.
-#' @export
-compute_typicality <- function(x, ...) UseMethod("compute_typicality")
-
-
-#' @rdname compute_typicality
-#'
-#' @details
-#' Raw typicality \eqn{s_{ij} = 1 - d_{ij}} is the proportion of ensemble
-#' partitions in which unit \eqn{i} and the medoid of region \eqn{j} fall in
-#' the same intermediate region. Its resolution is \eqn{1 / n\_members}, and
-#' its scale depends on \code{intermediate_regions}: each partition applies
-#' \code{intermediate_regions - 1} cuts, and every cut is a further
-#' opportunity to separate the pair, so raw values shrink as that setting
-#' rises. Raw values are therefore comparable within a fit but not across
-#' fits at different resolutions.
-#'
-#' \code{scale = "rescaled"} re-expresses a fit at a common resolution via
-#' \eqn{s^{(R_{ref}-1)/(R-1)}}. This is exact if cuts separate a given pair
-#' independently, which is an approximation that has not been validated on
-#' real catchment graphs; treat it as a sensitivity tool. With \code{R_ref}
-#' left at \code{NULL} it is the identity and returns raw values.
-#'
-#' \code{scale = "chance"} returns \eqn{1 - \log s / \log \bar p_0}, where
-#' \eqn{\bar p_0} is the chance co-association of two randomly chosen units.
-#' It is 0 at chance, 1 for a unit never separated from the medoid, and
-#' negative for units systematically cut away from the region they were
-#' assigned to.
-#'
-#' To reduce the matrix to one value per unit for its own assigned region:
-#' \preformatted{
-#'   tp <- compute_typicality(fit)
-#'   tp[cbind(seq_len(nrow(tp)), fit$hard_clusters)]
-#' }
-#'
-#' @param scale One of \code{"raw"} (default), \code{"rescaled"},
-#'   \code{"chance"}.
-#' @param R_ref Reference \code{intermediate_regions} for
-#'   \code{scale = "rescaled"}. \code{NULL} (default) uses the fit's own
-#'   value, i.e. no rescaling.
-#' @export
-compute_typicality.fuzzy_clusters <- function(x,
-                                              scale = c("raw", "rescaled", "chance"),
-                                              R_ref = NULL,
-                                              ...) {
-        scale <- match.arg(scale)
-        
-        meta <- x$ensemble_meta
-        M    <- x$n_members
-        if (is.null(meta) || is.null(M)) {
-                stop("This `fuzzy_clusters` object carries no `ensemble_meta`, so the ",
-                     "resolution its distances were measured at is unknown. Refit with ",
-                     "the current version of `cluster_consensus()`.", call. = FALSE)
-        }
-        
-        s <- 1 - x$d_to_medoids
-        
-        if (scale == "raw") return(s)
-        
-        if (scale == "rescaled") {
-                R <- meta$intermediate_regions
-                if (is.null(R) || is.na(R) || R < 2L) {
-                        stop("`intermediate_regions` is unavailable on this object; ",
-                             "rescaling is undefined.", call. = FALSE)
-                }
-                if (is.null(R_ref)) R_ref <- R
-                stopifnot(is.numeric(R_ref), length(R_ref) == 1L,
-                          is.finite(R_ref), R_ref >= 2)
-                return(s ^ ((R_ref - 1) / (R - 1)))
-        }
-        
-        # scale == "chance".
-        # Half-count smoothing: s is a count out of M, so a unit never co-assigned
-        # with a medoid has s = 0 and log(0) = -Inf. Nudging by half a count keeps
-        # the logarithm finite while leaving all other values essentially unmoved.
-        p0 <- meta$chance_coassoc
-        s  <- (s * M + 0.5) / (M + 1)
-        1 - log(s) / log(p0)
-}
-
-#' @rdname compute_typicality
-#' @export
-compute_typicality.pulse_regions <- function(x, ...) {
-        if (is.null(x$fit)) {
-                stop("This `pulse_regions` object has no `$fit`; it was produced by an ",
-                     "older version of `get_regions()`.", call. = FALSE)
-        }
-        compute_typicality(x$fit, ...)
-}
-
-
-# ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
-# Step 4: Fuzzy consensus clustering
-# ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
-
-#' Fuzzy Consensus Clustering from Ensemble Memberships
-#'
-#' Clusters nodes into \code{k} groups based on an ensemble membership matrix,
-#' using CLARA (for large datasets) or PAM (for small ones), then converts
-#' Hamming distances to medoids into fuzzy membership values.
-#'
-#' @param ensemble An \code{"ensemble_memberships"} object or a raw integer
-#'   matrix (N x n_trees).
-#' @param k Integer scalar with \eqn{2 \le k < N}. Number of final clusters.
-#' @param graph The parent \code{igraph} object the trees were sampled from.  
-#' @param fuzziness Numeric \eqn{> 1}. Fuzzifier \emph{m}. Default 2.
-#' @param crisp Logical. If \code{TRUE}, returns one-hot (hard) memberships.
-#' @param large_n_threshold Integer. Above this N, CLARA is used instead of PAM.
-#'   Default 20000.
-#' @param clara_samples Integer. Number of CLARA samples. Default 50.
-#' @param clara_sampsize Integer or \code{NULL}. CLARA sample size; default
-#'   \code{NULL} selects \code{min(N, 200 + 2k)}.
-#' @param verbose Logical. Default \code{TRUE}.
-#'
-#' @return An object of class \code{"fuzzy_clusters"} — a list with:
-#'   \describe{
-#'     \item{\code{memberships}}{Numeric matrix (N x k).}
-#'     \item{\code{hard_clusters}}{Integer vector of hard cluster assignments.}
-#'     \item{\code{medoid_idx}}{Integer vector of medoid row indices.}
-#'     \item{\code{avg_sil_width}}{Hardened average silhouette width from
-#'       CLARA/PAM. NOTE: computed on the argmax labels, i.e. a crisp index;
-#'       do NOT use it as the primary k-selection criterion.}
-#'     \item{\code{k}}{Number of clusters.}
-#'     \item{\code{fuzziness}}{The fuzziness parameter used.}
-#'     \item{\code{method}}{Either \code{"clara"} or \code{"pam"}.}
-#'     \item{\code{cluster_result}}{The raw \code{clara} or \code{pam} object.}
-#'     \item{\code{d_to_medoids}}{N x k matrix of Hamming distances from each
-#'       node to each medoid. Reused by fuzzy CVI computations.}
-#'     \item{\code{medoid_dist}}{k x k matrix of inter-medoid Hamming
-#'       distances. Reused by XB*.}
-#'   }
-#'
-#' @importFrom cluster clara pam
-#' @importFrom parallelDist parallelDist
-#' @export
-cluster_consensus <- function(ensemble, k, graph, fuzziness = 2, crisp = FALSE,
-                              large_n_threshold = 20000, clara_samples = 50,
-                              clara_sampsize = NULL, verbose = TRUE) {
-        
-        # --- Coerce input to a membership matrix ---- *
-        if (inherits(ensemble, "ensemble_memberships")) {
-                # memb_mat <- ensemble$memberships
-                ens_meta <- list(
-                        memb_mat = ensemble$memberships,
-                        intermediate_regions = ensemble$intermediate_regions,
-                        n.rst                = ensemble$n.rst,
-                        partitions_per_tree  = ensemble$partitions_per_tree,
-                        weight_exponent      = ensemble$weight_exponent,
-                        prior_strength       = ensemble$prior_strength,
-                        chance_coassoc       = ensemble$chance_coassoc
-                )
-        } else if (is.matrix(ensemble)) {
-                # Bare-matrix path: no provenance available, so p0 is computed here
-                # rather than left NA. Everything else is unknowable
-                # memb_mat <- ensemble
-                ens_meta <- list(
-                        memb_mat = ensemble$memberships,
-                        intermediate_regions = NA_integer_,
-                        n.rst                = NA_integer_,
-                        partitions_per_tree  = NA_integer_,
-                        weight_exponent      = NA_real_,
-                        prior_strength       = NA_real_,
-                        chance_coassoc       = .chance_coassoc_by_col(ensemble)
-                )
-        } else {
-                stop("`ensemble` must be an 'ensemble_memberships' object or an integer matrix.", call. = FALSE)
-        }
-        
-        # --- Coerce input to a membership matrix ---- *
-        n <- nrow(ens_meta$memb_mat)
-        stopifnot(length(k) == 1L, k >= 2, k < n, fuzziness > 1)
-        
-        use_clara <- n > large_n_threshold
-        
-        if (verbose) message(sprintf(
-                "Fuzzy consensus clustering (k = %d, N = %d, method = %s) ...",
-                k, n, if (use_clara) "CLARA" else "PAM"
-        ))
-        
-        t0 <- proc.time()[["elapsed"]]
-        
-        # --- Medoid clustering w .clara_hamming ---- *
-        if (use_clara) {
-                # CLARA operates directly on the data matrix (samples + PAM on each sample),
-                # avoiding a full N x N dissimilarity matrix.
-                sampsize <- if (is.null(clara_sampsize)) min(n, 200 + 2 * k) else clara_sampsize
-                cl_res <- .clara_hamming(ens_meta$memb_mat,
-                                         k = k,
-                                         samples  = clara_samples,
-                                         sampsize = sampsize,
-                                         verbose  = verbose)
-                medoid_idx  <- cl_res$i.med
-                clustering  <- cl_res$clustering
-                sil_width   <- cl_res$silinfo$avg.width
-                n_eff = "clara"
-                method_used <- "clara"
-        } else {
-                # PAM on the full Hamming dissimilarity matrix.
-                coassoc <- parallelDist::parallelDist(ens_meta$memb_mat, method = "hamming")
-                n_eff <- 1/(1-mean(coassoc,na.rm =T))
-                pam_res <- cluster::pam(coassoc, k = k)
-                medoid_idx  <- pam_res$id.med
-                clustering  <- pam_res$clustering
-                sil_width   <- pam_res$silinfo$avg.width
-                method_used <- "pam"
-                cl_res      <- pam_res
-        }
-        
-        # --- Distances to medoids (always computed) ---- *---- *---- *---- *---- *---- *
-        # Needed both for fuzzy-membership derivation and for downstream CVIs (XB*,
-        # SIL_F). Computing it unconditionally keeps the crisp = TRUE path and CVI
-        # consumers well-defined.
-        dists_to_med <- .hamming_to_refs(ens_meta$memb_mat, medoid_idx)
-        G <- .region_step_distance(graph, lab = clustering, k = k)
-
-        # --- k x k inter-medoid distance matrix ---- *
-        if (length(medoid_idx) >= 2L) {
-                medoid_dist <- as.matrix(
-                        parallelDist::parallelDist(
-                            ens_meta$memb_mat[medoid_idx, , drop = FALSE],
-                                method = "hamming"
-                        )
-                )
-        } else {
-                medoid_dist <- matrix(0, 1L, 1L)
-        }
-        
-        # --- Build memberships ---- *---- *---- *---- *---- *---- *---- *---- *---- *---- *-
-        if (crisp) {
-                # One-hot assignment, vectorised (avoid an N-length R loop).
-                memberships <- matrix(0, nrow = n, ncol = k)
-                memberships[cbind(seq_len(n), clustering)] <- 1
-        } else {
-                contiguity_bool <- FALSE
-                h_var = 20
-                #print("Checking contiguity")
-                while (!contiguity_bool){
-                        #print(paste("h = ", h_var))
-                        memberships <- .fuzzy_memberships(
-                                d_to_medoids = dists_to_med,
-                                G = G,
-                                fuzziness = fuzziness,
-                                h = h_var
-                        )
-                        memberships <- round(memberships,3)
-                        clustering <- apply(memberships,1,which.max)
-                        conti <- .check_contiguity(graph, clustering)
-                        contiguity_bool <- conti$contiguous
-                        if (!contiguity_bool & h_var != 1){
-                                h_var <- h_var-1
-                        } else if (h_var == 1){
-                                contiguity_bool <- TRUE
-                        }
-                }
-        }
-        if (verbose) message(sprintf("  Done in %s",
-                                     .format_duration(proc.time()[["elapsed"]] - t0)))
-
-        structure(
-                list(
-                        memberships    = memberships,
-                        hard_clusters  = as.integer(clustering),
-                        medoid_idx     = medoid_idx,
-                        avg_sil_width  = sil_width,
-                        k              = k,
-                        fuzziness      = fuzziness,
-                        method         = method_used,
-                        cluster_result = cl_res,
-                        d_to_medoids   = dists_to_med,
-                        medoid_dist    = medoid_dist,
-                        attenuation    = h_var,
-                        n_eff          = n_eff, 
-                        n_members      = ncol(ens_meta$memb_mat),
-                        ensemble_meta  = ens_meta
-                ),
-                class = "fuzzy_clusters"
-        )
-}
-
-#' Construct an "ensemble_memberships" object
-#'
-#' Used both by compute_ensemble_memberships() and by the tuner when it slices
-#' a cached ensemble down to a smaller n_st, so that a sliced ensemble is
-#' stamped with its own column count and chance co-association rather than
-#' those of the larger matrix it came from.
-#'
-#' @keywords internal
-#' @noRd
-.new_ensemble_memberships <- function(memb, n_st, intermediate_regions,
-                                      partitions_per_tree, weight_exponent,
-                                      prior_strength, n_vertices,
-                                      p0_by_col = NULL) {
-        if (is.null(p0_by_col)) p0_by_col <- .chance_coassoc_by_col(memb)
-        structure(
-                list(
-                        memberships           = memb,
-                        n_st                  = as.integer(n_st),
-                        intermediate_regions  = as.integer(intermediate_regions),
-                        partitions_per_tree   = as.integer(partitions_per_tree),
-                        n_members             = ncol(memb),
-                        weight_exponent       = as.numeric(weight_exponent),
-                        n_vertices            = n_vertices,
-                        prior_strength        = prior_strength,
-                        chance_coassoc        = mean(p0_by_col),
-                        chance_coassoc_by_col = p0_by_col
-                ),
-                class = "ensemble_memberships"
-        )
-}
-
-
-
-
-# ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
-# Step 5a: Tuning orchestrator (five-axis)
-# ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
-
-
-
-
-
-# ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
-# Step 5b: Convenience wrapper
-# ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
-
 #' Delineate Fuzzy Contiguity-Constrained Regions using SKATER (one-call wrapper)
 #'
 #' All-in-one convenience wrapper that samples spanning trees, optionally
 #' chooses the ensemble size by stability analysis, optionally tunes
-#' \code{intermediate_regions} / \code{final_regions}, and returns the final fuzzy
+#' \code{regions_per_partition} / \code{final_regions}, and returns the final fuzzy
 #' regionalisation. See \code{\link{tune_regions}} for the full menu of
 #' \code{tuning_metric} options. Default is \code{"borda"}.
 #'
 #' @inheritParams sample_spanning_trees
-#' @param intermediate_regions,final_regions,n_st Integer or integer vectors of
+#' @param regions_per_partition,final_regions,N_tree Integer or integer vectors of
 #'   candidate values. If a vector of length > 1 is supplied for
-#'   \code{intermediate_regions} or \code{final_regions}, tuning is triggered; if
-#'   \code{n_st} has length > 1, the ensemble size is chosen by stability.
-#' @param fuzziness Numeric \eqn{> 1}. Default 2.
+#'   \code{regions_per_partition} or \code{final_regions}, tuning is triggered; if
+#'   \code{N_tree} has length > 1, the ensemble size is chosen by stability.
 #' @param trees A \code{"spanning_trees"} object from
 #'   \code{\link{sample_spanning_trees}}.
-#' @param crisp Logical. Produce hard memberships? Default \code{FALSE}.
+
 #' @param tuning_strategy Character. One of \code{"grid"} (default),
 #'   \code{"sequential"}, \code{"iterative"}.
 #' @param tuning_metric Character. See \code{\link{tune_regions}}. Default
@@ -711,18 +23,15 @@ cluster_consensus <- function(ensemble, k, graph, fuzziness = 2, crisp = FALSE,
 #'   at each catchment. \code{NA} = no prior at that vertex. The user is
 #'   expected to attach this to the polygons / graph themselves before
 #'   calling. Default \code{NULL}.
-#' @param prior_strength Non-negative numeric scalar \eqn{\lambda_E}. The
-#'   parameter has a direct interpretation as the number of halvings applied
-#'   to within-region edge weights: \eqn{\lambda_E = 0} (default) disables
-#'   prior weighting, \eqn{\lambda_E = 1} halves the weight,
-#'   \eqn{\lambda_E = 2} quarters it, and so on. \code{Inf} returns the prior
-#'   typology exactly (requires \code{prior_typology}).
-#' @param partitions_per_tree Integer scalar \eqn{\ge 1}. Number of independent
-#'   cut-sets applied to each spanning tree. Each cut-set is one regionalisation
-#'   and contributes one ensemble column, so the returned matrix has
-#'   \code{n_st * partitions_per_tree} columns. Default 1 (one partition per
-#'   tree, the original behaviour). Partitions from the same tree share its
-#'   topology and are more correlated than partitions from distinct trees.
+#' @param prior_strength Non-negative numeric scalar \eqn{\lambda}. Lowers the
+#'   log cutting propensity of within-prior edges by \eqn{\lambda} standard
+#'   deviations of the environmental term \eqn{\gamma \log w}, computed per
+#'   tree: the same unit as \code{size_influence}, so a value means the same
+#'   on any graph. \eqn{\lambda = 0} (default) ignores the prior;
+#'   \eqn{\lambda = 1} makes a within-prior edge as hard to cut as an edge
+#'   one standard deviation lighter on the log scale. If that spread is zero
+#'   (\code{weight_exponent = 0} or constant weights), one unit halves the
+#'   propensity instead, with a warning.
 #' @param weight_exponent Non-negative numeric scalar \eqn{\gamma}. The cut
 #'   probability of an edge is proportional to its (prior-adjusted) weight raised
 #'   to \eqn{\gamma}. \eqn{\gamma = 0} cuts edges uniformly at random,
@@ -742,14 +51,14 @@ cluster_consensus <- function(ensemble, k, graph, fuzziness = 2, crisp = FALSE,
 #'   \describe{
 #'     \item{\code{memberships}}{Final N x k membership matrix.}
 #'     \item{\code{hard_clusters}}{Integer vector of hard cluster labels.}
-#'     \item{\code{best_intermediate_regions}, \code{best_final_regions},
-#'       \code{best_n_st}}{The selected hyper-parameters.}
+#'     \item{\code{best_regions_per_partition}, \code{best_final_regions},
+#'       \code{best_N_tree}}{The selected hyper-parameters.}
 #'     \item{\code{best_score}}{For a tuned run, the chosen \code{tuning_metric}
 #'       score; for a single-configuration run, the hardened average silhouette
 #'       width (these are NOT directly comparable).}
 #'     \item{\code{tuning_log}}{The tuning data frame, or \code{NULL} if no
 #'       tuning was performed.}
-#'     \item{\code{n_st_stability}}{The stability data frame, or \code{NULL}.}
+#'     \item{\code{N_tree_stability}}{The stability data frame, or \code{NULL}.}
 #'     \item{\code{trees}}{The \code{"spanning_trees"} object used.}
 #'     \item{\code{cluster_result}}{The raw CLARA/PAM object.}
 #'     \item{\code{prior_strength}}{The prior strength used.}
@@ -766,488 +75,199 @@ cluster_consensus <- function(ensemble, k, graph, fuzziness = 2, crisp = FALSE,
 #' library(igraph)
 #' g <- sample_gnp(200, 0.05)
 #' E(g)$weight <- runif(ecount(g))
-#' res <- get_regions(g, intermediate_regions = c(10, 20), final_regions = c(3, 4),
-#'                          n_st = 30, seed = 1)
+#' res <- get_regions(g, regions_per_partition = c(10, 20), final_regions = c(3, 4),
+#'                          N_tree = 30, seed = 1)
 #' table(res$hard_clusters)
 #' }
 #'
 #' @importFrom igraph vcount
 #' @export
 get_regions <- function(graph,
-                        intermediate_regions = 50,
+                        env = NULL,
+                        env_id = NULL,
+                        regions_per_partition = 50,
                         final_regions,
-                        n_st,
-                        fuzziness  = 2,
-                        trees = NULL,
-                        crisp      = FALSE,
-                        tuning_strategy = c("grid", "sequential", "iterative"),
-                        tuning_metric   = c(
-                                "borda"
-                                # "fuzzy_calinski_harabasz",
-                                # "Fukuyama_Sugeno",
-                                # "dunn5",
-                                # "fuzzy_hyper_volume",
-                                # "stability"
-                        ),
-                        stability_B      = 25L,
-                        prior_typology = NULL,
-                        prior_strength = 0,
-                        partitions_per_tree = 1L,
+                        N_tree,
                         weight_exponent     = 1L,
                         size_influence      = 2,
+                        prior_typology = NULL,
+                        prior_strength = 0,
+                        target_edge_turnover = 0.2,
+                        tuning_strategy = c("grid", "sequential", "iterative"),
+                        tuning_metric   =c("borda", "ch_env", "r2_env", "stability", "silhouette_ca", "expected_vi"),
+                        stability_B      = 25L,
+                        large_n_threshold = 20000,
+                        n_cores = 1,
+                        trees = NULL,
                         max_iter = 10,
                         verbose  = TRUE,
                         seed     = NULL) {
         
         
+        # match args --------------------------------------------------------------*
         tuning_strategy        <- match.arg(tuning_strategy)
         tuning_metric          <- match.arg(tuning_metric)
         
-        stopifnot(inherits(graph, "igraph"))
-        stopifnot(is.numeric(prior_strength), length(prior_strength) == 1L,
-                  prior_strength >= 0)
+        # catch errors --------------------------------------------------------------*
+        stopifnot(
+                inherits(graph, "igraph"), 
+                is.numeric(prior_strength) | is.infinite(prior_strength), 
+                length(prior_strength) == 1L,
+                prior_strength >= 0,
+                is.numeric(regions_per_partition),
+                is.numeric(N_tree),
+                is.numeric(final_regions)
+                
+        )
+        # One RNG stream for the whole call; the caller's state is restored on
+        # exit. Downstream functions get seed = NULL so they do not reset it.
+        .local_seed(seed)
         
-        # --- Exact prior reproduction short-circuit ---- *---- *---- *---- *---- *---- *
+        # Upper-bound check before doing any sampling work.
+        if (any(regions_per_partition > igraph::vcount(graph))) {
+                stop("`regions_per_partition` cannot exceed the number of vertices (", igraph::vcount(graph), ").", call. = FALSE)
+        }
+        
+        
+        # --- Exact prior reproduction short-circuit ----------------------------*
+        # Triggered by prior_strength = INF
         if (is.infinite(prior_strength)) {
+                # Catch error 
                 if (is.null(prior_typology)) {
                         stop("`prior_strength = Inf` requires `prior_typology`.", call. = FALSE)
                 }
-                pr <- .exact_prior_result(.resolve_prior_typology(graph, prior_typology), verbose = TRUE)
+                
+                pr <- .exact_prior_result(.resolve_prior_typology(graph, prior_typology), verbose = verbose)
                 K <- ncol(pr$memberships)
                 return(.new_pulse_regions(
-                    fit           = NULL,
-                    memberships   = pr$memberships,
-                    hard_clusters = pr$hard_clusters,
-                    coverage      = pr$coverage,
-                    ensemble      = NULL,
-                    config        = list(intermediate_regions = K,
-                                         weight_exponent      = NA_real_,
-                                         partitions_per_tree  = NA_integer_,
-                                         n_st                 = NA_integer_,
-                                         final_regions        = K),
-                    prior_strength = Inf, tuned = FALSE))
+                        fit           = NULL,
+                        memberships   = pr$memberships,
+                        hard_clusters = pr$hard_clusters,
+                        coverage      = pr$coverage,
+                        ensemble      = NULL,
+                        config        = list(regions_per_partition = K,
+                                             weight_exponent      = NA_real_,
+                                             N_tree                 = NA_integer_,
+                                             final_regions        = K),
+                        prior_strength = Inf, tuned = FALSE))
         }
         
-        n_st_values   <- sort(unique(as.integer(n_st)))
-        intermediate_regions <- sort(unique(as.integer(intermediate_regions)))
-        final_regions  <- sort(unique(as.integer(final_regions)))
+        # --- Exact tuneable parameters  ----------------------------*
         
-        # Upper-bound check before doing any sampling work.
-        if (any(intermediate_regions > igraph::vcount(graph))) {
-                stop("`intermediate_regions` cannot exceed the number of vertices (", igraph::vcount(graph), ").", call. = FALSE)
+        N_tree_values         <- sort(unique(as.integer(N_tree)))
+        regions_per_partition <- sort(unique(as.integer(regions_per_partition)))
+        final_regions         <- sort(unique(as.integer(final_regions)))
+        
+        # --- lambda_E > 0 needs prior labels; fail before any sampling ------*
+        # Labels come from `trees` if supplied, otherwise from `prior_typology`.
+        has_prior <- if (is.null(trees)) !is.null(prior_typology) else !all(is.na(trees$prior_labels))
+        if (prior_strength > 0 && !has_prior) {
+                stop("`prior_strength` > 0 but no prior labels found: supply ",
+                     "`prior_typology`, or `trees` sampled with one.", call. = FALSE)
         }
         
-        # --- Sample the tree ensemble (largest requested n_st) 
-        if (is.null(trees)){
-                trees <- sample_spanning_trees(graph, n = max(n_st_values), seed = seed, verbose = verbose, prior_typology = prior_typology)   
+        
+        
+        # --- Sample the tree ensemble at the largest requested N_tree 
+        if (is.null(trees))
+        {
+                # Nothing random runs before this, so these trees are identical to
+                # sample_spanning_trees(..., seed = seed) called on its own.
+                trees <- sample_spanning_trees(weighted_graph  = graph, 
+                                               n               = max(N_tree_values),
+                                               seed            = NULL, 
+                                               verbose         = verbose,
+                                               prior_typology  = prior_typology, 
+                                               target_edge_turnover = target_edge_turnover,
+                                               prior_strength       = prior_strength 
+                )
+                trees$seed <- seed
         }
-
-        # lambda_E > 0 without a prior is a silent no-op; warn the user.
-        if (prior_strength > 0 && is.null(trees$prior_labels)) {
-                warning("`prior_strength` > 0 but no `prior_typology` supplied; ",
-                        "prior weighting has no effect.", call. = FALSE)
-        }
+        # Common random numbers for the stability metric across configurations,
+        # drawn from the same stream so one `seed` fixes everything.
+        stab_seed <- if (is.null(seed)) NULL else sample.int(.Machine$integer.max, 1L)
         
         needs_tuning <-
-                length(intermediate_regions) > 1L || length(final_regions) > 1L ||
-                length(n_st) > 1L || length(partitions_per_tree) > 1L ||
+                length(regions_per_partition) > 1L || length(final_regions) > 1L ||
+                length(N_tree) > 1L ||
                 length(weight_exponent) > 1L
         
         if (needs_tuning) {
                 print("Start Tuning")
-            tr <- tune_regions(
-                graph = graph, trees = trees, n_st = n_st_values,
-                intermediate_regions = intermediate_regions,
-                final_regions = final_regions, fuzziness = fuzziness,
-                crisp = crisp, strategy = tuning_strategy,
-                metric = tuning_metric, stability_B = stability_B,
-                prior_strength = prior_strength,
-                partitions_per_tree = partitions_per_tree,
-                weight_exponent = weight_exponent,
-                max_iter = max_iter, verbose = verbose, seed = seed, 
-                size_influence       = size_influence
-            )
-            return(.new_pulse_regions(
-                fit               = tr$best_result,
-                config            = tr$best_config,
-                trees             = trees,
-                prior_strength    = prior_strength,
-                tuned             = TRUE,
-                score             = tr$best_score,
-                metric            = tr$metric,
-                strategy          = tr$strategy,
-                tuning_log        = tr$tuning_log,
-                candidates        = tr$candidates,
-                n_ensembles_built = tr$n_ensembles_built,
-                ensemble          = tr$ensemble))
+                tr <- tune_regions(
+                        graph = graph, 
+                        env = env, 
+                        env_id = env_id, 
+                        large_n_threshold = large_n_threshold,
+                        n_cores = n_cores, 
+                        trees = trees, 
+                        N_tree = N_tree_values,
+                        regions_per_partition = regions_per_partition,
+                        final_regions = final_regions, 
+                        strategy = tuning_strategy,
+                        metric = tuning_metric, 
+                        stability_B = stability_B,
+                        prior_strength = prior_strength,
+                        weight_exponent = weight_exponent,
+                        max_iter = max_iter, 
+                        verbose = verbose, 
+                        seed = NULL,
+                        stability_seed = stab_seed,
+                        size_influence = size_influence
+                )
+                return(.new_pulse_regions(
+                        fit               = tr$best_result,
+                        config            = tr$best_config,
+                        trees             = trees,
+                        prior_strength    = prior_strength,
+                        tuned             = TRUE,
+                        score             = tr$best_score,
+                        metric            = tr$metric,
+                        strategy          = tr$strategy,
+                        tuning_log        = tr$tuning_log,
+                        candidates        = tr$candidates,
+                        n_ensembles_built = tr$n_ensembles_built,
+                        ensemble          = tr$ensemble))
         } else {
-            message("Single configuration; no tuning.")
-            ensemble <- compute_ensemble_memberships(
-                trees = trees, n_st = n_st_values, graph = graph,
-                intermediate_regions = intermediate_regions,
-                partitions_per_tree  = partitions_per_tree,
-                weight_exponent      = weight_exponent,
-                prior_strength       = prior_strength, 
-                size_influence       = size_influence,
-                verbose = verbose)
-            
-            fit <- cluster_consensus(
-                ensemble, k = final_regions, graph = graph,
-                fuzziness = fuzziness, crisp = crisp,
-                large_n_threshold = 20000, verbose = verbose)
-            
-            .new_pulse_regions(
-                fit    = fit,
-                ensemble = fit$ensemble_meta$memb_mat,
-                config   = list(intermediate_regions = intermediate_regions,
-                              weight_exponent      = weight_exponent,
-                              partitions_per_tree  = partitions_per_tree,
-                              n_st                 = n_st_values,
-                              final_regions        = final_regions),
-                trees          = trees,
-                prior_strength = prior_strength,
-                tuned          = FALSE)          # score/metric/strategy stay NA
-        }
-}
-
-
-.enforce_contiguity <- function(graph, hard_clusters, d_to_medoids, medoid_idx) {
-        n   <- length(hard_clusters)
-        ep  <- igraph::ends(graph, igraph::E(graph), names = FALSE)
-        lab <- rep(NA_integer_, n)
-        
-        for (r in seq_along(medoid_idx)) {
-                in_r <- which(hard_clusters == r)
-                cmp  <- igraph::components(igraph::induced_subgraph(graph, in_r))$membership
-                own  <- match(medoid_idx[r], in_r)
-                if (is.na(own)) next
-                lab[in_r[cmp == cmp[own]]] <- r
-        }
-        
-        a <- ep[, 1]; b <- ep[, 2]
-        repeat {
-                free <- is.na(lab)
-                if (!any(free)) break
-                f1 <- free[a] & !free[b]
-                f2 <- free[b] & !free[a]
-                node <- c(a[f1], b[f2])
-                if (!length(node)) { lab[free] <- hard_clusters[free]; break }
-                reg <- c(lab[b[f1]], lab[a[f2]])
-                o   <- order(d_to_medoids[cbind(node, reg)])
-                node <- node[o]; reg <- reg[o]
-                keep <- !duplicated(node)
-                lab[node[keep]] <- reg[keep]
-        }
-        lab
-}
-
-
-
-
-
-
-
-#' Knee-point detection via maximum perpendicular distance
-#'
-#' Locates the point on a curve furthest from the straight line joining its
-#' endpoints (after `[0, 1]` normalisation of both axes). Robust to degenerate
-#' inputs (no spread, coincident endpoints) — falls back to the last x.
-#'
-#' @param x,y Numeric vectors of equal length.
-#' @return The \code{x} value at the knee.
-#' @keywords internal
-#' @noRd
-.find_knee <- function(x, y) {
-        n <- length(x)
-        if (n <= 2L) return(x[n])
-        
-        rx <- max(x) - min(x)
-        ry <- max(y) - min(y)
-        if (rx <= 0) return(x[n])                      # no spread in x
-        
-        x_norm <- (x - min(x)) / rx
-        y_norm <- (y - min(y)) / (ry + .Machine$double.eps)
-        
-        p1 <- c(x_norm[1L], y_norm[1L])
-        p2 <- c(x_norm[n],  y_norm[n])
-        line_len <- sqrt(sum((p2 - p1)^2))
-        if (line_len <= .Machine$double.eps) return(x[n])  # coincident endpoints
-        
-        distances <- vapply(seq_len(n), function(i) {
-                abs((x_norm[i] - p1[1L]) * (p2[2L] - p1[2L]) -
-                            (y_norm[i] - p1[2L]) * (p2[1L] - p1[1L])) / line_len
-        }, numeric(1))
-        
-        x[which.max(distances)]
-}
-
-#' Internal: compute the N x (n_st * partitions_per_tree) ensemble membership matrix
-#'
-#' Shared by the public \code{compute_ensemble_memberships()} and the stability
-#' evaluator. For each tree, removes \code{intermediate_regions - 1} edges
-#' (weighted sampling without replacement) and labels the resulting connected
-#' components. Each tree is cut \code{partitions_per_tree} times independently;
-#' every cut-set contributes one column.
-#'
-#' @param graph Parent \code{igraph} (used only to re-resolve edges when the
-#'   stored tree object is a subgraph rather than an edge sequence).
-#' @param trees A \code{"spanning_trees"} object.
-#' @param n_st Number of trees to use.
-#' @param intermediate_regions Number of regions per cut-set.
-#' @param prior_strength Within-prior halving rate.
-#' @param partitions_per_tree Integer >= 1. Independent cut-sets per tree.
-#' @param weight_exponent Non-negative numeric. Cut probability is proportional
-#'   to (prior-adjusted edge weight)^weight_exponent. 1 = proportional (default).
-#' @return Integer matrix N x (n_st * partitions_per_tree) of region labels.
-#' @keywords internal
-#' @noRd
-.compute_ensemble_memberships_internal <- function(graph,
-                                                   trees,
-                                                   n_st,
-                                                   intermediate_regions,
-                                                   prior_strength      = 0,
-                                                   partitions_per_tree = 1L,
-                                                   weight_exponent     = 1,
-                                                   size_influence = 2) {
-        n_use   <- as.integer(n_st)
-        n_reg   <- as.integer(intermediate_regions)
-        n_part  <- as.integer(partitions_per_tree)
-        n_v     <- trees$n_vertices
-        #weights <- lapply(trees$trees, function(g) igraph::E(g)$weight)
-        #ep_all  <- trees$edge_endpoints
-        wpe    <- trees$within_prior_edge
-        if (n_reg > n_v) {
-                stop(sprintf("intermediate_regions (%d) cannot exceed the number of vertices (%d).",
-                             n_reg, n_v), call. = FALSE)
-        }
-        
-        # One cut per extra region (a tree on n_v vertices has n_v - 1 edges).
-        n_to_cut <- n_reg - 1L
-        
-        memb_mat <- matrix(0, nrow = n_v, ncol = n_use * n_part)
-        col <- 0
-        for (j in seq_len(n_use)) {
-                tree <- trees$trees[[j]]
-                if (igraph::vcount(tree) != n_v){
-                        stop("Spanning tree does not span the parent vertex set", call. = FALSE)
-                }
-                w   <- igraph::E(tree)$weight      
-                n_e <- length(w)   
-                edge_ids <- igraph::E(tree)$eid
-                n_c    <- .subtree_sizes(edge_ids, trees$edge_endpoints, n_v = n_v)
-                size_f <- n_c * (n_v - n_c) / n_v
-                if (any(is.na(w)) || any(is.infinite(w)) || any(w < 0)){
-                        stop("Edge weights must be positive and finite numbers", .call = FALSE)
-                }
-                if (n_to_cut > n_v){
-                        stop(
-                                sprintf(
-                                        "Requested %d cuts but the tree onlt has %d edges",
-                                        n_to_cut, n_e
-                                ) , .call = FALSE
-                                )
-                }        
-                edge_ids <- igraph::E(tree)$eid
-                if (anyNA(edge_ids)) {
-                        stop("Failed to map a spanning-tree edge back to the parent graph.",
-                             call. = FALSE)
-                }
-                if (n_to_cut >= length(edge_ids)) {
-                        stop(sprintf(
-                                paste0("Requested %d cuts but the spanning tree has only %d edges; ",
-                                       "reduce intermediate_regions or supply a connected graph."),
-                                n_to_cut, length(edge_ids)
-                        ), call. = FALSE)
-                }
+                if (verbose) message("Single configuration; no tuning.")
                 
-
-                ## Normalize within the tree (heaviest edge -> 1) before exponentiating.
-                # sample.int() (further below) rescales what you pass to prop internally,
-                # so dividing by a constant leaves the sampling distribution 
-                # unchanged and prevents over- or underflow errors when weight_exponent 
-                # or weights are large/small. Wrapping in if clause keep legacy applications intact.
-                w_n <- w / max(w)
+                ensemble <- compute_ensemble_memberships(
+                        trees                 = trees, 
+                        N_tree                = N_tree_values, 
+                        graph                 = graph,
+                        regions_per_partition = regions_per_partition,
+                        weight_exponent       = weight_exponent,
+                        prior_strength        = prior_strength,
+                        size_influence        = size_influence, verbose = verbose)
                 
-                ## size_influence is the ratio of the size term's spread to the
-                ## environmental term's spread, both on the log scale the exponential
-                ## race competes on. Solving for the exponent per tree makes the
-                ## argument mean the same thing whatever the graph size or the weight
-                ## distribution: 0 = size-blind, 1 = balance and environment contribute
-                ## equally, 2 = balance dominates two to one.
-                lw <- weight_exponent * log(w_n)
-                ls <- log(size_f)
-                sd_w <- stats::sd(lw)
-                sd_s <- stats::sd(ls)
-                alpha <- if (sd_s > 0 && sd_w > 0) size_influence * sd_w / sd_s else 0
-                w <- exp(lw + alpha * ls)
-
-                # if (weight_exponent != 1){
-                #         w = size_f * ((w / max(w))^weight_exponent)
-                # } else {
-                #         w <- size_f * (w)
-                # }
-                        
-                if (prior_strength != 0 && !is.na(wpe) && !is.null(wpe))
-                        #w <- .apply_prior_weighting(w, trees$within_prior_edge, prior_strength)
-                        w <- w / 2^(prior_strength * wpe[igraph::E(tree)$eid])
-                # partitions_per_tree independent cut-sets of the SAME tree; each is an
-                # independent draw contributing one ensemble column.
-                for (p in seq_len(n_part)) {
-                        col        <- col + 1
-                        # fix 29.07.26 exponential race
-                        key <- stats::rexp(n_e) / w  
-                        cut <- which(key <= sort(key, partial = n_to_cut)[n_to_cut])
-                        if (length(cut) > n_to_cut) cut <- cut[seq_len(n_to_cut)]
-                        memb_mat[, col] <- as.integer(
-                                igraph::components(igraph::delete_edges(tree, cut))$membership)
-                        # old slower version 
-                        # cut_idx    <- sample.int(length(edge_ids), n_to_cut,
-                        #                          prob = w, replace = FALSE)
-                        # kept_edges <- edge_ids[-cut_idx]
-                        # ep <- ep_all[kept_edges, , drop = FALSE]
-                        # g  <- igraph::make_graph(as.vector(t(ep)), n = n_v, directed = FALSE)
-                        # memb_mat[, col] <- igraph::components(g)$membership
-                }
+                fit <- cluster_consensus(
+                        ensemble, 
+                        k = final_regions, 
+                        graph = graph,
+                        large_n_threshold = large_n_threshold,
+                        n_cores = n_cores, 
+                        verbose = verbose
+                )
+                .new_pulse_regions(
+                        fit      = fit,
+                        ensemble = ensemble$memberships,
+                        config   = list(regions_per_partition = regions_per_partition,
+                                        weight_exponent       = weight_exponent,
+                                        N_tree                = N_tree_values,
+                                        final_regions         = final_regions),
+                        trees          = trees,
+                        prior_strength = prior_strength,
+                        tuned          = FALSE)
+                
         }
-        # A matrix with n_st columns and one row for each polygon
-        memb_mat
 }
 
+# -------------------------------------------------------------------------*
+# -------------------------------------------------------------------------*
+# -------------------------------------------------------------------------*
 
 
-# ## --- Prior Weighting ---- *
-# # Prior-typology weighting (no-op when no prior or prior_strength == 0). This
-# # acts on the exponentiated dissimilarities (just above).
-# # Prior_strength is a fixed number of halvings of the cut probability
-# # regardless of weight_exponent.
-# if (prior_strength != 0)
-#         weights <- .apply_prior_weighting(weights, trees$within_prior_edge, prior_strength)
-# 
-# 
-# total_cols <- n_use * n_part
 
-#' Match spanning-tree edges to parent-graph edge indices
-#'
-#' Builds canonical undirected edge keys (smaller vertex first) and matches.
-#'
-#' @param tree_ep,parent_ep Two-column integer matrices of edge endpoints.
-#' @return Integer vector of parent-edge indices (NA where unmatched).
-#' @keywords internal
-#' @noRd
-.match_tree_edges <- function(tree_ep, parent_ep) {
-        make_key <- function(ep) {
-                paste(pmin(ep[, 1], ep[, 2]), pmax(ep[, 1], ep[, 2]), sep = "-")
-        }
-        match(make_key(tree_ep), make_key(parent_ep))
-}
-
-#' Adjusted Rand Index (Hubert & Arabie 1985)
-#'
-#' Pure-base implementation. Permutation-invariant; ARI = 1 for identical
-#' partitions (up to label permutation), expected ARI = 0 under random
-#' assignment.
-#'
-#' @param a,b Integer or character label vectors of equal length.
-#' @return Numeric scalar in approximately \code{[-0.5, 1]}; \code{NA_real_}
-#'   if input length < 2.
-#'
-#' @details Used by \code{.stability_fuzzy()} to score how well two hardened
-#'   partitions agree on the overlap of resampled objects. We use the crisp ARI
-#'   on argmax labels rather than a fuzzy-ARI generalisation because (i)
-#'   stability of *structure* is what matters here, not stability of *softness*,
-#'   and (ii) it has no dependencies. If a non-trivial fraction of objects have
-#'   a top-two membership margin below ~0.1, consider substituting a
-#'   Hüllermeier–Rifqi or Campello fuzzy Rand index (not implemented).
-#'
-#' @keywords internal
-#' @noRd
-.adjusted_rand_index <- function(a, b) {
-        stopifnot(length(a) == length(b))
-        if (length(a) < 2) return(NA_real_)
-        tab <- table(a, b)
-        n   <- sum(tab)
-        if (n < 2) return(NA_real_)
-        sum_nij <- sum(choose(tab, 2))
-        ai <- rowSums(tab); bj <- colSums(tab)
-        sum_ai <- sum(choose(ai, 2))
-        sum_bj <- sum(choose(bj, 2))
-        expected <- (sum_ai * sum_bj) / choose(n, 2)
-        max_idx  <- 0.5 * (sum_ai + sum_bj)
-        denom    <- max_idx - expected
-        # Degenerate case: both partitions are singletons or a single block.
-        if (denom == 0) return(1)
-        (sum_nij - expected) / denom
-}
-
-#' Stratified subsample by hard-cluster labels
-#'
-#' Proportional allocation with a hard floor of 2 objects per cluster, so that
-#' silhouette / ARI computations on the subsample are not pathological for small
-#' clusters.
-#'
-#' @param hard_clusters Integer vector of length N.
-#' @param n_target Approximate total subsample size.
-#' @return Sorted integer vector of selected row indices.
-#' @keywords internal
-#' @noRd
-.stratified_subsample <- function(hard_clusters, n_target) {
-        N <- length(hard_clusters)
-        if (n_target >= N) return(seq_len(N))
-        tab   <- table(hard_clusters)
-        props <- as.numeric(tab) / N
-        n_per <- pmax(2L, as.integer(round(props * n_target)))
-        names(n_per) <- names(tab)
-        groups <- names(tab)
-        idx <- unlist(lapply(groups, function(g) {
-                in_g <- which(as.character(hard_clusters) == g)
-                take <- min(length(in_g), n_per[[g]])
-                if (length(in_g) <= take) in_g else sample(in_g, take)
-        }), use.names = FALSE)
-        sort(idx)
-}
-
-#' Crisp Rousseeuw silhouette from a dissimilarity matrix
-#'
-#' Vectorised over the cluster axis; O(N k) after the N x N matrix is
-#' materialised. Intended for a subsample of moderate size (a few thousand
-#' rows), not the full graph.
-#'
-#' @param D Dissimilarity, either a \code{dist} object or a full N x N matrix.
-#' @param labels Integer vector of cluster labels of length N.
-#' @return Numeric vector of per-object silhouette widths.
-#' @keywords internal
-#' @noRd
-.rousseeuw_silhouette <- function(D, labels) {
-        if (inherits(D, "dist")) D <- as.matrix(D)
-        N <- length(labels)
-        clusters <- sort(unique(labels))
-        K <- length(clusters)
-        if (K < 2L) return(rep(0, N))
-        cluster_sizes <- as.integer(table(factor(labels, levels = clusters)))
-        
-        # N x K matrix of summed distances from each point to each cluster.
-        sums <- matrix(0, nrow = N, ncol = K)
-        for (j in seq_len(K)) {
-                in_j <- labels == clusters[j]
-                sums[, j] <- rowSums(D[, in_j, drop = FALSE])
-        }
-        
-        own_idx <- match(labels, clusters)
-        s   <- numeric(N)
-        eps <- .Machine$double.eps
-        for (i in seq_len(N)) {
-                o <- own_idx[i]
-                if (cluster_sizes[o] <= 1L) { s[i] <- 0; next }
-                means <- sums[i, ] / cluster_sizes
-                # Own-cluster mean excludes self (self-distance is 0, so subtract nothing
-                # from the sum but divide by size - 1).
-                means[o] <- sums[i, o] / (cluster_sizes[o] - 1L)
-                a_i <- means[o]
-                b_i <- min(means[-o])
-                s[i] <- (b_i - a_i) / max(a_i, b_i, eps)
-        }
-        s
-}
 #' Sample spanning trees from a Spatial Graph
 #'
 #' Draws \code{n} spanning trees from a weighted, (ideally) connected
@@ -1273,7 +293,7 @@ get_regions <- function(graph,
 #'   weight halving in the SKATER cutting step (see \code{prior_strength}
 #'   in \code{\link{compute_ensemble_memberships}} and
 #'   \code{\link{get_regions}}). Default \code{NULL} (no prior).
-#'@param target_eta numeric. How many edges of the MST should be altered on 
+#'@param target_edge_turnover numeric. How many edges of the MST should be altered on 
 #'   average in each iteration.
 #'   
 #' @return An object of class \code{"spanning_trees"} — a list with:
@@ -1307,22 +327,23 @@ get_regions <- function(graph,
 #' @importFrom igraph sample_spanning_tree E ends vcount vertex_attr vertex_attr_names edge_attr components
 #' @importFrom stats mad rnorm
 #' @export
-sample_spanning_trees <- function(graph, n, seed = NULL, verbose = TRUE,
-                                  prior_typology = FALSE, target_eta = .1) {
+sample_spanning_trees <- function(weighted_graph, n, seed = NULL, verbose = TRUE,
+                                  prior_typology = NULL, target_edge_turnover = .1, 
+                                  prior_strength = 0) {
         
         # --- Argument validation ---- *--- *
         stopifnot(
-                inherits(graph, "igraph"),
+                inherits(weighted_graph, "igraph"),
                 is.numeric(n), length(n) == 1L, is.finite(n), n >= 1
         )
         
         
         # Edges must have usable weights; fail early with a clear message rather than
         # producing NA-laden cut probabilities deep inside the sampler.
-        if (is.null(igraph::edge_attr(graph, "weight"))) {
+        if (is.null(igraph::edge_attr(weighted_graph, "weight"))) {
                 stop("`graph` edges must carry a numeric `weight` attribute.", call. = FALSE)
         }
-        edge_w <- igraph::E(graph)$weight
+        edge_w <- igraph::E(weighted_graph)$weight
         if (anyNA(edge_w) || any(!is.finite(edge_w)) || any(edge_w < 0)) {
                 stop("Edge `weight`s must be finite and non-negative.", call. = FALSE)
         }
@@ -1331,7 +352,7 @@ sample_spanning_trees <- function(graph, n, seed = NULL, verbose = TRUE,
         
         # A disconnected graph yields a spanning *forest* (n_v - n_components edges),
         # which breaks the "cut n_reg-1 edges of a tree" arithmetic downstream.
-        comp <- igraph::components(graph)
+        comp <- igraph::components(weighted_graph)
         if (comp$no > 1L) {
                 warning(sprintf(
                         paste0("`graph` has %d connected components: sample_spanning_tree() will ",
@@ -1342,18 +363,12 @@ sample_spanning_trees <- function(graph, n, seed = NULL, verbose = TRUE,
         }
         
         # --- RNG handling: seed locally, restore the caller's state on exit ---- *-
-        if (!is.null(seed)) {
-                if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
-                        .old_seed <- get(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
-                        on.exit(assign(".Random.seed", .old_seed, envir = .GlobalEnv), add = TRUE)
-                }
-                set.seed(seed)
-        }
-        edge_endpoints    <- igraph::ends(graph, igraph::E(graph), names = FALSE)
+        .local_seed(seed)
+        edge_endpoints    <- igraph::ends(weighted_graph, igraph::E(weighted_graph), names = FALSE)
         # --- Resolve prior typology (if supplied) ---- *---- *---- *---- *---- *---- *--
-        if (prior_typology){
-                prior_typology    <- "prior"
-                prior_labels      <- .resolve_prior_typology(graph, 
+        if (!is.null(prior_typology)){
+                #prior_typology    <- "prior"
+                prior_labels      <- .resolve_prior_typology(weighted_graph, 
                                                              prior_typology)
                 within_prior_edge <- .compute_within_prior_edge(prior_labels, 
                                                                 edge_endpoints)
@@ -1368,59 +383,28 @@ sample_spanning_trees <- function(graph, n, seed = NULL, verbose = TRUE,
                                 n_within, n_edges, 100 * n_within / max(n_edges, 1L)
                         ))
                 }
+        } else {
+                prior_labels      <- NULL
+                within_prior_edge <- NULL
         }
         
+        # Prior weighting is applied at the cutting step only
+        # (compute_ensemble_memberships), never to tree shape.
         
         # --- Sample the trees ---- *---- *---- *---- *---- *---- *---- *---- *---- *---- *--
         if (verbose) message(sprintf("Sampling %d spanning trees ...", n))
         tick <- if (verbose) .make_progress(n, "Spanning trees") else function(i) NULL
-        
-        .turnover <- function(t0_ids, t1_ids) 1 - length(intersect(t0_ids, t1_ids)) / length(t0_ids)
-        .calibrate_eta_empirical <- function(graph,
-                                             w,
-                                             s,
-                                             target,
-                                             n_probe = 20,
-                                             tol = 0.02,
-                                             max_iter = 12) {
-                # if target is 0 hard code an eta of zero and exit 
-                if (target == 0){
-                        return(0)
-                }
-                
-                t0 <- igraph::E(igraph::mst(graph, weights = w))$eid
-                measure <- function(eta) {
-                        mean(replicate(n_probe, {
-                                wp <- w + eta * s * stats::rnorm(length(w))
-                                t1 <- igraph::E(igraph::mst(graph, weights = pmax(wp, 0)))$eid
-                                .turnover(t0, t1)
-                        }))
-                }
-                lo <- 1e-4
-                hi <- 1000
-                
-                for (i in seq_len(max_iter)) {
-                        mid <- sqrt(lo * hi)
-                        tm <- measure(mid)
-                        if (abs(tm - target) < tol)
-                                return(mid)
-                        if (tm < target)
-                                lo <- mid
-                        else
-                                hi <- mid
-                }
-        }
-        
-        eta_emp <- .calibrate_eta_empirical(graph, 
-                                            w = edge_w, 
-                                            s = stats::mad(edge_w),
-                                            target = target_eta)
+        egde_mad <- stats::mad(edge_w)
+        eta_emp <- .calibrate_eta_empirical(graph  = weighted_graph, 
+                                            w      = edge_w, 
+                                            s      = egde_mad,
+                                            target = target_edge_turnover)
         tree_list <- vector("list", n)
         
         for (j in seq_len(n)) {
                 # Perturb weights 
-                wp <- edge_w + eta_emp * mad(edge_w) * rnorm(length(edge_w))
-                tree_list[[j]] <- igraph::mst(graph, weights = wp)
+                wp <- edge_w + eta_emp * egde_mad * rnorm(length(edge_w))
+                tree_list[[j]] <- igraph::mst(weighted_graph, weights = wp)
                 tick(j)
         }
         
@@ -1428,484 +412,261 @@ sample_spanning_trees <- function(graph, n, seed = NULL, verbose = TRUE,
                 list(
                         trees             = tree_list,
                         n_trees           = as.integer(n),
-                        n_vertices        = igraph::vcount(graph),
+                        n_vertices        = igraph::vcount(weighted_graph),
                         edge_weights      = edge_w,
                         edge_endpoints    = edge_endpoints,
                         seed              = seed,
-                        prior_labels      = ifelse(exists("prior_labels"), prior_labels, NA),
-                        within_prior_edge = ifelse(exists("within_prior_edge"), within_prior_edge, NA)
+                        prior_labels      = prior_labels, 
+                        within_prior_edge = within_prior_edge,
+                        prior_strength    = prior_strength
                 ),
                 class = "spanning_trees"
         )
 }
 
+# -------------------------------------------------------------------------*
+# -------------------------------------------------------------------------*
+# -------------------------------------------------------------------------*
 
 
-#' Bootstrap stability of a fuzzy partition (mean ARI vs. reference)
-#'
-#' On each of \code{B} resamples, draws a row subsample of size
-#' \code{floor(N * subsample_frac)} WITHOUT replacement, re-runs CLARA/PAM on
-#' the subsampled ensemble matrix to obtain a hardened partition of the
-#' subsample, and computes the ARI against the reference labels restricted to
-#' those rows. Returns the mean ARI.
-#'
-#' @details This is the Hennig-style "compare each replicate to the full-data
-#'   reference" recipe (one ARI per replicate), not pairwise replicate-vs-
-#'   replicate (B^2 ARIs). It is B-fold cheaper and is what
-#'   \code{fpc::clusterboot} does by default. Sampling is without replacement so
-#'   ARI's contingency table is well-defined.
-#'
-#' @param memb_mat Integer matrix N x n_trees (the ensemble matrix).
-#' @param hard_clusters Reference hardened labels of length N (from the
-#'   full-data fit).
-#' @param k Number of clusters.
-#' @param fuzziness Fuzzifier; unused for hardened-label stability but kept in
-#'   the signature so future fuzzy-ARI extensions need no API break.
-#' @param B Number of bootstrap replicates. \code{0} disables.
-#' @param subsample_frac Fraction of rows to retain per replicate. Default 0.8.
-#' @param large_n_threshold CLARA/PAM cutoff (mirrors
-#'   \code{cluster_consensus}).
-#' @param clara_samples,clara_sampsize CLARA controls.
-#' @param seed Optional integer seed; the caller's RNG state is restored on
-#'   exit.
-#' @param verbose Logical.
-#' @return Numeric scalar mean ARI in approximately \code{[-0.5, 1]}, or
-#'   \code{NA_real_} if \code{B = 0} or the subsample is too small.
-#' @keywords internal
-#' @noRd
-.stability_fuzzy <- function(memb_mat,
-                             hard_clusters,
-                             k,
-                             fuzziness = 2,
-                             B = 25L,
-                             subsample_frac = 0.8,
-                             large_n_threshold = 5,
-                             clara_samples = 20L,
-                             clara_sampsize = NULL,
-                             seed = NULL,
-                             verbose = FALSE) {
-        if (B <= 0L) return(NA_real_)
-        N     <- nrow(memb_mat)
-        n_sub <- floor(N * subsample_frac)
-        if (n_sub < k * 2L) {
-                if (verbose) message("    [stability] subsample too small; returning NA")
-                return(NA_real_)
-        }
-        
-        # RNG handling: seed locally, restore the caller's state on exit.
-        if (!is.null(seed)) {
-                if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
-                        .old_seed <- get(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
-                        on.exit(assign(".Random.seed", .old_seed, envir = .GlobalEnv), add = TRUE)
-                }
-                set.seed(seed)
-        }
-        
-        aris <- numeric(B)
-        for (b in seq_len(B)) {
-                sub_idx  <- sort(sample.int(N, size = n_sub, replace = FALSE))
-                memb_sub <- memb_mat[sub_idx, , drop = FALSE]
-                ref_sub  <- hard_clusters[sub_idx]
-                if (nrow(memb_sub) > large_n_threshold) {
-                        
-                        sampsize <- 
-                                if (is.null(clara_sampsize)) {
-                                min(nrow(memb_sub), 200L + 2L * k)
-                                } else clara_sampsize
-                        
-                        # CRUD: exchanged with code below 08.07.2026
-                        # fit_b <- cluster::clara(memb_sub, k = k,
-                        #                         metric   = "manhattan",
-                        #                         samples  = clara_samples,
-                        #                         sampsize = sampsize,
-                        #                         pamLike  = TRUE)
-                        
-                        fit_b <- .clara_hamming(memb_sub, 
-                                                k = k,
-                                                 samples  = clara_samples,
-                                                 sampsize = sampsize)
-                        
-                        new_lab <- fit_b$clustering
-                } else {
-                        coassoc_b <- parallelDist::parallelDist(memb_sub, method = "hamming")
-                        fit_b     <- cluster::pam(coassoc_b, k = k)
-                        new_lab   <- fit_b$clustering
-                }
-                aris[b] <- .adjusted_rand_index(new_lab, ref_sub)
-        }
-        mean(aris, na.rm = TRUE)
-}
 
-#' Derive the \code{score} column of \code{tuning_log} from sub-metric columns
+#' Compute Ensemble Region Memberships via SKATER Edge Removal
 #'
-#' Arranged so that \code{which.max(score)} always selects the best row:
-#' minimise-is-better indices are negated, and Borda rank-sums are negated. For
-#' metrics whose primary value lives directly in the log (e.g. SIL_F),
-#' \code{score} is a copy.
+#' For each spanning tree, removes \code{regions_per_partition - 1} edges (sampled
+#' without replacement, with probability proportional to edge weight) to produce
+#' \code{regions_per_partition} connected components, then records each node's region
+#' label. Returns an integer matrix (one column per tree).
 #'
-#' @param df Data frame containing the CVI columns.
-#' @param metric Character metric name.
-#' @return Numeric vector of scores (higher = better).
-#' @keywords internal
-#' @noRd
-.derive_score_column <- function(df, metric) {
+#' @param trees A \code{"spanning_trees"} object.
+#' @param N_tree Integer scalar. Number of spanning trees to use
+#'   (must be \code{<= trees$n_trees}).
+#' @param graph The parent \code{igraph} object the trees were sampled from.
+#'   Needed only to re-resolve tree edges on older igraph versions; always
+#'   supplied for safety.
+#' @param regions_per_partition Integer scalar \eqn{\ge 2}. Number of regions per tree;
+#'   must not exceed the number of vertices.
+#' @param prior_strength Non-negative numeric scalar \eqn{\lambda}. Lowers the
+#'   log cutting propensity of within-prior edges by \eqn{\lambda} standard
+#'   deviations of the environmental term \eqn{\gamma \log w}, computed per
+#'   tree: the same unit as \code{size_influence}, so a value means the same
+#'   on any graph. \eqn{\lambda = 0} (default) ignores the prior;
+#'   \eqn{\lambda = 1} makes a within-prior edge as hard to cut as an edge
+#'   one standard deviation lighter on the log scale. If that spread is zero
+#'   (\code{weight_exponent = 0} or constant weights), one unit halves the
+#'   propensity instead, with a warning.
+#' @param verbose Logical. Default \code{TRUE}.
+#' @param weight_exponent Non-negative numeric scalar \eqn{\gamma}. The cut
+#'   probability of an edge is proportional to its (prior-adjusted) weight raised
+#'   to \eqn{\gamma}. \eqn{\gamma = 0} cuts edges uniformly at random,
+#'   \eqn{\gamma = 1} (default) cuts with probability proportional to weight, and
+#'   larger \eqn{\gamma} concentrates cuts on the heaviest edges (approaching
+#'   deterministic heaviest-edge removal as \eqn{\gamma \to \infty}).
+#'
+#' @return An object of class \code{"ensemble_memberships"} — a list with:
+#'   \describe{
+#'     \item{\code{memberships}}{Integer matrix (\code{N x N_tree}). Each column
+#'       is a region assignment from one spanning tree.}
+#'     \item{\code{N_tree}}{Ensemble size used.}
+#'     \item{\code{regions_per_partition}}{Number of regions per tree.}
+#'     \item{\code{n_vertices}}{Number of vertices.}
+#'     \item{\code{prior_strength}}{The prior strength used.}
+#'     \item{\code{chance_coassoc}}{Mean chance co-association \eqn{\bar p_0}; the reference scale for cohesion.}
+#'   }
+#'@details When both a prior and \eqn{\gamma \ne 1} are in use, weights are first
+#'   exponentiated and the weighted by the prior. Thus the halvings are relative
+#'   to the exponentiated weights. 
+#' @importFrom igraph E ends make_graph components
+#' @export
+compute_ensemble_memberships <- function(trees, 
+                                         N_tree, 
+                                         graph, 
+                                         regions_per_partition, 
+                                         prior_strength = 0, 
+                                         weight_exponent = 1, 
+                                         verbose = TRUE,
+                                         size_influence = 2) {
         
-        switch(metric,
-               #R2_JS     = df$R2_JS,
-               CH_JS     = df$CH_D,
-               #FS        = -df$FS,
-              # GD5       = df$GD5,
-               stability = df$STAB,
-              # silhouette = df$SILH_HARD,
-               silhouette_fuzzy = df$SIL_F,
-               borda     = -.borda_score(df[, c("CH_D","STAB", "SIL_F")],
-                                         c("max", "max", "max")),
-               stop("Unknown metric: ", metric, call. = FALSE))
-}
-
-#' Compute Hamming distances from all nodes to reference (medoid) nodes
-#'
-#' Returns an N x k matrix giving the fraction of ensemble columns in which each
-#' node disagrees with each reference node.
-#'
-#' @param memb_mat Integer matrix (N x n_trees).
-#' @param ref_idx Integer vector of length k (row indices of medoids).
-#' @return Numeric matrix (N x k) of Hamming distances (fractions in `[0, 1]`).
-#'
-#' @details Accumulates per-tree disagreements into the N x k counter, iterating
-#'   over the n_trees columns. This keeps peak memory at O(N k) instead of
-#'   materialising an N x n_trees logical matrix for every medoid — important
-#'   when N reaches 1e5-1e6.
-#'
-#' @keywords internal
-#' @noRd
-.hamming_to_refs <- function(memb_mat, ref_idx) {
-        n_trees     <- ncol(memb_mat)
-        N           <- nrow(memb_mat)
-        k           <- length(ref_idx)
-        medoid_rows <- memb_mat[ref_idx, , drop = FALSE]   # k x n_trees
-        
-        out <- matrix(0, nrow = N, ncol = k)
-        for (t in seq_len(n_trees)) {
-                # outer(col, medoid_col, "!=") is an N x k logical, coerced to numeric in +.
-                out <- out + outer(memb_mat[, t], medoid_rows[, t], FUN = "!=")
-        }
-        out / n_trees
-}
-
-#' Resolve a \code{prior_typology} argument to a vertex-label vector
-#'
-#' Accepts either a single character (vertex-attribute name on \code{graph}) or
-#' a vector of length \code{vcount(graph)}. Coerces to character; empty strings
-#' become NA. Returns NULL if input is NULL.
-#'
-#' @param graph An \code{igraph} object.
-#' @param prior_typology See \code{\link{sample_spanning_trees}}.
-#' @return Character vector of length \code{vcount(graph)}, or \code{NULL}.
-#' @keywords internal
-#' @importFrom igraph vcount vertex_attr vertex_attr_names
-#' @noRd
-.resolve_prior_typology <- function(graph, prior_typology) {
-        if (is.null(prior_typology)) return(NULL)
-        
-        n_v <- igraph::vcount(graph)
-        
-        if (is.character(prior_typology) && length(prior_typology) == 1L) {
-                if (!prior_typology %in% igraph::vertex_attr_names(graph)) {
-                        stop(sprintf("Vertex attribute '%s' not found on graph. ", prior_typology),
-                             "Attach the typology via V(graph)$", prior_typology,
-                             " <- ... before calling.", call. = FALSE)
-                }
-                labs <- igraph::vertex_attr(graph, prior_typology)
-        } else if (length(prior_typology) == n_v) {
-                labs <- prior_typology
-        } else {
-                stop("`prior_typology` must be either a single character giving the name of ",
-                     "a vertex attribute on `graph`, or a vector of length vcount(graph) = ",
-                     n_v, ".", call. = FALSE)
-        }
-        
-        labs <- as.character(labs)
-        labs[!nzchar(labs)] <- NA_character_
-        
-        # Sanity check: at least 2 distinct non-NA labels for weighting to do anything.
-        uniq <- unique(labs[!is.na(labs)])
-        if (length(uniq) < 2L) {
-                warning("Prior typology contains fewer than 2 distinct non-NA labels; ",
-                        "weighting will have no effect.", call. = FALSE)
-        }
-        labs
-}
-
-#' Flag edges whose endpoints share a non-NA prior label
-#'
-#' @param prior_labels Character vector of vertex labels, or \code{NULL}.
-#' @param edge_endpoints Two-column integer matrix of edge endpoints.
-#' @return Logical vector of length \code{nrow(edge_endpoints)}, or \code{NULL}.
-#' @keywords internal
-#' @noRd
-.compute_within_prior_edge <- function(prior_labels, edge_endpoints) {
-        if (is.null(prior_labels)) return(NULL)
-        a <- prior_labels[edge_endpoints[, 1]]
-        b <- prior_labels[edge_endpoints[, 2]]
-        !is.na(a) & !is.na(b) & a == b
-}
-
-#' Apply the within-prior halving rule to edge weights
-#'
-#' \eqn{\tilde{w}(i,j) = w(i,j) / 2^{\lambda_E}} when both endpoints share a
-#' non-NA prior label; \eqn{\tilde{w}(i,j) = w(i,j)} otherwise. Thus
-#' \eqn{\lambda_E = 0} returns weights unchanged; \eqn{\lambda_E = 1} halves
-#' within-prior weights; \eqn{\lambda_E = 2} quarters them, etc. Lowering these
-#' weights makes the corresponding edges less likely to be cut, so prior regions
-#' tend to stay intact.
-#'
-#' @param weights Numeric edge-weight vector.
-#' @param within_prior_edge Logical vector (same length), or \code{NULL}.
-#' @param prior_strength Non-negative numeric scalar \eqn{\lambda_E}.
-#' @return Numeric vector of (possibly down-weighted) edge weights.
-#' @keywords internal
-#' @noRd
-.apply_prior_weighting <- function(weights, within_prior_edge, prior_strength) {
-        if (is.na(within_prior_edge) || prior_strength == 0) return(weights)
-        weights <- lapply(weights, 
-                          function(x) x / (2 ^ (prior_strength * as.numeric(within_prior_edge))
-                                  )
-        )
-}
-
-#' Exact reproduction of a prior typology (\code{prior_strength = Inf})
-#'
-#' Returns the prior labels directly as a (degenerate) clustering result, with a
-#' length-N \code{coverage} flag marking vertices that have no prior label.
-#' Uncovered vertices receive \code{NA} hard labels and all-zero membership rows.
-#'
-#' @param prior_labels Character vector of length N (resolved labels).
-#' @param verbose Logical.
-#' @return A list mirroring the \code{get_regions()} return, plus \code{coverage}
-#'   and \code{class_levels}.
-#' @keywords internal
-#' @noRd
-.exact_prior_result <- function(prior_labels, verbose = TRUE) {
-        N         <- length(prior_labels)
-        coverage  <- !is.na(prior_labels)
-        n_covered <- sum(coverage)
-        n_dropped <- N - n_covered
-        
-        if (n_covered == 0L) {
-                stop("`prior_strength = Inf` but no vertices have a prior label.",
-                     call. = FALSE)
-        }
+        stopifnot(inherits(trees, "spanning_trees"))
+        stopifnot(length(N_tree) == 1L, N_tree >= 2, N_tree <= trees$n_trees)
+        stopifnot(length(regions_per_partition) == 1L, regions_per_partition >= 2, regions_per_partition <= trees$n_vertices)
+        stopifnot(is.numeric(prior_strength), length(prior_strength) == 1L, prior_strength >= 0)
+        stopifnot(is.numeric(weight_exponent), length(weight_exponent) == 1L, is.finite(weight_exponent), weight_exponent >= 0)
+        if (is.infinite(prior_strength))  stop("`prior_strength = Inf` is not supported here; use the exact-prior ", "short-circuit in get_regions()/tune_regions().", call. = FALSE)
         
         if (verbose) {
-                message("prior_strength = Inf: returning prior typology directly.")
-                if (n_dropped > 0L) {
-                        message(sprintf(
-                                "  %d / %d vertices have no prior label and are marked NA (coverage = FALSE).",
-                                n_dropped, N
-                        ))
-                }
+                msg <- sprintf(
+                        "Computing ensemble memberships (N_tree = %d, regions_per_partition = %d",
+                        N_tree, regions_per_partition
+                )
+                if (weight_exponent != 1)
+                        msg <- paste0(msg, sprintf(", weight_exponent = %g", weight_exponent))
+                if (prior_strength > 0 && !is.null(trees$within_prior_edge))
+                        msg <- paste0(msg, sprintf(", lambda_E = %g", prior_strength))
+                message(msg, ") ...")
         }
         
-        classes <- sort(unique(prior_labels[coverage]))
-        K       <- length(classes)
+        t0 <- proc.time()[["elapsed"]]
+        memb <- .compute_ensemble_memberships_internal(
+                graph = graph, 
+                trees = trees, 
+                N_tree = N_tree,
+                regions_per_partition = regions_per_partition,
+                prior_strength       = prior_strength,
+                weight_exponent      = weight_exponent,
+                size_influence       = size_influence
+        )
+        if (verbose) message(sprintf("  Done in %s", .format_duration(proc.time()[["elapsed"]] - t0)))
         
-        hard_clusters           <- rep(NA_integer_, N)
-        hard_clusters[coverage] <- match(prior_labels[coverage], classes)
-        
-        # One-hot membership for covered vertices; all-zero rows for uncovered ones.
-        memberships <- matrix(0, nrow = N, ncol = K)
-        memberships[cbind(which(coverage), hard_clusters[coverage])] <- 1
-        
-        list(
-                memberships         = memberships,
-                hard_clusters       = hard_clusters,
-                coverage            = coverage,        # length-N logical
-                best_intermediate_regions = K,
-                best_final_regions  = K,
-                best_n_st          = NA_integer_,
-                best_score          = NA_real_,
-                tuning_log          = NULL,
-                #n_st_stability     = NULL,
-                trees               = NULL,
-                cluster_result      = NULL,
-                prior_strength      = Inf,
-                class_levels        = classes
+        structure(
+                list(
+                        memberships         = memb,
+                        N_tree                = as.integer(N_tree),
+                        regions_per_partition = as.integer(regions_per_partition),
+                        n_members           = ncol(memb),
+                        weight_exponent     = weight_exponent,
+                        n_vertices          = trees$n_vertices,
+                        prior_strength      = prior_strength,
+                        chance_coassoc      = .chance_coassoc_by_col(memb)
+                ),
+                class = "ensemble_memberships"
         )
 }
 
-## TODO ???
-.region_step_distance <- function(graph, lab, k) {
-        n <- igraph::vcount(graph)
-        out <- matrix(Inf, n, k)
-        for (j in seq_len(k)) {
-                src <- which(lab == j)
-                if (!length(src)) next
-                g2 <- igraph::add_edges(igraph::add_vertices(graph, 1),
-                                        as.vector(rbind(n + 1L, src)))
-                d <- igraph::distances(g2, v = n + 1L, weights = NA, mode = "all")
-                out[, j] <- d[1, seq_len(n)] - 1
-        }
-        out
-}
+# -------------------------------------------------------------------------*
+# -------------------------------------------------------------------------*
+# -------------------------------------------------------------------------*
 
-.fuzzy_memberships <- function(d_to_medoids,
-                               G = G,
-                               fuzziness = fuzziness,
-                               h = 20
-) {
-        n <- nrow(d_to_medoids)
-        k <- ncol(d_to_medoids)
-        stopifnot(fuzziness > 1, h >= 0)
-        attenuate <- !is.null(G) && is.finite(h)
-        if (attenuate && (nrow(G) != n || ncol(G) != k))
-                stop("G must have the same dimensions as d_to_medoids.", call. = FALSE)
+
+#' Log cutting propensity of the edges of one spanning tree
+#'
+#' \deqn{\log \pi_e = \gamma \log(w_e / \max w) + \alpha \log s_e
+#'       - \lambda \, u \, 1[e \text{ within prior}]}
+#' with \eqn{u = \mathrm{sd}(\gamma \log w)} and
+#' \eqn{\alpha = \texttt{size\_influence} \cdot u / \mathrm{sd}(\log s)}.
+#' Size and prior are both expressed in the unit \eqn{u}, the spread of the
+#' environmental term on the log scale the exponential race competes on, so
+#' \code{size_influence} and \code{prior_strength} are dimensionless and mean
+#' the same on every graph. If \eqn{u = 0} (\eqn{\gamma = 0} or constant
+#' weights) the prior falls back to \eqn{u = \log 2}, one halving per unit of
+#' \eqn{\lambda}, and \code{fallback} is set.
+#'
+#' @param w Tree edge weights (non-negative, finite).
+#' @param size_f Size factor \eqn{n_c (N - n_c) / N} per tree edge.
+#' @param within_prior Logical per tree edge, or \code{NULL}.
+#' @return List: \code{lp} (log-propensity, max 0), \code{unit} (\eqn{u}),
+#'   \code{alpha}, \code{fallback} (logical).
+#' @keywords internal
+#' @noRd
+.cut_log_propensity <- function(w, size_f, weight_exponent = 1,
+                                size_influence = 2, prior_strength = 0,
+                                within_prior = NULL) {
+        w_n <- w / max(w)
+        if (any(w_n == 0)) w_n <- w_n + .Machine$double.eps
+        lw   <- weight_exponent * log(w_n)
+        ls   <- log(size_f)
+        sd_w <- stats::sd(lw)
+        sd_s <- stats::sd(ls)
+        ok_w <- is.finite(sd_w) && sd_w > 0
+        ok_s <- is.finite(sd_s) && sd_s > 0
+        alpha <- if (ok_w && ok_s) size_influence * sd_w / sd_s else 0
+        lp    <- lw + alpha * ls
         
-        # fuzzyness exponent
-        p    <- -2 / (fuzziness - 1)
-        # Inf where d == 0
-        logu <- p * log(d_to_medoids)
-        
-        if (attenuate) {
-                # Inf where a region is unreachable within h steps
-                pen <- G / h                                
-                logu[!is.infinite(logu)] <- 
-                        logu[!is.infinite(logu)] - pen[!is.infinite(logu)]
-        }
-        
-        # Membership matrix
-        U <- matrix(0, n, k)
-        
-        # Rows containing a zero distance: the node coincides with one 
-        # or more medoids. Among those, take the nearest in graph steps;
-        #  ties split evenly.
-        zr <- which(apply(is.infinite(logu) & logu > 0, 1L, any))
-        if (length(zr)) {
-                for (i in zr) {
-                        cand <- which(is.infinite(logu[i, ]) & logu[i, ] > 0)
-                        if (attenuate &&
-                            length(cand) > 1L)
-                                cand <- cand[G[i, cand] == min(G[i, cand])]
-                        U[i, cand] <- 1 / length(cand)
+        fallback <- FALSE
+        unit     <- if (ok_w) sd_w else 0
+        if (prior_strength > 0 && !is.null(within_prior)) {
+                within_prior[is.na(within_prior)] <- FALSE
+                if (any(within_prior)) {
+                        if (!ok_w) { unit <- log(2); fallback <- TRUE }
+                        lp <- lp - prior_strength * unit * within_prior
                 }
         }
+        list(lp = lp - max(lp), unit = unit, alpha = alpha, fallback = fallback)
+}
+
+#' Internal: compute the N x N_tree ensemble membership matrix
+#'
+#' Shared by the public \code{compute_ensemble_memberships()} and the stability
+#' evaluator. For each tree, removes \code{regions_per_partition - 1} edges
+#' (weighted sampling without replacement, Efraimidis-Spirakis) and labels the
+#' resulting connected components. One cut-set, and one column, per tree.
+#' Cut propensities come from \code{.cut_log_propensity()}.
+#'
+#' @param graph Parent \code{igraph} (kept for interface stability).
+#' @param trees A \code{"spanning_trees"} object.
+#' @param N_tree Number of trees to use.
+#' @param regions_per_partition Number of regions per cut-set.
+#' @param prior_strength \eqn{\lambda}, in units of sd(\eqn{\gamma} log w).
+#' @param weight_exponent \eqn{\gamma}.
+#' @param size_influence Size term spread relative to the environmental term.
+#' @return Integer matrix N x N_tree of region labels.
+#' @keywords internal
+#' @noRd
+.compute_ensemble_memberships_internal <- function(graph,
+                                                   trees,
+                                                   N_tree,
+                                                   regions_per_partition,
+                                                   prior_strength  = 0,
+                                                   weight_exponent = 1,
+                                                   size_influence  = 2) {
+        n_use <- as.integer(N_tree)
+        n_reg <- as.integer(regions_per_partition)
+        n_v   <- trees$n_vertices
+        wpe   <- trees$within_prior_edge
+        if (n_reg > n_v) {
+                stop(sprintf("regions_per_partition (%d) cannot exceed the number of vertices (%d).",
+                             n_reg, n_v), call. = FALSE)
+        }
+        n_to_cut   <- n_reg - 1L
+        n_fallback <- 0L
         
-        ok <- setdiff(seq_len(n), zr)
-        if (length(ok)) {
-                L  <- logu[ok, , drop = FALSE]
-                mx <- do.call(pmax, c(as.data.frame(L), na.rm = TRUE))
-                E  <- exp(L - mx)                            # rowmax is now exactly 0
-                E[!is.finite(E)] <- 0
-                s  <- rowSums(E)
-                bad <- !is.finite(s) |
-                        s <= 0                # every region unreachable
-                if (any(bad)) {
-                        E[bad, ] <- exp(p * log(d_to_medoids[ok[bad], , drop = FALSE]) -
-                                                max(p * log(d_to_medoids[ok[bad], , drop = FALSE])))
-                        s[bad] <- rowSums(E[bad, , drop = FALSE])
+        memb_mat <- matrix(0L, nrow = n_v, ncol = n_use)
+        for (j in seq_len(n_use)) {
+                tree <- trees$trees[[j]]
+                if (igraph::vcount(tree) != n_v)
+                        stop("Spanning tree does not span the parent vertex set", call. = FALSE)
+                w        <- igraph::E(tree)$weight
+                n_e      <- length(w)
+                edge_ids <- igraph::E(tree)$eid
+                if (anyNA(w) || any(is.infinite(w)) || any(w < 0))
+                        stop("Edge weights must be positive and finite numbers", call. = FALSE)
+                if (anyNA(edge_ids))
+                        stop("Failed to map a spanning-tree edge back to the parent graph.",
+                             call. = FALSE)
+                if (n_to_cut >= n_e) {
+                        stop(sprintf(paste0(
+                                "Requested %d cuts but the spanning tree has only %d edges; ",
+                                "reduce regions_per_partition or supply a connected graph."),
+                                n_to_cut, n_e), call. = FALSE)
                 }
-                U[ok, ] <- E / s
+                n_c    <- .subtree_sizes(edge_ids, trees$edge_endpoints, n_v = n_v)
+                size_f <- n_c * (n_v - n_c) / n_v
+                
+                pr <- .cut_log_propensity(
+                        w, size_f,
+                        weight_exponent = weight_exponent,
+                        size_influence  = size_influence,
+                        prior_strength  = prior_strength,
+                        within_prior    = if (is.null(wpe)) NULL else wpe[edge_ids])
+                n_fallback <- n_fallback + pr$fallback
+                
+                # Exponential race in log space: log(E / pi) = log E - log pi.
+                # Same ordering, and the same RNG draws, as E / pi, without
+                # underflow when gamma or the weight spread is large.
+                key <- log(stats::rexp(n_e)) - pr$lp
+                cut <- which(key <= sort(key, partial = n_to_cut)[n_to_cut])
+                if (length(cut) > n_to_cut) cut <- cut[seq_len(n_to_cut)]
+                memb_mat[, j] <- as.integer(
+                        igraph::components(igraph::delete_edges(tree, cut))$membership)
         }
-        U
+        if (n_fallback > 0L)
+                warning(sprintf(paste0(
+                        "%d of %d tree(s) have no spread in weight_exponent * log(weight) ",
+                        "(weight_exponent = 0 or constant weights). For these, prior_strength ",
+                        "was applied as halvings (1 unit = log 2), not in standard deviations."),
+                        n_fallback, n_use), call. = FALSE)
+        memb_mat
 }
 
-
-#' @rdname compute_ensemble_memberships
-#' @param x An object of class \code{"ensemble_memberships"}.
-#' @param ... Further arguments passed to or from other methods (unused).
-#' @return \code{print.ensemble_memberships} returns \code{x} invisibly.
-#' @export
-print.ensemble_memberships <- function(x, ...) {
-        ppt <- if (is.null(x$partitions_per_tree)) 1L else x$partitions_per_tree
-        if (ppt > 1L) {
-                cat(sprintf(
-                        "<ensemble_memberships>  %d vertices x %d members (%d trees x %d partitions) | intermediate_regions = %d\n",
-                        x$n_vertices, ncol(x$memberships), x$n_st, ppt, x$intermediate_regions
-                ))
-        } else {
-                cat(sprintf(
-                        "<ensemble_memberships>  %d vertices x %d trees | intermediate_regions = %d\n",
-                        x$n_vertices, x$n_st, x$intermediate_regions
-                ))
-        }
-        invisible(x)
-}
-
-
-#' @rdname cluster_consensus
-#' @param x An object of class \code{"fuzzy_clusters"}.
-#' @param ... Further arguments passed to or from other methods (unused).
-#' @return \code{print.fuzzy_clusters} returns \code{x} invisibly.
-#' @export
-print.fuzzy_clusters <- function(x, ...) {
-        cat(sprintf(
-                "<fuzzy_clusters>  %d nodes x %d clusters | method = %s | avg silhouette = %.4f\n",
-                nrow(x$memberships), x$k, x$method, x$avg_sil_width
-        ))
-        invisible(x)
-}
-
-
-#' @export
-print.pulse_regions <- function(x, ...) {
-        cat(sprintf("<pulse_regions>  %d units x %d regions\n",
-                    nrow(x$memberships), ncol(x$memberships)))
-        m <- x$fit$ensemble_meta
-        if (!is.null(m)) {
-                cat(sprintf(
-                        "  ensemble: %d members | intermediate_regions = %s | chance floor = %.4f (n_eff = %.1f)\n",
-                        x$fit$n_members, format(m$intermediate_regions),
-                        m$chance_coassoc, 1 / m$chance_coassoc))
-        }
-        cat(sprintf("  mean typicality (assigned region) = %.3f | mean entropy = %.3f\n",
-                    mean(x$typicality[cbind(seq_len(nrow(x$typicality)),
-                                            x$hard_clusters)]),
-                    mean(x$entropy)))
-        invisible(x)
-}
-
-
-#' @rdname tune_regions
-#' @param x An object of class \code{"regions_tuning"}.
-#' @param ... Further arguments passed to or from other methods (unused).
-#' @return \code{print.regions_tuning} returns \code{x} invisibly.
-#' @export
-print.regions_tuning <- function(x, ...) {
-        cat(sprintf("<regions_tuning>  %d configurations | %d ensembles built | metric = %s | strategy = %s\n",
-                    nrow(x$tuning_log),
-                    if (is.null(x$n_ensembles_built)) NA_integer_ else x$n_ensembles_built,
-                    x$metric, x$strategy))
-        cat(sprintf("  axes searched: %s\n",
-                    if (length(x$active_axes)) paste(x$active_axes, collapse = ", ") else "none"))
-        cat(sprintf("  best: ir = %d | gamma = %g | ppt = %d | n_st = %d | k = %d  (score = %.4f)\n",
-                    x$best_intermediate_regions, x$best_weight_exponent,
-                    x$best_partitions_per_tree, x$best_n_st,
-                    x$best_final_regions, x$best_score))
-        invisible(x)
-}
-
-
-#' @rdname sample_spanning_trees
-#' @param x An object to print (e.g. of class \code{"spanning_trees"}).
-#' @param ... Further arguments passed to or from other methods (unused).
-#' @return \code{print.spanning_trees} returns \code{x} invisibly.
-#' @export
-print.spanning_trees <- function(x, ...) {
-        cat(sprintf(
-                "<spanning_trees>  %d trees | %d vertices | seed = %s\n",
-                x$n_trees, x$n_vertices,
-                if (is.null(x$seed)) "NULL" else as.character(x$seed)
-        ))
-        if (!is.null(x$prior_labels)) {
-                n_cov    <- sum(!is.na(x$prior_labels))
-                n_within <- sum(x$within_prior_edge, na.rm = TRUE)
-                cat(sprintf(
-                        "  prior typology: %d/%d vertices covered | %d/%d edges within-prior\n",
-                        n_cov, x$n_vertices, n_within, length(x$within_prior_edge)
-                ))
-        }
-        invisible(x)
-}
 
 .subtree_sizes <- function(edge_ids, ep_all, n_v) {
         ep  <- ep_all[edge_ids, , drop = FALSE]
@@ -1955,6 +716,877 @@ print.spanning_trees <- function(x, ...) {
         n_c
 }
 
+
+#' Consensus Regions from Ensemble Memberships (salso + piece composition)
+#'
+#' Finds a hard consensus partition of the \eqn{N} units into \code{k} regions
+#' by minimising expected variation of information over the ensemble with
+#' \pkg{salso}, then derives graded memberships \eqn{\Pi} from the regional
+#' composition of each unit's ensemble pieces.
+#'
+#' @details
+#' \strong{Memberships \eqn{\Pi}.} For each ensemble partition \eqn{t}, take
+#' the share of unit \eqn{i}'s piece-mates (the other units in its piece) that
+#' belong to each consensus region, then average over partitions:
+#' \deqn{\Pi_{ik} = \frac{1}{M_i} \sum_t
+#'   \frac{\#\{\text{piece-mates of } i \text{ in region } k\}}
+#'        {\#\{\text{piece-mates of } i\}},}
+#' where \eqn{M_i} (returned as \code{pi_support}) counts the partitions in
+#' which \eqn{i} has at least one piece-mate. Rows sum to 1 by construction,
+#' there is no tuning parameter, and a boundary unit whose pieces fall half
+#' into each of two regions gets 0.5 and 0.5 whatever the region sizes. Units
+#' with \eqn{M_i = 0} get an \code{NA} row. \eqn{\Pi} is an ensemble
+#' frequency, not a probability of class membership.
+#'
+#' \strong{Cohesion.} Let \eqn{c_{im}} be the fraction of ensemble partitions
+#' in which \eqn{i} and \eqn{m} share a piece. The \emph{cohesion} of \eqn{i}
+#' to region \eqn{j} is
+#' \deqn{A_{ij} = \frac{1}{|C_j \setminus \{i\}|} \sum_{m \in C_j,\, m \ne i} c_{im}.}
+#' Rows do not sum to one and keep the absolute level of co-association, so
+#' cohesion answers "is there structure here at all?" rather than "which
+#' region?". Because a piece holds about \eqn{N/R} units, cohesion shrinks
+#' roughly as one over the region size; do not row-normalise it into
+#' memberships (the pre-\eqn{\Pi} behaviour, which favoured small regions).
+#'
+#' \strong{Order of operations.} salso (plus merging and, above
+#' \code{large_n_threshold}, cohesion-based refinement), then contiguity repair
+#' guided by \eqn{\Pi} of the unrepaired labels, then \eqn{\Pi} and every
+#' per-unit summary recomputed on the final, repaired labels. Repair uses
+#' \eqn{\Pi} rather than cohesion because regrowth compares scores across
+#' regions, where cohesion favours small regions.
+#'
+#' Everything is done through sparse indicator products and never materialises
+#' the \eqn{N \times N} similarity matrix.
+#'
+#' @param ensemble An \code{"ensemble_memberships"} object or a bare integer
+#'   matrix (\eqn{N \times M}).
+#' @param k Integer, \eqn{2 \le k < N}.
+#' @param graph The parent \code{igraph}; needed for contiguity enforcement.
+#' @param large_n_threshold Above this \eqn{N}, use the sampled path.
+#' @param sample_size Units passed to \pkg{salso} on the sampled path.
+#' @param refine_iter Maximum rounds of single-unit moves on the VI loss
+#'   (sampled path only). Each round starts from a full loss-gap pass.
+#' @param enforce_contiguity Logical. Reattach fragments so every region is a
+#'   single connected component of \code{graph}.
+#' @param n_runs,n_cores Passed to \code{salso::salso()}.
+#' @param report_native Logical. Also run salso without a target region count
+#'   and return its partition as \code{salso_native}. Costs one extra salso
+#'   run. Default \code{TRUE}; \code{tune_regions()} turns it off per
+#'   configuration and on for the winner.
+#' @param verbose Logical.
+#'
+#' @return A \code{"fuzzy_clusters"} object with
+#'   \describe{
+#'     \item{\code{memberships}}{\eqn{N \times k} matrix \eqn{\Pi}; rows sum to 1, \code{NA} where \code{pi_support == 0}.}
+#'     \item{\code{hard_clusters}}{Final labels (after contiguity repair).}
+#'     \item{\code{certainty}}{\eqn{\Pi_{i, \mathrm{hard}_i}}.}
+#'     \item{\code{margin}}{Best minus second-best entry of \eqn{\Pi}.}
+#'     \item{\code{entropy}}{Row entropy of \eqn{\Pi}, normalised by \eqn{\log k}.}
+#'     \item{\code{pi_support}}{\eqn{M_i}, partitions in which \eqn{i} had a piece-mate.}
+#'     \item{\code{cohesion}}{Raw \eqn{A} (formerly \code{affinity}); not a probability.}
+#'     \item{\code{silhouette}, \code{avg_sil_width}}{Co-association silhouette, from cohesion.}
+#'     \item{\code{expected_vi}, \code{region_coassoc}}{Mean VI(draw, consensus); \eqn{k \times k} mean co-association.}
+#'     \item{\code{salso_a}}{The generalised-VI parameter \eqn{a} salso settled on (on the sample, if sampled).}
+#'     \item{\code{expected_loss}}{Generalised VI of the final labels at \code{salso_a}, per unit, in bits.}
+#'     \item{\code{loss_gap}, \code{loss_alt}}{Change in total loss (bits) if the unit alone moved to \code{loss_alt}; negative means a single move would lower the loss.}
+#'     \item{\code{label_step}}{Factor: last step that changed the label (salso, merge, assign, refine, contiguity).}
+#'     \item{\code{salso_info}, \code{refine_info}}{salso's own fit summary; on the sampled path, VI-move convergence and per-round log (else \code{NULL}).}
+#'     \item{\code{salso_native}}{\code{NULL}, or a list: \code{k}, the
+#'       region count salso picks under VI with \eqn{a = 1} and no target;
+#'       \code{labels}, its partition (length N, \code{NA} for units outside
+#'       the sample, no contiguity repair); \code{sampled}; \code{n_units}.
+#'       This count can depend strongly on \code{regions_per_partition}; check
+#'       with \code{\link{sweep_native_regions}} before reading it as a
+#'       property of the landscape.}
+#'   }
+#'   plus \code{k}, \code{method = "salso"}, \code{sampled}, \code{n_eff},
+#'   \code{n_members}, \code{ensemble_meta}.
+#' @importFrom Matrix sparseMatrix crossprod
+#' @export
+cluster_consensus <- function(ensemble, k, graph = NULL,
+                              large_n_threshold  = 20000,
+                              sample_size        = 5000L,
+                              refine_iter        = 10L,
+                              enforce_contiguity = !is.null(graph),
+                              n_runs             = 16L,
+                              n_cores            = 1L,
+                              report_native      = TRUE,
+                              verbose            = TRUE) {
+        
+        meta <- .ensemble_meta(ensemble)
+        memb <- meta$memb_mat
+        N <- nrow(memb); M <- ncol(memb)
+        stopifnot(length(k) == 1L, k >= 2, k < N)
+        if (enforce_contiguity && is.null(graph))
+                stop("`enforce_contiguity = TRUE` requires `graph`.", call. = FALSE)
+        
+        sampled <- N > large_n_threshold
+        if (verbose) message(sprintf(
+                "Consensus clustering (k = %d, N = %d, members = %d, %s) ...",
+                k, N, M,
+                if (sampled) sprintf("salso on %d-unit sample + cohesion assignment",
+                                     min(sample_size, N))
+                else "salso on all units"))
+        t0 <- proc.time()[["elapsed"]]
+        
+        # --- hard consensus partition ----------------------------------------*
+        fit  <- .consensus_partition(memb, k, large_n_threshold, sample_size,
+                                     refine_iter, n_runs, n_cores, verbose)
+        res <- .finish_consensus(meta, fit, k, graph = graph,
+                                 enforce_contiguity = enforce_contiguity,
+                                 large_n_threshold  = large_n_threshold,
+                                 sample_size        = sample_size,
+                                 n_runs = n_runs, n_cores = n_cores,
+                                 report_native = report_native, verbose = verbose)
+        if (verbose) message(sprintf("  Done in %s",
+                                     .format_duration(proc.time()[["elapsed"]] - t0)))
+        res
+}
+
+#' Everything cluster_consensus() does after the hard partition.
+#'
+#' Deterministic given (ensemble, fit), except the optional salso_native report,
+#' which runs last so it cannot shift the labels. tune_regions() stores `fit` per
+#' configuration and calls this again on the winner, so the returned object has
+#' the partition that was scored, not a refit.
+#' @keywords internal
+#' @noRd
+.finish_consensus <- function(meta, fit, k, graph = NULL,
+                              enforce_contiguity = !is.null(graph),
+                              large_n_threshold = 20000, sample_size = 5000L,
+                              n_runs = 16L, n_cores = 1L,
+                              report_native = TRUE, verbose = TRUE) {
+        memb <- meta$memb_mat
+        N <- nrow(memb); M <- ncol(memb)
+        sampled <- N > large_n_threshold
+        hard <- fit$labels
+        step <- as.integer(fit$step)                 # stored fits keep step as raw
+        a    <- fit$salso$a
+        # --- stats on the consensus labels (Pi and loss terms included) ------*
+        st  <- .ensemble_stats(memb, hard, k, pi = TRUE, gvi_a = a)
+        coh <- .cohesion_from_stats(st, seq_len(N), hard, N)
+        
+        # --- contiguity (Pi-guided), then recompute on the repaired labels ----*
+        # Regrowth ranks a freed unit's candidate regions against each other,
+        # so it needs a size-neutral score: Pi, not cohesion.
+        if (enforce_contiguity) {
+                hard2 <- .enforce_contiguity(graph, hard, st$Pi)
+                n_moved <- sum(hard2 != hard)
+                if (n_moved > 0L) {
+                        if (verbose) message(sprintf("  contiguity: %d unit(s) reattached", n_moved))
+                        step[hard2 != hard] <- 5L                     # "contiguity"
+                        hard <- hard2
+                        st   <- .ensemble_stats(memb, hard, k, pi = TRUE, gvi_a = a)
+                        coh  <- .cohesion_from_stats(st, seq_len(N), hard, N)
+                }
+        }
+        
+        # --- memberships and per-unit summaries, all from final labels -------*
+        Pi  <- st$Pi
+        sm  <- .membership_summaries(Pi, hard)
+        n_na <- sum(st$pi_support == 0L)
+        if (n_na > 0L)
+                warning(sprintf(paste0(
+                        "%d unit(s) were a one-unit piece in every partition and have no ",
+                        "membership row (NA). Raise N_tree or lower regions_per_partition; ",
+                        "see `pi_support`."), n_na), call. = FALSE)
+        
+        # Co-association silhouette stays on cohesion (a co-association quantity).
+        own_idx <- cbind(seq_len(N), hard)
+        own     <- coh[own_idx]
+        oth     <- coh; oth[own_idx] <- -Inf
+        nxt     <- oth[cbind(seq_len(N), max.col(oth, ties.method = "first"))]
+        sil     <- (own - nxt) / pmax(own, nxt, .Machine$double.eps)
+        
+        # k x k mean co-association; diagonal excludes self-pairs.
+        n_k <- st$n_k
+        B   <- st$P / (M * outer(n_k, n_k))
+        dg  <- (diag(st$P) - M * n_k) / (M * n_k * pmax(n_k - 1, 1))
+        dg[n_k < 2] <- NA_real_
+        diag(B) <- dg
+        
+        # --- loss gaps on the final labels, at salso's a ----------------------*
+        gap <- if (is.null(st$gvi)) list(gap = rep(NA_real_, N), alt = rep(NA_integer_, N))
+        else .vi_move_gap(st, hard)
+        
+        # --- salso's own answer: no target k (VI, a = 1) ----------------------*
+        # Run after everything above so it does not shift the RNG stream that
+        # produced the k-region result.
+        native <- NULL
+        if (report_native) {
+                idx_nat <- if (sampled) sort(sample.int(N, min(as.integer(sample_size), N)))
+                else seq_len(N)
+                native <- .salso_native(memb, idx_nat, n_runs, n_cores)
+                if (verbose) message(sprintf(paste0(
+                        "  salso without a target k (VI, a = 1): %d regions%s; requested k = %d ",
+                        "(regions_per_partition = %s). See sweep_native_regions()."),
+                        native$k,
+                        if (native$sampled) sprintf(" on a %d-unit sample", native$n_units) else "",
+                        k, format(meta$regions_per_partition)))
+        }
+        
+        structure(
+                list(
+                        memberships    = Pi,
+                        hard_clusters  = as.integer(hard),
+                        certainty      = sm$certainty,
+                        margin         = sm$margin,
+                        entropy        = sm$entropy,
+                        pi_support     = st$pi_support,
+                        cohesion       = coh,
+                        silhouette     = sil,
+                        avg_sil_width  = mean(sil, na.rm = TRUE),
+                        expected_vi    = mean(st$vi),
+                        salso_a        = a,
+                        expected_loss  = if (is.null(st$gvi)) NA_real_ else st$gvi$expected_loss,
+                        loss_gap       = gap$gap,
+                        loss_alt       = gap$alt,
+                        label_step     = factor(.LABEL_STEPS[step], levels = .LABEL_STEPS),
+                        salso_info     = fit$salso,
+                        refine_info    = fit$moves,
+                        region_coassoc = B,
+                        salso_native   = native,
+                        k              = as.integer(k),
+                        method         = "salso",
+                        sampled        = sampled,
+                        cluster_result = NULL,
+                        n_eff          = 1 / meta$chance_coassoc,
+                        n_members      = M,
+                        ensemble_meta  = meta
+                ),
+                class = "fuzzy_clusters"
+        )
+}
+
+#' salso with no target region count (VI, a = 1) on a subset of units.
+#' @keywords internal
+#' @noRd
+.salso_native <- function(memb, idx = seq_len(nrow(memb)), n_runs = 16L, n_cores = 1L) {
+        draws <- t(memb[idx, , drop = FALSE]); storage.mode(draws) <- "integer"
+        est <- as.integer(salso::salso(draws, loss = salso::VI(),
+                                       nRuns = n_runs, nCores = n_cores))
+        lab <- rep(NA_integer_, nrow(memb))
+        lab[idx] <- match(est, sort(unique(est)))
+        list(k = length(unique(est)), labels = lab,
+             sampled = length(idx) < nrow(memb), n_units = length(idx))
+}
+
+#' Region count salso chooses on its own, across ensemble settings
+#'
+#' Cuts one set of trees at each \code{regions_per_partition} (and slices each
+#' ensemble to each \code{N_tree}), then runs \pkg{salso} without a target
+#' region count (VI loss, \eqn{a = 1}) on one fixed sample of units. Rows differ
+#' only in the ensemble, so the table shows whether salso's count follows the
+#' data or follows the ensemble settings.
+#'
+#' @inheritParams compute_ensemble_memberships
+#' @param regions_per_partition Integer vector of piece counts to compare.
+#' @param N_tree Integer vector of ensemble sizes, each \code{<= trees$n_trees}.
+#'   One ensemble is built per \code{regions_per_partition} at
+#'   \code{max(N_tree)} and sliced.
+#' @param sample_size Units passed to salso; the same sample for every row.
+#' @param n_runs,n_cores Passed to \code{salso::salso()}. Low \code{n_runs}
+#'   keeps the sweep fast; confirm a final value with the default 16.
+#' @param seed Optional integer; the caller's RNG state is restored on exit.
+#' @details On a sample, small regions can be missed, so \code{native_regions}
+#'   is a lower bound when \code{sample_size < N}. Compare rows with each other,
+#'   not with the full-data count.
+#' @return A data frame with \code{regions_per_partition}, \code{N_tree},
+#'   \code{n_eff}, \code{native_regions},
+#'   \code{ratio} (\code{native_regions / regions_per_partition}) and
+#'   \code{seconds}.
+#' @examples
+#' \dontrun{
+#' trees <- sample_spanning_trees(g, n = 200, seed = 1)
+#' sw <- sweep_native_regions(trees, g, regions_per_partition = c(10, 25, 50, 100),
+#'                            N_tree = c(50, 200), seed = 1)
+#' plot(native_regions ~ regions_per_partition, data = sw, log = "xy")
+#' }
+#' @export
+sweep_native_regions <- function(trees, graph,
+                                 regions_per_partition = c(10L, 25L, 50L, 100L),
+                                 N_tree              = trees$n_trees,
+                                 weight_exponent     = 1,
+                                 size_influence      = 2,
+                                 prior_strength      = 0,
+                                 sample_size         = 2000L,
+                                 n_runs              = 4L,
+                                 n_cores             = 1L,
+                                 seed                = NULL,
+                                 verbose             = TRUE) {
+        stopifnot(inherits(trees, "spanning_trees"))
+        .local_seed(seed)
+        R_vals <- sort(unique(as.integer(regions_per_partition)))
+        N_vals <- sort(unique(as.integer(N_tree)))
+        N      <- trees$n_vertices
+        stopifnot(all(N_vals >= 2L), max(N_vals) <= trees$n_trees,
+                  all(R_vals >= 2L), max(R_vals) < N)
+        idx <- if (sample_size < N) sort(sample.int(N, as.integer(sample_size))) else seq_len(N)
+        
+        rows <- vector("list", length(R_vals) * length(N_vals)); r <- 0L
+        for (R in R_vals) {
+                memb <- .compute_ensemble_memberships_internal(
+                        graph = graph, trees = trees, N_tree = max(N_vals),
+                        regions_per_partition = R, prior_strength = prior_strength,
+                        weight_exponent = weight_exponent,
+                        size_influence = size_influence)
+                p0     <- .chance_coassoc_by_col(memb)
+                memb_s <- memb[idx, , drop = FALSE]
+                rm(memb)
+                for (nt in N_vals) {
+                        cols <- seq_len(nt)
+                        t0   <- proc.time()[["elapsed"]]
+                        k_nat <- .salso_native(memb_s[, cols, drop = FALSE],
+                                               n_runs = n_runs, n_cores = n_cores)$k
+                        sec  <- proc.time()[["elapsed"]] - t0
+                        r <- r + 1L
+                        rows[[r]] <- data.frame(regions_per_partition = R, N_tree = nt,
+                                                n_eff = 1 / mean(p0[cols]),
+                                                native_regions = k_nat,
+                                                ratio = k_nat / R, seconds = sec)
+                        if (verbose) message(sprintf(
+                                "  regions_per_partition = %d, N_tree = %d: %d regions (%.1f s)",
+                                R, nt, k_nat, sec))
+                }
+        }
+        do.call(rbind, rows)
+}
+
+#' Coerce ensemble input to a meta list (fixes the bare-matrix bug of the
+#' old cluster_consensus, which read ensemble$memberships from a matrix).
+#' @keywords internal
+#' @noRd
+.ensemble_meta <- function(ensemble) {
+        if (inherits(ensemble, "ensemble_memberships")) {
+                list(memb_mat              = ensemble$memberships,
+                     regions_per_partition = ensemble$regions_per_partition,
+                     N_tree                = ensemble$N_tree,
+                     weight_exponent       = ensemble$weight_exponent,
+                     prior_strength        = ensemble$prior_strength,
+                     chance_coassoc        = mean(ensemble$chance_coassoc))
+        } else if (is.matrix(ensemble)) {
+                list(memb_mat              = ensemble,
+                     regions_per_partition = NA_integer_,
+                     N_tree                = NA_integer_,
+                     weight_exponent       = NA_real_,
+                     prior_strength        = NA_real_,
+                     chance_coassoc        = mean(.chance_coassoc_by_col(ensemble)))
+        } else {
+                stop("`ensemble` must be an 'ensemble_memberships' object or an integer matrix.",
+                     call. = FALSE)
+        }
+}
+
+.xlogx <- function(p) { out <- p * log(p); out[!(p > 0)] <- 0; out }
+.xlog2x <- function(p) { out <- p * log2(p); out[!(p > 0)] <- 0; out }
+
+# Steps that can set a consensus label, in pipeline order. `label_step` records
+# the LAST step that changed a unit's label.
+.LABEL_STEPS <- c("salso", "merge", "assign", "refine", "contiguity")
+
+#' Co-labelling statistics of an ensemble against a reference labelling
+#'
+#' With A_t the N x R indicator of ensemble column t and Z the N x k indicator
+#' of the reference labels (zero rows for non-reference units):
+#'   S = sum_t A_t (A_t' Z)      N x k  co-label counts  (= M * PSM %*% Z)
+#'   P = sum_t (A_t' Z)' (A_t' Z) k x k  co-label pair counts
+#'   vi_t = VI(column t, reference) = 2 H(joint) - H(t) - H(ref)
+#'
+#' With `pi = TRUE` it also returns the composition matrix Pi (Section 6):
+#'   Pi_ik = (1 / M_i) sum_t (T_t\\[p,k\\] - Z_ik) / (s_p - 1),  p = piece of i in t,
+#' summed over the M_i columns in which i has at least one piece-mate
+#' (s_p > 1). T_t = A_t' Z holds region counts per piece and s_p its row sums,
+#' so Pi costs one extra sparse product per block: A_t %*% \\[D_w T_t | w | 1(s>1)\\]
+#' with w_p = 1 / (s_p - 1). Rows sum to 1 by construction; rows with M_i = 0
+#' (singleton piece in every column) are NA. Pi needs every unit labelled,
+#' because piece-mate shares are only defined against a full reference.
+#'
+#' With `gvi_a` (a number in \\[0, 2\\]) it also returns `gvi`, the pieces of
+#' salso's generalised VI at that a (log base 2, as salso):
+#'   E\\[L\\] = ((2 - a) sum_k f(n_k) + (1/M) sum_t \\[a sum_p f(s_tp)
+#'          - 2 sum_{p,k} f(n_tpk)\\]) / N,      f(x) = x log2 x,
+#' plus Dp\\[i, s\\] = sum_t f(n_t,p(i),s + 1) - f(n_t,p(i),s) and the matching Dm
+#' for removal, the per-draw terms of a one-unit move. Both are sparse in T_t
+#' (f(1) - f(0) = 0), so they cost two more sparse products per block.
+#'
+#' Columns are processed in blocks so that the sparse indicator never exceeds
+#' `budget` non-zeros (peak memory ~ 12 bytes * budget).
+#'
+#' @keywords internal
+#' @noRd
+.ensemble_stats <- function(memb, ref_lab, k, ref_idx = NULL, budget = 5e7,
+                            pi = FALSE, gvi_a = NULL) {
+        N <- nrow(memb); M <- ncol(memb)
+        if (is.null(ref_idx)) ref_idx <- seq_len(N)
+        stopifnot(length(ref_idx) == length(ref_lab), all(ref_lab >= 1L), all(ref_lab <= k))
+        full <- length(ref_idx) == N
+        if (pi && !full)
+                stop("Pi needs a full reference labelling (ref_idx = all units).", call. = FALSE)
+        do_gvi <- !is.null(gvi_a) && is.finite(gvi_a)
+        if (do_gvi && !full)
+                stop("Loss terms need a full reference labelling (ref_idx = all units).", call. = FALSE)
+        R    <- as.integer(max(memb))                    # label stride
+        Z    <- Matrix::sparseMatrix(i = ref_idx, j = ref_lab, x = 1, dims = c(N, k))
+        n_k  <- tabulate(ref_lab, k)
+        
+        S  <- matrix(0, N, k)
+        P  <- matrix(0, k, k)
+        vi <- numeric(M)
+        Hk <- -sum(.xlogx(n_k / N))
+        if (pi) { Pn <- matrix(0, N, k + 2L) }           # [numerator | sum w | M_i]
+        if (do_gvi) { Dp <- Dm <- matrix(0, N, k); sum_joint <- 0; sum_piece <- 0 }
+        
+        b <- max(1L, min(M, as.integer(budget %/% N)))
+        for (start in seq(1L, M, by = b)) {
+                cols <- start:min(M, start + b - 1L)
+                m    <- length(cols)
+                A <- Matrix::sparseMatrix(
+                        i = rep.int(seq_len(N), m),
+                        j = as.integer(memb[, cols]) + R * rep(seq_len(m) - 1L, each = N),
+                        x = 1, dims = c(N, R * m))
+                Tm <- Matrix::crossprod(A, Z)                       # (R*m) x k
+                S  <- S + as.matrix(A %*% Tm)
+                P  <- P + as.matrix(Matrix::crossprod(Tm))
+                if (full) {
+                        Td  <- as.matrix(Tm) / N
+                        grp <- rep(seq_len(m), each = R)
+                        Hj  <- -rowsum(rowSums(.xlogx(Td)), grp)[, 1]
+                        Ht  <- -rowsum(.xlogx(rowSums(Td)), grp)[, 1]
+                        vi[cols] <- 2 * Hj - Ht - Hk
+                }
+                if (pi) {
+                        s_p <- Matrix::rowSums(Tm)                  # piece sizes
+                        has <- s_p > 1                              # piece has mates
+                        w   <- ifelse(has, 1 / pmax(s_p - 1, 1), 0)
+                        Tw  <- cbind(Matrix::Diagonal(x = w) %*% Tm, w, as.numeric(has))
+                        Pn  <- Pn + as.matrix(A %*% Tw)
+                }
+                if (do_gvi) {
+                        Tc <- methods::as(methods::as(Tm, "CsparseMatrix"), "generalMatrix")
+                        x  <- Tc@x
+                        sum_joint <- sum_joint + sum(.xlog2x(x))
+                        sum_piece <- sum_piece + sum(.xlog2x(Matrix::rowSums(Tc)))
+                        Gp <- Tc; Gp@x <- .xlog2x(x + 1) - .xlog2x(x)
+                        Gm <- Tc; Gm@x <- .xlog2x(x - 1) - .xlog2x(x)
+                        Dp <- Dp + as.matrix(A %*% Gp)
+                        Dm <- Dm + as.matrix(A %*% Gm)
+                }
+        }
+        out <- list(S = S, P = P, vi = if (full) vi else NULL, n_k = n_k, M = M)
+        if (pi) {
+                Mi  <- Pn[, k + 2L]
+                num <- Pn[, seq_len(k), drop = FALSE]
+                own <- cbind(seq_len(N), ref_lab[order(ref_idx)])
+                num[own] <- num[own] - Pn[, k + 1L]               # remove self from piece counts
+                Pi  <- num / pmax(Mi, 1)
+                Pi[Mi == 0, ] <- NA_real_
+                Pi[!is.na(Pi) & Pi < 0 & Pi > -1e-12] <- 0        # floating-point dust
+                dimnames(Pi) <- NULL
+                out$Pi         <- Pi
+                out$pi_support <- as.integer(round(Mi))
+        }
+        if (do_gvi) {
+                out$gvi <- list(
+                        a             = gvi_a,
+                        expected_loss = ((2 - gvi_a) * sum(.xlog2x(n_k)) +
+                                                 (gvi_a * sum_piece - 2 * sum_joint) / M) / N,
+                        Dp = Dp, Dm = Dm)
+        }
+        out
+}
+
+#' Cohesion: mean co-association of every unit with each reference region,
+#' self excluded. Formerly called affinity. Not a probability: rows do not sum
+#' to 1, and the value shrinks roughly as 1 / region size. Empty regions and
+#' singleton self-cohesions are set to 0.
+#' @keywords internal
+#' @noRd
+.cohesion_from_stats <- function(st, ref_idx, ref_lab, N) {
+        S <- st$S; k <- ncol(S); M <- st$M
+        self <- cbind(ref_idx, ref_lab)
+        S[self] <- S[self] - M                       # a unit shares a label with itself in every column
+        den <- matrix(st$n_k, N, k, byrow = TRUE)
+        den[self] <- den[self] - 1
+        A <- S / (M * pmax(den, 1))
+        A[den == 0] <- 0
+        A
+}
+
+#' Per-unit loss gap: the change in salso's generalised-VI loss (summed over
+#' units, bits) if unit i alone moved from its region r to region s:
+#'   delta_is = (2 - a) \\[f(n_s + 1) - f(n_s) + f(n_r - 1) - f(n_r)\\]
+#'              - (2 / M) \\[Dp\\[i, s\\] + Dm\\[i, r\\]\\]
+#' The draw-only term a * sum f(s_tp) does not depend on the labels and cancels.
+#' gap_i = min over s != r. gap > 0: no single move improves the loss;
+#' gap < 0: moving i to `alt` would lower it. The per-unit expected loss
+#' changes by gap / N.
+#' Needs `st` from .ensemble_stats(..., gvi_a = a) on the same labels.
+#' @keywords internal
+#' @noRd
+.vi_move_gap <- function(st, hard) {
+        stopifnot(!is.null(st$gvi))
+        a <- st$gvi$a; M <- st$M; n_k <- st$n_k
+        N <- length(hard); k <- length(n_k)
+        own      <- cbind(seq_len(N), hard)
+        join_k   <- .xlog2x(n_k + 1) - .xlog2x(n_k)              # entering region s
+        leave_k  <- .xlog2x(n_k - 1) - .xlog2x(n_k)              # leaving region r
+        delta <- (2 - a) * (matrix(join_k, N, k, byrow = TRUE) + leave_k[hard]) -
+                (2 / M) * (st$gvi$Dp + st$gvi$Dm[own])
+        delta[own] <- Inf
+        alt <- max.col(-delta, ties.method = "first")
+        list(gap = delta[cbind(seq_len(N), alt)], alt = alt)
+}
+
+#' Per-unit summaries of a membership matrix against the final labels.
+#'
+#' certainty = U\\[i, hard_i\\]; margin = best minus second-best entry (the
+#' quantity the transition-zone map thresholds); entropy = normalized Shannon
+#' entropy. NA rows of U give NA in all three.
+#' @keywords internal
+#' @noRd
+.membership_summaries <- function(U, hard) {
+        N  <- nrow(U); k <- ncol(U)
+        ok <- !is.na(U[, 1L])
+        certainty <- margin <- rep(NA_real_, N)
+        certainty[ok] <- U[cbind(which(ok), hard[ok])]
+        if (any(ok)) {
+                Uo   <- U[ok, , drop = FALSE]
+                top  <- max.col(Uo, ties.method = "first")
+                rest <- Uo; rest[cbind(seq_len(nrow(Uo)), top)] <- -Inf
+                margin[ok] <- Uo[cbind(seq_len(nrow(Uo)), top)] -
+                        rest[cbind(seq_len(nrow(Uo)), max.col(rest, ties.method = "first"))]
+        }
+        list(certainty = certainty, margin = margin, entropy = .row_entropy(U))
+}
+
+#' Greedily merge the most co-associated pair of regions until k remain.
+#' Uses only the k0 x k0 pair-count matrix, so merges are O(k0^2) each.
+#' @keywords internal
+#' @noRd
+.merge_to_k <- function(memb, lab, k) {
+        k0 <- max(lab)
+        st <- .ensemble_stats(memb, lab, k0)
+        P  <- st$P; n <- st$n_k; M <- st$M
+        groups <- as.list(seq_len(k0))
+        while (length(n) > k) {
+                B <- P / (M * outer(n, n)); diag(B) <- -Inf
+                ij <- arrayInd(which.max(B), dim(B)); i <- min(ij); j <- max(ij)
+                P[i, ] <- P[i, ] + P[j, ]
+                P[, i] <- P[, i] + P[, j]
+                P <- P[-j, -j, drop = FALSE]
+                n[i] <- n[i] + n[j]; n <- n[-j]
+                groups[[i]] <- c(groups[[i]], groups[[j]]); groups[[j]] <- NULL
+        }
+        new <- integer(length(lab))
+        for (g in seq_along(groups)) new[lab %in% groups[[g]]] <- g
+        new
+}
+
+
+# -----------------------------------------------------------------------------
+# 3. Hard consensus partition
+# -----------------------------------------------------------------------------
+
+#' salso at exactly k regions (merging down if it overshoots).
+#' Returns list(labels, step, salso): `step` codes index .LABEL_STEPS;
+#' `salso` keeps the search parameter a that salso settled on and salso's own
+#' expected loss for its unmerged estimate.
+#' @keywords internal
+#' @noRd
+.salso_k <- function(memb, k, n_runs = 16L, n_cores = 1L) {
+        draws <- t(memb); storage.mode(draws) <- "integer"
+        est <- salso::salso(draws,
+                            loss   = salso::VI(a = list(nClusters = k)),
+                            nRuns  = n_runs, nCores = n_cores)
+        info <- attr(est, "info")
+        raw  <- as.integer(est); rm(est)                    # est carries a copy of draws
+        # salso's search for a solves a step function, and its final rerun at the
+        # root can land on the low side (k - 1). Step a down until >= k regions.
+        a_fit <- if (is.null(info$a)) NA_real_ else as.numeric(info$a)
+        n_retry <- 0L
+        while (length(unique(raw)) < k && is.finite(a_fit) && a_fit > 0 && n_retry < 10L) {
+                n_retry <- n_retry + 1L
+                a_fit <- max(0, a_fit - 0.02)
+                est  <- suppressWarnings(salso::salso(draws, loss = salso::VI(a = a_fit),
+                                                      nRuns = n_runs, nCores = n_cores))
+                info <- attr(est, "info")
+                raw  <- as.integer(est); rm(est)
+        }
+        raw  <- match(raw, sort(unique(raw)))
+        k0   <- max(raw)
+        if (k0 < k)
+                stop(sprintf(paste0(
+                        "salso returned %d regions for the requested k = %d. The ensemble ",
+                        "does not support that many consensus regions; lower k or raise ",
+                        "regions_per_partition."), k0, k), call. = FALSE)
+        lab  <- raw
+        step <- rep(1L, length(raw))                        # "salso"
+        if (k0 > k) {
+                lab   <- .merge_to_k(memb, raw, k)
+                n_raw <- tabulate(raw, k0)
+                keep  <- vapply(seq_len(k), function(g) {
+                        r <- unique(raw[lab == g]); r[which.max(n_raw[r])]
+                }, integer(1))
+                step[!(raw %in% keep)] <- 2L                # absorbed by "merge"
+        }
+        list(labels = lab, step = step,
+             salso  = list(a             = a_fit,
+                           expected_loss = as.numeric(info$expectedLoss),
+                           a_retries     = n_retry,
+                           k_raw         = k0,
+                           n_runs        = as.integer(info$nRuns)))
+}
+
+#' Single-unit moves on salso's generalised-VI loss
+#'
+#' Sequential local search: visit each candidate unit, move it to the region
+#' with the most negative exact loss change (the delta of .vi_move_gap()), and
+#' update the counts before the next unit. Every accepted move lowers the
+#' loss, so the loss decreases monotonically. Moves that would empty a region
+#' are not allowed, so k is preserved. Each round starts from the full gap
+#' vector, so the search stops at a partition where no allowed single move
+#' improves the loss (converged = TRUE) or after `max_rounds` rounds.
+#' `blocked` counts units whose only improving move would empty their region:
+#' a sign that the loss at this a prefers fewer than k regions.
+#'
+#' Counts are held as an (R*M) x k integer matrix T, row p + R (t - 1) for
+#' piece p of draw t, the same layout as .ensemble_stats(). Move deltas use
+#' lookup tables of f(c + 1) - f(c) and f(c - 1) - f(c), f(x) = x log2 x.
+#' @keywords internal
+#' @noRd
+.vi_moves <- function(memb, hard, k, a, max_rounds = 10L, tol = 1e-9,
+                      verbose = FALSE) {
+        N <- nrow(memb); M <- ncol(memb); R <- as.integer(max(memb))
+        if (!is.finite(a)) stop("`a` must be finite for VI moves.", call. = FALSE)
+        off <- R * (seq_len(M) - 1L)
+        Tn  <- matrix(0L, R * M, k)
+        lab0 <- R * (hard - 1L)
+        for (t in seq_len(M)) {
+                rows <- off[t] + seq_len(R)
+                Tn[rows, ] <- matrix(tabulate(memb[, t] + lab0, R * k), R, k)
+        }
+        n_k  <- tabulate(hard, k)
+        cnt  <- 0:(N + 1L)
+        F_in  <- .xlog2x(cnt + 1) - .xlog2x(cnt)        # index c + 1
+        F_out <- c(0, .xlog2x(cnt[-1L] - 1) - .xlog2x(cnt[-1L]))
+        log <- data.frame(round = integer(0), candidates = integer(0), moves = integer(0))
+        converged <- FALSE
+        n_blocked <- 0L
+        
+        for (rd in seq_len(max_rounds)) {
+                gp   <- .vi_move_gap(.ensemble_stats(memb, hard, k, gvi_a = a), hard)
+                neg  <- gp$gap < -tol
+                n_blocked <- sum(neg & n_k[hard] <= 1L)       # move would empty a region
+                cand <- which(neg & n_k[hard] > 1L)
+                if (!length(cand)) { converged <- TRUE; break }
+                cand <- cand[order(gp$gap[cand])]               # most negative first
+                n_mv <- 0L
+                for (i in cand) {
+                        r <- hard[i]
+                        if (n_k[r] <= 1L) next
+                        ri <- memb[i, ] + off
+                        Tc <- Tn[ri, , drop = FALSE]
+                        gain  <- colSums(matrix(F_in[Tc + 1L], M, k))
+                        rem   <- sum(F_out[Tc[, r] + 1L])
+                        delta <- (2 - a) * (F_in[n_k + 1L] + F_out[n_k[r] + 1L]) -
+                                (2 / M) * (gain + rem)
+                        delta[r] <- Inf
+                        s <- which.min(delta)
+                        if (delta[s] < -tol) {
+                                Tn[cbind(ri, r)] <- Tc[, r] - 1L
+                                Tn[cbind(ri, s)] <- Tc[, s] + 1L
+                                n_k[r] <- n_k[r] - 1L; n_k[s] <- n_k[s] + 1L
+                                hard[i] <- s
+                                n_mv <- n_mv + 1L
+                        }
+                }
+                log[nrow(log) + 1L, ] <- c(rd, length(cand), n_mv)
+                if (verbose) message(sprintf("  VI moves, round %d: %d candidate(s), %d move(s)",
+                                             rd, length(cand), n_mv))
+                if (n_mv == 0L) break                             # only blocked moves remain
+        }
+        list(labels = hard, converged = converged, blocked = n_blocked, rounds = log)
+}
+
+#' Full-data salso below the threshold; sample + cohesion assignment above it,
+#' then single-unit moves on the same loss salso minimised (VI at salso's a).
+#' Returns the .salso_k() list, with `step` covering all N units and, on the
+#' sampled path, `moves` (converged flag and per-round log).
+#' @keywords internal
+#' @noRd
+.consensus_partition <- function(memb, k, large_n_threshold, sample_size,
+                                 refine_iter, n_runs, n_cores, verbose) {
+        N <- nrow(memb)
+        if (N <= large_n_threshold)
+                return(.salso_k(memb, k, n_runs, n_cores))
+        
+        n_s   <- min(as.integer(sample_size), N)
+        idx   <- sort(sample.int(N, n_s))
+        fit_s <- .salso_k(memb[idx, , drop = FALSE], k, n_runs, n_cores)
+        lab_s <- fit_s$labels
+        
+        st   <- .ensemble_stats(memb, lab_s, k, ref_idx = idx)
+        hard <- max.col(.cohesion_from_stats(st, idx, lab_s, N), ties.method = "first")
+        hard[idx] <- lab_s
+        step <- rep(3L, N)                                   # "assign"
+        step[idx] <- fit_s$step
+        
+        mv <- .vi_moves(memb, hard, k, a = fit_s$salso$a,
+                        max_rounds = refine_iter, verbose = verbose)
+        step[mv$labels != hard] <- 4L                        # "refine"
+        if (verbose && !mv$converged)
+                message(sprintf(paste0("  VI moves stopped after %d round(s) with improving ",
+                                       "moves left; raise `refine_iter`."), nrow(mv$rounds)))
+        if (mv$blocked > 0L)
+                warning(sprintf(paste0("%d unit(s) sit alone in a region that the VI loss would ",
+                                       "rather dissolve: at a = %.3f the ensemble supports fewer ",
+                                       "than k = %d regions."), mv$blocked, fit_s$salso$a, k),
+                        call. = FALSE)
+        list(labels = mv$labels, step = step, salso = fit_s$salso,
+             moves = list(converged = mv$converged, blocked = mv$blocked, rounds = mv$rounds))
+}
+
+#' Keep, for each region, the connected component carrying the most score
+#' mass; grow the freed units back onto adjacent regions in order of score.
+#' `score` is any N x k matrix (cluster_consensus() passes Pi of the
+#' unrepaired labels). NA entries count as 0.
+#' @keywords internal
+#' @noRd
+.enforce_contiguity <- function(graph, hard, score) {
+        aff <- score; aff[is.na(aff)] <- 0
+        n <- length(hard); k <- ncol(aff)
+        ep  <- igraph::ends(graph, igraph::E(graph), names = FALSE)
+        lab <- rep(NA_integer_, n)
+        
+        for (r in seq_len(k)) {
+                in_r <- which(hard == r)
+                if (!length(in_r)) next
+                cmp  <- igraph::components(igraph::induced_subgraph(graph, in_r))$membership
+                mass <- rowsum(aff[in_r, r], cmp)
+                core <- as.integer(rownames(mass)[which.max(mass[, 1])])
+                lab[in_r[cmp == core]] <- r
+        }
+        
+        a <- ep[, 1]; b <- ep[, 2]
+        repeat {
+                free <- is.na(lab)
+                if (!any(free)) break
+                f1 <- free[a] & !free[b]
+                f2 <- free[b] & !free[a]
+                node <- c(a[f1], b[f2])
+                if (!length(node)) { lab[free] <- hard[free]; break }   # isolated fragments
+                reg  <- c(lab[b[f1]], lab[a[f2]])
+                o    <- order(-aff[cbind(node, reg)])
+                node <- node[o]; reg <- reg[o]
+                keep <- !duplicated(node)
+                lab[node[keep]] <- reg[keep]
+        }
+        lab
+}
+
+
+# ----- 
+#' Construct an "ensemble_memberships" object
+#'
+#' Used both by compute_ensemble_memberships() and by the tuner when it slices
+#' a cached ensemble down to a smaller N_tree, so that a sliced ensemble is
+#' stamped with its own column count and chance co-association rather than
+#' those of the larger matrix it came from.
+#'
+#' @keywords internal
+#' @noRd
+.new_ensemble_memberships <- function(memb, N_tree, regions_per_partition,
+                                      weight_exponent,
+                                      prior_strength, n_vertices,
+                                      p0_by_col = NULL) {
+        if (is.null(p0_by_col)) p0_by_col <- .chance_coassoc_by_col(memb)
+        structure(
+                list(
+                        memberships           = memb,
+                        N_tree                  = as.integer(N_tree),
+                        regions_per_partition  = as.integer(regions_per_partition),
+                        n_members             = ncol(memb),
+                        weight_exponent       = as.numeric(weight_exponent),
+                        n_vertices            = n_vertices,
+                        prior_strength        = prior_strength,
+                        chance_coassoc        = mean(p0_by_col),
+                        chance_coassoc_by_col = p0_by_col
+                ),
+                class = "ensemble_memberships"
+        )
+}
+
+#' @rdname compute_ensemble_memberships
+#' @param x An object of class \code{"ensemble_memberships"}.
+#' @param ... Further arguments passed to or from other methods (unused).
+#' @return \code{print.ensemble_memberships} returns \code{x} invisibly.
+#' @export
+print.ensemble_memberships <- function(x, ...) {
+        cat(sprintf(
+                "<ensemble_memberships>  %d vertices x %d trees | regions_per_partition = %d\n",
+                x$n_vertices, x$N_tree, x$regions_per_partition
+        ))
+        invisible(x)
+}
+
+
+#' @rdname cluster_consensus
+#' @param x An object of class \code{"fuzzy_clusters"}.
+#' @param ... Further arguments passed to or from other methods (unused).
+#' @return \code{print.fuzzy_clusters} returns \code{x} invisibly.
+#' @export
+print.fuzzy_clusters <- function(x, ...) {
+        cat(sprintf(
+                "<fuzzy_clusters>  %d nodes x %d clusters | method = %s | avg silhouette = %.4f\n",
+                nrow(x$memberships), x$k, x$method, x$avg_sil_width
+        ))
+        invisible(x)
+}
+
+
+#' @export
+print.pulse_regions <- function(x, ...) {
+        cat(sprintf("<pulse_regions>  %d units x %d regions\n",
+                    nrow(x$memberships), ncol(x$memberships)))
+        m <- x$fit$ensemble_meta
+        if (!is.null(m)) {
+                cat(sprintf(
+                        "  ensemble: %d members | regions_per_partition = %s | chance floor = %.4f (n_eff = %.1f)\n",
+                        x$fit$n_members, format(m$regions_per_partition),
+                        m$chance_coassoc, 1 / m$chance_coassoc))
+        }
+        cat(sprintf("  mean typicality (assigned region) = %.3f | mean entropy = %.3f\n",
+                    mean(x$typicality[cbind(seq_len(nrow(x$typicality)),
+                                            x$hard_clusters)]),
+                    mean(x$entropy)))
+        invisible(x)
+}
+
+
+#' @rdname sample_spanning_trees
+#' @param x An object to print (e.g. of class \code{"spanning_trees"}).
+#' @param ... Further arguments passed to or from other methods (unused).
+#' @return \code{print.spanning_trees} returns \code{x} invisibly.
+#' @export
+print.spanning_trees <- function(x, ...) {
+        cat(sprintf(
+                "<spanning_trees>  %d trees | %d vertices | seed = %s\n",
+                x$n_trees, x$n_vertices,
+                if (is.null(x$seed)) "NULL" else as.character(x$seed)
+        ))
+        if (!is.null(x$prior_labels)) {
+                n_cov    <- sum(!is.na(x$prior_labels))
+                n_within <- sum(x$within_prior_edge, na.rm = TRUE)
+                cat(sprintf(
+                        "  prior typology: %d/%d vertices covered | %d/%d edges within-prior\n",
+                        n_cov, x$n_vertices, n_within, length(x$within_prior_edge)
+                ))
+        }
+        invisible(x)
+}
+
+
+
 #' Canonical tuning axes, in coordinate-descent sweep order
 #'
 #' Order is deliberate: ensemble-shape parameters that change *which* partitions
@@ -1965,37 +1597,35 @@ print.spanning_trees <- function(x, ...) {
 #'
 #' @keywords internal
 #' @noRd
-.TUNE_AXES <- c("intermediate_regions", "weight_exponent",
-                "partitions_per_tree", "n_st", "final_regions")
+.TUNE_AXES <- c("regions_per_partition", "weight_exponent",
+                "N_tree", "final_regions")
 
 #' Ensemble-level axes (those that require recomputing the membership matrix)
 #' @keywords internal
 #' @noRd
-.ENSEMBLE_AXES <- c("intermediate_regions", "weight_exponent", "partitions_per_tree")
+.ENSEMBLE_AXES <- c("regions_per_partition", "weight_exponent")
 
 #' Canonical key for one hyper-parameter configuration
 #'
 #' Numeric axes are formatted at full double precision so that floating-point
 #' candidates round-trip exactly through the log.
 #'
-#' @param df Data frame with the five axis columns.
+#' @param df Data frame with the four axis columns.
 #' @return Character vector of length \code{nrow(df)}.
 #' @keywords internal
 #' @noRd
 .tune_key <- function(df) {
-        paste(as.integer(df$intermediate_regions),
+        paste(as.integer(df$regions_per_partition),
               sprintf("%.17g", as.numeric(df$weight_exponent)),
-              as.integer(df$partitions_per_tree),
-              as.integer(df$n_st),
+              as.integer(df$N_tree),
               as.integer(df$final_regions),
               sep = "|")
 }
 
 #' Tune SKATER-CON Hyperparameters
 #'
-#' Searches over up to five hyper-parameters -- \code{intermediate_regions},
-#' \code{weight_exponent}, \code{partitions_per_tree}, \code{n_st} and
-#' \code{final_regions} -- to find the combination optimising a
+#' Searches over up to four hyper-parameters -- \code{regions_per_partition},
+#' \code{weight_exponent}, \code{N_tree} and \code{final_regions} -- to find the combination optimising a
 #' clustering-validity criterion, operating on a pre-computed
 #' \code{"spanning_trees"} object. Any argument supplied as a length-1 vector is
 #' held fixed; any argument supplied as a vector of length > 1 becomes a search
@@ -2003,49 +1633,42 @@ print.spanning_trees <- function(x, ...) {
 #'
 #' @section Cost structure:
 #' Only \code{final_regions} is cheap to vary: it reuses the cached ensemble
-#' membership matrix. \code{n_st} is nearly free, because an ensemble of
-#' \code{n_st} trees is an exact column-subset of an ensemble of more trees
+#' membership matrix. \code{N_tree} is nearly free, because an ensemble of
+#' \code{N_tree} trees is an exact column-subset of an ensemble of more trees
 #' drawn from the same \code{trees} object; the tuner therefore builds each
-#' ensemble once at \code{max(n_st)} and slices columns. The remaining three
+#' ensemble once at \code{max(N_tree)} and slices columns. The remaining two
 #' axes each require a fresh pass of
 #' \code{\link{compute_ensemble_memberships}}, so the number of distinct
-#' \code{(intermediate_regions, weight_exponent, partitions_per_tree)} triples
+#' \code{(regions_per_partition, weight_exponent)} pairs
 #' is the real cost driver, not the number of grid cells.
 #'
-#' Because ensembles are built at \code{max(n_st)} regardless of the incumbent,
-#' supplying a vector \code{n_st} raises the cost of \emph{every} ensemble
+#' Because ensembles are built at \code{max(N_tree)} regardless of the incumbent,
+#' supplying a vector \code{N_tree} raises the cost of \emph{every} ensemble
 #' build. This buys determinism (results do not depend on the order in which
 #' configurations happen to be visited) and paired comparisons across
-#' \code{n_st} (all ensemble sizes share the same trees and the same cut
-#' realisations). When \code{n_st} is scalar there is no penalty.
+#' \code{N_tree} (all ensemble sizes share the same trees and the same cut
+#' realisations). When \code{N_tree} is scalar there is no penalty.
 #'
 #' @section Caching:
 #' A single-slot cache holds one ensemble matrix at a time, and evaluation is
 #' ordered so that configurations sharing an ensemble are visited consecutively.
-#' A keyed cache over a five-way grid would hold one N x (n_st * ppt) integer
-#' matrix per ensemble triple, which at continental N is tens of gigabytes.
+#' A keyed cache over a four-way grid would hold one N x N_tree integer
+#' matrix per ensemble pair, which at continental N is tens of gigabytes.
 #' Peak memory here is one full matrix plus at most one column slice.
 #'
 #' @section Search strategies:
 #' \code{"grid"} evaluates the full factorial. \code{"sequential"} runs one
 #' coordinate-descent pass over the active axes in the order
-#' \code{intermediate_regions}, \code{weight_exponent},
-#' \code{partitions_per_tree}, \code{n_st}, \code{final_regions}, starting from
+#' \code{regions_per_partition}, \code{weight_exponent}, \code{N_tree},
+#' \code{final_regions}, starting from
 #' the median candidate on each axis. \code{"iterative"} repeats that pass until
 #' the incumbent configuration stops moving or \code{max_iter} is reached.
 #'
-#' @section Caveats on the ensemble-size axes:
-#' \code{n_st} and \code{partitions_per_tree} both act on the ensemble by adding
-#' columns (the matrix has \code{n_st * partitions_per_tree} of them), so they
-#' are partially confounded: what most validity indices respond to is the total
-#' column count, through the resolution of the Hamming consensus distance
-#' (quantized in units of 1 / n_columns) and through Monte Carlo noise. Most
-#' indices therefore drift monotonically in ensemble size rather than exhibiting
-#' an interior optimum, and a CVI-selected \code{n_st} will typically just be
-#' the largest candidate. Tuning \code{partitions_per_tree} at fixed
-#' total columns (trading it against \code{n_st}) is the better-posed version of
-#' that question: it asks how ensemble diversity should be split between tree
-#' topologies and cut-sets.
+#' @section Caveat on the ensemble-size axis:
+#' Most validity indices drift monotonically with \code{N_tree} (Monte Carlo
+#' noise falls and co-association resolution rises as 1 / N_tree) rather than
+#' showing an interior optimum, so a CVI-selected \code{N_tree} will typically
+#' just be the largest candidate. Choose it by convergence, not by tuning.
 #'
 #' @param graph The parent \code{igraph} object the trees were sampled from.
 #' @param env Environmental data passed through to \code{.compute_fuzzy_cvis()}.
@@ -2055,76 +1678,82 @@ print.spanning_trees <- function(x, ...) {
 #'   are removed from `env`.
 #' @param trees A \code{"spanning_trees"} object from
 #'   \code{\link{sample_spanning_trees}}.
-#' @param n_st Integer or integer vector (each \eqn{\ge 2} and
+#' @param N_tree Integer or integer vector (each \eqn{\ge 2} and
 #'   \eqn{\le} \code{trees$n_trees}). Candidate ensemble size(s).
-#' @param intermediate_regions Integer or integer vector (each \eqn{\ge 2}).
+#' @param regions_per_partition Integer or integer vector (each \eqn{\ge 2}).
 #'   Candidate number(s) of intermediate regions per cut-set. Default 50.
 #' @param final_regions Integer or integer vector (each \eqn{\ge 2}). Candidate
 #'   number(s) of final consensus clusters \emph{k}.
-#' @param partitions_per_tree Integer or integer vector (each \eqn{\ge 1}).
-#'   Candidate number(s) of independent cut-sets applied per tree. Default 1.
 #' @param weight_exponent Numeric or numeric vector (each \eqn{\ge 0}).
 #'   Candidate cut-probability exponent(s) \eqn{\gamma}. Default 1.
-#' @param fuzziness Numeric \eqn{> 1}. Fuzzifier. Default 2.
+
 #' @param metric Character. One of \code{"borda"} (default; rank aggregate),
 #'   \code{"fuzzy_calinski_harabasz"}, \code{"Fukuyama_Sugeno"},
 #'   \code{"dunn5"}, \code{"fuzzy_hyper_volume"}, \code{"stability"}.
-#' @param crisp Logical. Produce hard memberships? Default \code{FALSE}.
+
 #' @param strategy Character. \code{"grid"} (default), \code{"sequential"}, or
 #'   \code{"iterative"}. See Details.
 #' @param stability_B Integer. Bootstrap replicates for the stability
 #'   sub-metric. Set to 0 to skip. Default 25.
-#' @param prior_strength Non-negative numeric scalar \eqn{\lambda_E}. Passed to
-#'   the membership computation. \code{Inf} short-circuits to an exact
-#'   reproduction of \code{prior_typology}. Default 0. Not a tuning axis.
+#' @param voters Character. Validity columns that vote in the Borda aggregate
+#'   (\code{metric = "borda"}). Default \code{c("CH_ENV", "STAB")}. Check
+#'   \code{STAB} against \code{\link{compute_null_baseline}} before relying on it.
+#' @param prior_strength Non-negative numeric scalar \eqn{\lambda}. Lowers the
+#'   log cutting propensity of within-prior edges by \eqn{\lambda} standard
+#'   deviations of the environmental term \eqn{\gamma \log w}, computed per
+#'   tree: the same unit as \code{size_influence}, so a value means the same
+#'   on any graph. \eqn{\lambda = 0} (default) ignores the prior;
+#'   \eqn{\lambda = 1} makes a within-prior edge as hard to cut as an edge
+#'   one standard deviation lighter on the log scale. If that spread is zero
+#'   (\code{weight_exponent = 0} or constant weights), one unit halves the
+#'   propensity instead, with a warning.
 #' @param prior_typology Optional. Vertex attribute name or label vector; used
 #'   only by the \code{prior_strength = Inf} short-circuit.
 #' @param max_iter Integer. Maximum passes for \code{"iterative"}. Default 10.
 #' @param max_ensembles Integer or \code{Inf}. Guard against an accidentally
 #'   enormous search: the call fails before any work if the number of distinct
-#'   ensemble triples exceeds this. Default 64.
+#'   ensemble pairs exceeds this. Default 64.
 #' @param large_n_threshold Integer. CLARA/PAM cutoff. Default 20000.
 #' @param seed Optional integer seed; the caller's RNG state is restored on
 #'   exit.
+#' @param stability_seed Optional integer. Seeds the subsampling inside the
+#'   \code{STAB} metric, identically for every configuration, so configurations
+#'   are compared on the same subsamples. Defaults to \code{seed}.
 #' @param verbose Logical. Default \code{TRUE}.
 #'
 #' @return An object of class \code{"regions_tuning"}: a list with
 #'   \code{best_result} (a \code{"fuzzy_clusters"} object), \code{best_config}
-#'   (one-row data frame of the winning values on all five axes), the individual
-#'   slots \code{best_intermediate_regions}, \code{best_final_regions},
-#'   \code{best_partitions_per_tree}, \code{best_weight_exponent},
-#'   \code{best_n_st}, plus \code{best_score}, \code{tuning_log} (one row per
-#'   configuration, with all five axis columns and all CVI columns),
+#'   (one-row data frame of the winning values on all four axes), the individual
+#'   slots \code{best_regions_per_partition}, \code{best_final_regions},
+#'   \code{best_weight_exponent},
+#'   \code{best_N_tree}, plus \code{best_score}, \code{tuning_log} (one row per
+#'   configuration, with all four axis columns and all CVI columns),
 #'   \code{candidates}, \code{n_ensembles_built}, \code{metric},
 #'   \code{strategy}, and \code{prior_strength}.
 #'
 #' @export
 tune_regions <- function(graph, 
                          trees,
-                         n_st,
-                         intermediate_regions = 50,
+                         N_tree,
+                         regions_per_partition = 50,
                          final_regions,
-                         partitions_per_tree = 1L,
                          weight_exponent     = 1,
-                         fuzziness  = 2,
-                         metric = c(
-                                 "borda",
-                                 "fuzzy_calinski_harabasz",
-                                 "Fukuyama_Sugeno",
-                                 "dunn5",
-                                 "fuzzy_hyper_volume",
-                                 "stability"
-                         ),
-                         crisp = FALSE,
+                         metric = c("borda", "ch_env", "r2_env", "stability", "silhouette_ca", "expected_vi"),
                          strategy = c("grid", "sequential", "iterative"),
                          stability_B       = 25L,
+                         voters            = c("CH_ENV", "STAB"),
                          prior_strength    = 0,
                          prior_typology    = NULL,
                          max_iter          = 10,
                          size_influence    = 2,
                          max_ensembles     = 64L,
                          large_n_threshold = 20000,
+                         sample_size = 5000,
+                         n_cores = 1,
+                         env = NULL, 
+                         env_id = NULL,
                          seed              = NULL,
+                         stability_seed    = seed,
                          verbose           = TRUE) {
         
         # --- Checks -----------------------------------------------------*
@@ -2132,9 +1761,27 @@ tune_regions <- function(graph,
         stopifnot(is.numeric(prior_strength), length(prior_strength) == 1L,
                   prior_strength >= 0)
         
+        
+        # Prepare env ------------------------------------------------------*
+        if (!is.null(env)) {
+                env <- as.data.frame(env)
+                if (!is.null(env_id)) env <- env[, setdiff(names(env), env_id), drop = FALSE]
+                env <- as.matrix(env[, vapply(env, is.numeric, logical(1)), drop = FALSE])
+                if (nrow(env) != igraph::vcount(graph))
+                        stop("`env` must have one row per vertex of `graph`.", call. = FALSE)
+        } else if (verbose) {
+                message("Note: `env` not supplied; the Borda objective reduces to stability.")
+        }
+        
+        
         # --- Argument Matching  -----------------------------------------*
         strategy <- match.arg(strategy)
         metric   <- match.arg(metric)
+        voters   <- unique(as.character(voters))
+        bad_v    <- setdiff(voters, names(.CVI_DIRECTION))
+        if (length(bad_v) || !length(voters))
+                stop("`voters` must be a non-empty subset of: ",
+                     paste(names(.CVI_DIRECTION), collapse = ", "), call. = FALSE)
         
         # --- Exact prior reproduction short-circuit --------------------------*
         if (is.infinite(prior_strength)) {
@@ -2147,95 +1794,92 @@ tune_regions <- function(graph,
         
         # --- Normalize candidate sets ----------------------------------------*
         # weight_exponent stays double; the other four are counts.
-        intermediate_regions <- sort(unique(as.integer(intermediate_regions)))
+        regions_per_partition <- sort(unique(as.integer(regions_per_partition)))
         final_regions        <- sort(unique(as.integer(final_regions)))
-        partitions_per_tree  <- sort(unique(as.integer(partitions_per_tree)))
-        n_st                 <- sort(unique(as.integer(n_st)))
+        N_tree                 <- sort(unique(as.integer(N_tree)))
         weight_exponent      <- sort(unique(as.numeric(weight_exponent)))
         
         # --- Checks -----------------------------------------------------*
-        stopifnot(length(intermediate_regions) >= 1L, all(intermediate_regions >= 2),
-                  all(intermediate_regions <= trees$n_vertices))
+        stopifnot(length(regions_per_partition) >= 1L, all(regions_per_partition >= 2),
+                  all(regions_per_partition <= trees$n_vertices))
         stopifnot(length(final_regions) >= 1L, all(final_regions >= 2))
-        stopifnot(length(partitions_per_tree) >= 1L, all(partitions_per_tree >= 1))
-        stopifnot(length(n_st) >= 1L, all(n_st >= 2), all(n_st <= trees$n_trees))
+        stopifnot(length(N_tree) >= 1L, all(N_tree >= 2), all(N_tree <= trees$n_trees))
         stopifnot(length(weight_exponent) >= 1L, all(is.finite(weight_exponent)),
                   all(weight_exponent >= 0))
         stopifnot(is.numeric(max_ensembles), length(max_ensembles) == 1L,
                   max_ensembles >= 1)
         
         cand <- list(
-                intermediate_regions = intermediate_regions,
+                regions_per_partition = regions_per_partition,
                 weight_exponent      = weight_exponent,
-                partitions_per_tree  = partitions_per_tree,
-                n_st                 = n_st,
+                N_tree                 = N_tree,
                 final_regions        = final_regions
         )
         active_axes <- .TUNE_AXES[vapply(cand[.TUNE_AXES], length, integer(1)) > 1L]
         
-        # Distinct ensemble triples: the actual cost of the search.
-        n_ens_triples <- length(intermediate_regions) *
-                length(weight_exponent) * length(partitions_per_tree)
+        # Distinct ensemble pairs: the actual cost of the search.
+        n_ens_triples <- length(regions_per_partition) * length(weight_exponent)
         if (strategy == "grid" && n_ens_triples > max_ensembles) {
                 stop(sprintf(paste0(
                         "Grid requires %d distinct ensemble computations (limit `max_ensembles` = %s). ",
                         "Use strategy = \"sequential\" / \"iterative\", shrink the ",
-                        "intermediate_regions / weight_exponent / partitions_per_tree ",
+                        "regions_per_partition / weight_exponent ",
                         "candidate sets, or raise `max_ensembles` deliberately."),
                         n_ens_triples, format(max_ensembles)), call. = FALSE)
         }
         
-        if (verbose && "n_st" %in% active_axes) {
+        if (verbose && "N_tree" %in% active_axes) {
                 message("Note: most validity indices drift monotonically with ensemble ",
-                        "size; every ensemble will be built at n_st = ",
-                        max(n_st), ".")
+                        "size; every ensemble will be built at N_tree = ",
+                        max(N_tree), ".")
         }
         
         # --- RNG handling ----------------------------------------------------*
-        if (!is.null(seed)) {
-                if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
-                        .old_seed <- get(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
-                        on.exit(assign(".Random.seed", .old_seed, envir = .GlobalEnv), add = TRUE)
-                }
-                set.seed(seed)
+        .local_seed(seed)
+        # One seed for every ensemble build (common random numbers for the cut
+        # race): configurations differ only by their settings, and rebuilding the
+        # winner's ensemble after a cache eviction reproduces it exactly.
+        ens_seed <- sample.int(.Machine$integer.max, 1L)
+        build_ensemble <- function(sr, we) {
+                .local_seed(ens_seed)
+                compute_ensemble_memberships(
+                        trees                 = trees,
+                        N_tree                = N_tree_build,
+                        graph                 = graph,
+                        regions_per_partition = sr,
+                        prior_strength        = prior_strength,
+                        weight_exponent       = we,
+                        size_influence        = size_influence,
+                        verbose               = verbose)
         }
+        # Scored partitions, keyed like tuning_log rows (labels + raw step codes).
+        fit_store <- new.env(parent = emptyenv())
         
         # --- Single-slot ensemble cache --------------------------------------*
-        # Key is the ensemble triple only. n_st is served by slicing columns of a
-        # matrix built once at max(n_st): with ppt cut-sets per tree the columns
-        # are grouped tree-major, so the first n_st * ppt columns are exactly the
-        # ensemble that n_st trees would have produced.
-        n_st_build <- max(n_st)
+        # Key is the ensemble pair only. N_tree is served by slicing columns of a
+        # matrix built once at max(N_tree): column j comes from tree j, so the
+        # first N_tree columns are exactly the ensemble N_tree trees would give.
+        N_tree_build <- max(N_tree)
         ens_cache  <- new.env(parent = emptyenv())
         ens_cache$key   <- NULL
         ens_cache$mat   <- NULL
         ens_cache$p0c   <- NULL
         ens_cache$built <- 0L
-
-        get_memb <- function(sr, we, ppt, ns) {
+        
+        get_memb <- function(sr, we, ns) {
                 
-                key <- paste(sr, sprintf("%.17g", we), ppt, sep = "|")
+                key <- paste(sr, sprintf("%.17g", we), sep = "|")
                 
                 if (!identical(key, ens_cache$key)) {
-                        ens <- compute_ensemble_memberships(
-                                trees                = trees,
-                                n_st                 = n_st_build,
-                                graph                = graph,
-                                intermediate_regions = sr,
-                                prior_strength       = prior_strength,
-                                partitions_per_tree  = ppt,
-                                weight_exponent      = we,
-                                size_influence       = size_influence,
-                                verbose              = verbose
-                        )
+                        ens <- build_ensemble(sr, we)
                         # Drop the previous matrix before holding two at once.
                         ens_cache$mat   <- NULL
                         ens_cache$mat   <- ens$memberships
-                        ens_cache$p0c   <- ens$chance_coassoc_by_col
+                        ens_cache$p0c   <- ens$chance_coassoc   # per-column vector here
                         ens_cache$key   <- key
                         ens_cache$built <- ens_cache$built + 1L
                 }
-                n_col <- ns * ppt
+                n_col <- ns
                 mat <- if (n_col >= ncol(ens_cache$mat)) {
                         ens_cache$mat
                 } else {
@@ -2243,9 +1887,8 @@ tune_regions <- function(graph,
                 }
                 .new_ensemble_memberships(
                         memb                 = mat,
-                        n_st                 = ns,
-                        intermediate_regions = sr,
-                        partitions_per_tree  = ppt,
+                        N_tree                 = ns,
+                        regions_per_partition = sr,
                         weight_exponent      = we,
                         prior_strength       = prior_strength,
                         n_vertices           = nrow(mat),
@@ -2256,49 +1899,33 @@ tune_regions <- function(graph,
         # Canonical column sets (kept fixed so rbind() works across batches).
         axis_cols <- .TUNE_AXES
         diag_cols <- c("P0", "N_EFF")
-        cvi_cols  <- c("CH_D", "SIL_F","STAB")
+        cvi_cols  <- c("CH_ENV", "R2_ENV", "STAB", "SIL_CA", "CERT", "EVI", "PAC")
         col_order <- c(axis_cols, diag_cols, cvi_cols)
         
         # --- Score one configuration -> one row of CVI columns ---------------*
         score_config <- function(cfg) {
-                
-                memb_mat <- get_memb(cfg$intermediate_regions,
-                                     cfg$weight_exponent,
-                                     cfg$partitions_per_tree,
-                                     cfg$n_st)
-                
-                res <- cluster_consensus(
-                        memb_mat, 
-                        graph = graph, 
-                        k = cfg$final_regions,
-                        fuzziness = fuzziness, 
-                        crisp = crisp,
-                        large_n_threshold = large_n_threshold,
-                        verbose = FALSE
-                )
-                cvis <- .compute_fuzzy_cvis(
-                        res                      = res,
-                        memb_mat                 = memb_mat$memberships,
-                        stability_B              = stability_B,
-                        stability_subsample_frac = 0.8,
-                        stability_seed           = seed,
-                        large_n_threshold        = large_n_threshold,
-                        verbose                  = verbose
-                )
-
-                list (
-                        out = cbind(
-                                cfg[, axis_cols, drop = FALSE],
-                                data.frame(
-                                        P0 = memb_mat$chance_coassoc,
-                                        N_EFF = 1 / memb_mat$chance_coassoc
-                                ),
-                                cvis
-                        ), 
-                        typicality = res$typicality,
-                        entropy = res$entropy
-                )
-
+                memb_mat <- get_memb(cfg$regions_per_partition, cfg$weight_exponent,
+                                     cfg$N_tree)
+                meta <- .ensemble_meta(memb_mat)
+                fit  <- .consensus_partition(meta$memb_mat, cfg$final_regions,
+                                             large_n_threshold, sample_size,
+                                             refine_iter = 10L, n_runs = 16L,
+                                             n_cores = n_cores, verbose = FALSE)
+                res  <- .finish_consensus(meta, fit, cfg$final_regions, graph = graph,
+                                          large_n_threshold = large_n_threshold,
+                                          sample_size = sample_size, n_cores = n_cores,
+                                          report_native = FALSE, verbose = FALSE)
+                fit$step <- as.raw(fit$step)
+                cvis <- .consensus_cvis(
+                        res, memb = memb_mat$memberships, env = env,
+                        stability_B = stability_B, stability_subsample_frac = 0.8,
+                        stability_seed = stability_seed, large_n_threshold = large_n_threshold,
+                        sample_size = sample_size, n_cores = n_cores, verbose = verbose)
+                list(out = cbind(cfg[, axis_cols, drop = FALSE],
+                                 data.frame(P0    = memb_mat$chance_coassoc,
+                                            N_EFF = 1 / memb_mat$chance_coassoc),
+                                 cvis),
+                     fit = fit)
         }
         # --- tuning_log accumulator ------------------------------------------*
         tuning_log <- NULL
@@ -2307,7 +1934,7 @@ tune_regions <- function(graph,
                 # Borda ranks are computed globally over all rows evaluated so far, so
                 # the score column must be rebuilt after every batch.
                 if (is.null(tuning_log) || nrow(tuning_log) == 0L) return(invisible(NULL))
-                tuning_log$score <<- .derive_score_column(tuning_log, metric)
+                tuning_log$score <<- .derive_score_column(tuning_log, metric, voters)
                 invisible(NULL)
         }
         
@@ -2321,7 +1948,9 @@ tune_regions <- function(graph,
                                 if (!is.null(tick)) tick(i)
                                 next
                         }
-                        new_rows[[i]] <- score_config(cfg_df[i, , drop = FALSE])$out
+                        sc <- score_config(cfg_df[i, , drop = FALSE])
+                        new_rows[[i]] <- sc$out
+                        assign(keys[i], sc$fit, envir = fit_store)
                         seen <- c(seen, keys[i])
                         if (!is.null(tick)) tick(i)
                 }
@@ -2369,9 +1998,9 @@ tune_regions <- function(graph,
         
         sweep_axis <- function(axis, label) {
                 cfgs <- axis_configs(axis)
-                # Descending n_st means the max-size ensemble is built on the first
+                # Descending N_tree means the max-size ensemble is built on the first
                 # visit and every smaller candidate is a free column slice.
-                if (axis == "n_st") cfgs <- cfgs[order(-cfgs$n_st), , drop = FALSE]
+                if (axis == "N_tree") cfgs <- cfgs[order(-cfgs$N_tree), , drop = FALSE]
                 if (verbose) message(sprintf("  Sweeping %s (%d candidates)",
                                              axis, nrow(cfgs)))
                 tick <- if (verbose) .make_progress(nrow(cfgs), label) else NULL
@@ -2397,13 +2026,12 @@ tune_regions <- function(graph,
         } else if (strategy == "grid") {
                 # expand.grid varies its first argument fastest; ordering it this way
                 # keeps configurations that share an ensemble contiguous, and visits
-                # n_st descending so the max-size build happens first in each block.
+                # N_tree descending so the max-size build happens first in each block.
                 pairs <- expand.grid(
                         final_regions        = final_regions,
-                        n_st                 = rev(n_st),
-                        intermediate_regions = intermediate_regions,
+                        N_tree                 = rev(N_tree),
+                        regions_per_partition = regions_per_partition,
                         weight_exponent      = weight_exponent,
-                        partitions_per_tree  = partitions_per_tree,
                         KEEP.OUT.ATTRS = FALSE, stringsAsFactors = FALSE
                 )
                 if (verbose) message(sprintf(
@@ -2443,7 +2071,7 @@ tune_regions <- function(graph,
         # --- Deduplicate and pick the best configuration ---------------------*
         tuning_log <- tuning_log[!duplicated(.tune_key(tuning_log)), , drop = FALSE]
         rownames(tuning_log) <- NULL
-        tuning_log$score <- .derive_score_column(tuning_log, metric)
+        tuning_log$score <- .derive_score_column(tuning_log, metric, voters)
         
         if (all(is.na(tuning_log$score))) {
                 stop("All hyper-parameter combinations produced an undefined score; ",
@@ -2457,40 +2085,47 @@ tune_regions <- function(graph,
         
         if (verbose) {
                 message(sprintf(paste0(
-                        "\n>> Best: intermediate_regions = %d, weight_exponent = %g, ",
-                        "partitions_per_tree = %d, n_st = %d, final_regions = %d ",
+                        "\n>> Best: regions_per_partition = %d, weight_exponent = %g, ",
+                        "N_tree = %d, final_regions = %d ",
                         "(%s score = %.4f)"),
-                        best_cfg$intermediate_regions, best_cfg$weight_exponent,
-                        best_cfg$partitions_per_tree, best_cfg$n_st,
-                        best_cfg$final_regions, metric, best_sc))
-                message("  Computing final memberships ...")
+                        best_cfg$regions_per_partition, best_cfg$weight_exponent,
+                        best_cfg$N_tree, best_cfg$final_regions, metric, best_sc))
+                message("  Finalising the scored winner (no refit) ...")
         }
         
-        memb_mat <- get_memb(best_cfg$intermediate_regions,
+        best_key <- .tune_key(best_cfg)
+        best_fit <- get(best_key, envir = fit_store, inherits = FALSE)
+        rm(list = ls(fit_store), envir = fit_store)   # free losers before any rebuild
+        memb_mat <- get_memb(best_cfg$regions_per_partition,
                              best_cfg$weight_exponent,
-                             best_cfg$partitions_per_tree,
-                             best_cfg$n_st)
-        best_res <- cluster_consensus(
-                memb_mat, graph = graph, k = best_cfg$final_regions,
-                fuzziness = fuzziness, crisp = crisp,
-                large_n_threshold = large_n_threshold, verbose = verbose
-        )
+                             best_cfg$N_tree)
+        best_res <- .finish_consensus(
+                .ensemble_meta(memb_mat), best_fit, best_cfg$final_regions, graph = graph,
+                large_n_threshold = large_n_threshold,
+                sample_size = sample_size, n_cores = n_cores, verbose = verbose)
+        # SIL_CA and EVI depend only on (ensemble, partition): a mismatch means the
+        # returned regions are not the ones that were scored.
+        if (!isTRUE(all.equal(c(best_res$avg_sil_width, best_res$expected_vi),
+                              c(tuning_log$SIL_CA[best_idx], tuning_log$EVI[best_idx])))) {
+                warning("The returned regions differ from the scored winner. ",
+                        "Please report this as a bug.", call. = FALSE)
+        }
         
         structure(
                 list(
                         best_result               = best_res,
                         best_config               = best_cfg,
-                        best_intermediate_regions = best_cfg$intermediate_regions,
+                        best_regions_per_partition = best_cfg$regions_per_partition,
                         best_final_regions        = best_cfg$final_regions,
-                        best_partitions_per_tree  = best_cfg$partitions_per_tree,
                         best_weight_exponent      = best_cfg$weight_exponent,
-                        best_n_st                 = best_cfg$n_st,
+                        best_N_tree                 = best_cfg$N_tree,
                         best_score                = best_sc,
                         tuning_log                = tuning_log,
                         candidates                = cand,
                         active_axes               = active_axes,
                         n_ensembles_built         = ens_cache$built,
                         metric                    = metric,
+                        voters                    = voters,
                         strategy                  = strategy,
                         prior_strength            = prior_strength,
                         ensemble                  = best_res$ensemble_meta$memb_mat
@@ -2508,57 +2143,19 @@ tune_regions <- function(graph,
 #' @keywords internal
 #' @noRd
 .PULSE_REGIONS_FIELDS <- c(
-    "memberships", "typicality", "entropy", "hard_clusters", "k",
-    "d_to_medoids", "medoid_idx", "fuzziness",
-    "config", "tuned", "score", "metric", "strategy", "tuning_log",
-    "candidates", "n_ensembles_built",
-    "prior_strength", "coverage", "fit", "trees", "ensemble",
-    "p0", "n_eff"
+        "memberships", "entropy", "hard_clusters", "k",
+        "config", "tuned", "score", "metric", "strategy", "tuning_log",
+        "candidates", "n_ensembles_built",
+        "prior_strength", "coverage", "fit", "trees", "ensemble",
+        "p0", "n_eff"
 )
 
-#' Fuzzy memberships from an N x k distance-to-medoid matrix.
-#'
-#' \eqn{u_{ij} \propto d_{ij}^{-2/(m-1)}}, rows normalised to 1. Factored out of
-#' cluster_consensus() so that recompute_memberships() cannot drift from it:
-#' one implementation, two callers.
-#'
-#' Two degenerate rows are handled explicitly. A node that IS a medoid has an
-#' exact zero distance and gets a one-hot row. A node whose smallest distance
-#' underflows the power transform to Inf would otherwise produce NaN after
-#' normalisation, so it also collapses to one-hot on its nearest medoid.
-#'
-#' @param d Numeric N x k matrix of distances, non-negative.
-#' @param fuzziness Numeric > 1.
-#' @return Numeric N x k matrix, rows sum to 1.
-#' @keywords internal
-#' @noRd
-.memberships_from_d <- function(d, fuzziness) {
-    stopifnot(is.matrix(d), is.numeric(fuzziness),
-              length(fuzziness) == 1L, fuzziness > 1)
-    n <- nrow(d); k <- ncol(d)
-    U <- matrix(0, n, k)
-    
-    dp   <- d ^ (-2 / (fuzziness - 1))
-    bad  <- (rowSums(d == 0) > 0L) | !is.finite(rowSums(dp))
-    good <- !bad
-    
-    if (any(good)) {
-        g <- dp[good, , drop = FALSE]
-        U[good, ] <- g / rowSums(g)
-    }
-    if (any(bad)) {
-        idx <- which(bad)
-        # max.col on the negated distances is the argmin.
-        U[cbind(idx, max.col(-d[idx, , drop = FALSE], ties.method = "first"))] <- 1
-    }
-    U
-}
 
 #' Row-wise Shannon entropy, normalised by log(k).
 #'
 #' Rows are renormalised before the calculation, so this is defined for a
 #' possibilistic matrix as well, but for such a matrix it measures only the row
-#' SHAPE and discards the overall level. Entropy of a typicality matrix is
+#' SHAPE and discards the overall level. Entropy of a cohesion matrix is
 #' therefore not the same quantity as entropy of a membership matrix; the
 #' contract stores the membership version.
 #'
@@ -2567,11 +2164,11 @@ tune_regions <- function(graph,
 #' @keywords internal
 #' @noRd
 .row_entropy <- function(U) {
-    eps <- .Machine$double.eps
-    k   <- ncol(U)
-    if (k < 2L) return(rep(0, nrow(U)))
-    Un <- U / pmax(rowSums(U), eps)
-    -rowSums(Un * log(pmax(Un, eps))) / log(k)
+        eps <- .Machine$double.eps
+        k   <- ncol(U)
+        if (k < 2L) return(rep(0, nrow(U)))
+        Un <- U / pmax(rowSums(U), eps)
+        -rowSums(Un * log(pmax(Un, eps))) / log(k)
 }
 
 #' Coerce a configuration to the canonical one-row data frame.
@@ -2583,30 +2180,30 @@ tune_regions <- function(graph,
 #' @keywords internal
 #' @noRd
 .as_config <- function(x) {
-    if (is.list(x) && !is.data.frame(x)) x <- as.data.frame(x, stringsAsFactors = FALSE)
-    stopifnot(is.data.frame(x), nrow(x) == 1L)
-    miss <- setdiff(.TUNE_AXES, names(x))
-    if (length(miss))
-        stop("configuration is missing axis column(s): ",
-             paste(miss, collapse = ", "), call. = FALSE)
-    x <- x[, .TUNE_AXES, drop = FALSE]
-    for (nm in setdiff(.TUNE_AXES, "weight_exponent")) x[[nm]] <- as.integer(x[[nm]])
-    x$weight_exponent <- as.numeric(x$weight_exponent)
-    rownames(x) <- NULL
-    x
+        if (is.list(x) && !is.data.frame(x)) x <- as.data.frame(x, stringsAsFactors = FALSE)
+        stopifnot(is.data.frame(x), nrow(x) == 1L)
+        miss <- setdiff(.TUNE_AXES, names(x))
+        if (length(miss))
+                stop("configuration is missing axis column(s): ",
+                     paste(miss, collapse = ", "), call. = FALSE)
+        x <- x[, .TUNE_AXES, drop = FALSE]
+        for (nm in setdiff(.TUNE_AXES, "weight_exponent")) x[[nm]] <- as.integer(x[[nm]])
+        x$weight_exponent <- as.numeric(x$weight_exponent)
+        rownames(x) <- NULL
+        x
 }
 
 #' Construct a "pulse_regions" object
 #'
 #' The single exit point for get_regions(). Every branch (tuned, untuned, exact
 #' prior) routes through here, so the returned shape cannot drift between them.
-#' Derived quantities (typicality, entropy, k) are computed once, here, rather
+#' Derived quantities (entropy, k) are computed once, here, rather
 #' than independently in each branch.
 #'
 #' @param fit A "fuzzy_clusters" object from cluster_consensus(), or NULL for
 #'   the exact-prior degenerate case, in which case \code{memberships} and
 #'   \code{hard_clusters} must be supplied directly.
-#' @param config One-row data frame or named list giving the five tuning axes.
+#' @param config One-row data frame or named list giving the four tuning axes.
 #' @param trees The "spanning_trees" object used, or NULL.
 #' @param prior_strength Numeric lambda_E actually applied.
 #' @param tuned Logical. TRUE if a search was run.
@@ -2618,7 +2215,6 @@ tune_regions <- function(graph,
 #' @param coverage Length-N logical, exact-prior case only. NULL otherwise.
 #' @param memberships,hard_clusters Supplied directly only when \code{fit} is
 #'   NULL. Ignored otherwise.
-#' @param fuzziness Fuzzifier. Taken from \code{fit} when available.
 #' @param validate Logical. Run the shape assertions. TRUE except in tight
 #'   internal loops.
 #'
@@ -2640,186 +2236,291 @@ tune_regions <- function(graph,
                                coverage          = NULL,
                                memberships       = NULL,
                                hard_clusters     = NULL,
-                               fuzziness         = NA_real_,
                                validate          = TRUE,
                                ensemble          = NULL) {
-    
-    degenerate <- is.null(fit)
-    
-    # --- Pull the primitives ---------------------------------------------*
-    if (!degenerate) {
-        need <- c("memberships", "hard_clusters", "d_to_medoids",
-                  "medoid_idx", "fuzziness")
-        miss <- setdiff(need, names(fit))
-        if (length(miss))
-            stop("cluster_consensus() did not return: ",
-                 paste(miss, collapse = ", "),
-                 ". The pulse_regions contract cannot be met.", call. = FALSE)
         
-        U             <- fit$memberships
-        hard_clusters <- fit$hard_clusters
-        d_to_medoids  <- fit$d_to_medoids
-        medoid_idx    <- fit$medoid_idx
-        fuzziness     <- fit$fuzziness
-    } else {
-        if (is.null(memberships) || is.null(hard_clusters))
-            stop("`fit = NULL` requires `memberships` and `hard_clusters`.",
-                 call. = FALSE)
-        U            <- memberships
-        d_to_medoids <- NULL      # no medoids exist in the exact-prior case
-        medoid_idx   <- NULL
-    }
-    .p0v <- if (degenerate) NA_real_ else {
-            v <- tryCatch(fit$ensemble_meta$chance_coassoc,
-                          error = function(e) NULL)
-            if (is.numeric(v) && length(v) > 0L) as.numeric(v) else NA_real_
-    }
-    # --- Derived quantities, computed exactly once ------------------------*
-    k <- ncol(U)
-    
-    # Typicality is possibilistic: rows do NOT sum to 1. It is a separate
-    # quantity from `memberships`, not a rescaling of it, and downstream code
-    # must branch on which it is holding.
-    typicality <- if (degenerate) {
-        U                                   # one-hot; typicality == membership
-    } else {
-        tryCatch(compute_typicality(fit),
-                 error = function(e) {
-                     warning("compute_typicality() failed: ",
-                             conditionMessage(e), "; returning NULL.",
+        degenerate <- is.null(fit)
+        
+        # --- Pull the primitives ---------------------------------------------*
+        if (!degenerate) {
+                need <- c("memberships", "hard_clusters")
+                miss <- setdiff(need, names(fit))
+                if (length(miss))
+                        stop("cluster_consensus() did not return: ",
+                             paste(miss, collapse = ", "),
+                             ". The pulse_regions contract cannot be met.", call. = FALSE)
+                
+                U             <- fit$memberships
+                hard_clusters <- fit$hard_clusters
+        } else {
+                if (is.null(memberships) || is.null(hard_clusters))
+                        stop("`fit = NULL` requires `memberships` and `hard_clusters`.",
                              call. = FALSE)
-                     NULL
-                 })
-    }
-    
-    # Entropy is of the MEMBERSHIPS, always. See .row_entropy() on why the
-    # typicality version is a different quantity and is not stored here.
-    entropy <- .row_entropy(U)
-    
-    config <- .as_config(config)
-    
-    # --- Shape assertions -------------------------------------------------*
-    if (isTRUE(validate)) {
-        N <- nrow(U)
-        stopifnot(is.matrix(U), is.numeric(U), N >= 1L, k >= 1L)
-        stopifnot(length(hard_clusters) == N)
-        stopifnot(length(entropy) == N)
-        
-        # Rows sum to 1 up to floating point. Uncovered vertices in the
-        # exact-prior case are all-zero rows and are exempt.
-        rs <- rowSums(U)
-        chk <- if (!is.null(coverage)) coverage else rep(TRUE, N)
-        if (any(abs(rs[chk] - 1) > 5e-3))
-            warning("membership rows do not sum to 1 (max deviation ",
-                    signif(max(abs(rs[chk] - 1)), 3), ").", call. = FALSE)
-        
-        if (!is.null(d_to_medoids)) {
-            # This is the check that protects recompute_memberships(): if the
-            # distances and the memberships disagree in shape, every
-            # recomputed matrix would be silently wrong.
-            stopifnot(is.matrix(d_to_medoids),
-                      nrow(d_to_medoids) == N,
-                      ncol(d_to_medoids) == k)
-            stopifnot(length(medoid_idx) == k)
-            stopifnot(is.numeric(fuzziness), length(fuzziness) == 1L,
-                      fuzziness > 1)
+                U            <- memberships
         }
-        if (!is.null(typicality))
-            stopifnot(is.matrix(typicality), nrow(typicality) == N,
-                      ncol(typicality) == k)
-        if (!is.null(coverage)) stopifnot(length(coverage) == N)
-        if (!degenerate && config$final_regions != k)
-            warning("config$final_regions (", config$final_regions,
-                    ") disagrees with ncol(memberships) (", k, ").",
-                    call. = FALSE)
-    }
-    
-    p0        = mean(.p0v, na.rm = TRUE)
-    m <- mean(.p0v, na.rm = TRUE)
-    n_eff <- if (is.finite(m) && m > 0) 1 / m else NA_real_ 
-    
-    out <- list(
-        memberships       = U,
-        typicality        = typicality,
-        entropy           = entropy,
-        hard_clusters     = as.integer(hard_clusters),
-        k                 = as.integer(k),
-        d_to_medoids      = d_to_medoids,
-        medoid_idx        = medoid_idx,
-        fuzziness         = fuzziness,
-        config            = config,
-        tuned             = isTRUE(tuned),
-        score             = as.numeric(score),
-        metric            = as.character(metric),
-        strategy          = as.character(strategy),
-        tuning_log        = tuning_log,
-        candidates        = candidates,
-        n_ensembles_built = as.integer(n_ensembles_built),
-        prior_strength    = prior_strength,
-        coverage          = coverage,
-        fit               = fit,
-        trees             = trees,
-        ensemble          = ensemble,
-        p0                = p0,
-        n_eff             = n_eff
-    )
-    
-    # Enforce the canonical order, and fail loudly if a field was added here
-    # without being added to the contract.
-    stopifnot(setequal(names(out), .PULSE_REGIONS_FIELDS))
-    structure(out[.PULSE_REGIONS_FIELDS], class = "pulse_regions")
+        .p0v <- if (degenerate) NA_real_ else {
+                v <- tryCatch(fit$ensemble_meta$chance_coassoc,
+                              error = function(e) NULL)
+                if (is.numeric(v) && length(v) > 0L) as.numeric(v) else NA_real_
+        }
+        # --- Derived quantities, computed exactly once ------------------------*
+        k <- ncol(U)
+        
+        # Entropy is of the MEMBERSHIPS, always. See .row_entropy() on why the
+        # cohesion version is a different quantity and is not stored here.
+        entropy <- .row_entropy(U)
+        
+        config <- .as_config(config)
+        
+        # --- Shape assertions -------------------------------------------------*
+        if (isTRUE(validate)) {
+                N <- nrow(U)
+                stopifnot(is.matrix(U), is.numeric(U), N >= 1L, k >= 1L)
+                stopifnot(length(hard_clusters) == N)
+                stopifnot(length(entropy) == N)
+                
+                # Rows sum to 1 up to floating point. Uncovered vertices in the
+                # exact-prior case are all-zero rows and are exempt, and so are
+                # NA rows (units with pi_support == 0, flagged by the fit).
+                rs <- rowSums(U)
+                chk <- if (!is.null(coverage)) coverage else rep(TRUE, N)
+                chk <- chk & !is.na(rs)
+                if (any(abs(rs[chk] - 1) > 5e-3))
+                        warning("membership rows do not sum to 1 (max deviation ",
+                                signif(max(abs(rs[chk] - 1)), 3), ").", call. = FALSE)
+                if (!is.null(coverage)) stopifnot(length(coverage) == N)
+                if (!degenerate && config$final_regions != k)
+                        warning("config$final_regions (", config$final_regions,
+                                ") disagrees with ncol(memberships) (", k, ").",
+                                call. = FALSE)
+        }
+        
+        p0        = mean(.p0v, na.rm = TRUE)
+        n_eff <- if (is.finite(p0) && p0 > 0) 1 / p0 else NA_real_ 
+        
+        out <- list(
+                memberships       = U,
+                entropy           = entropy,
+                hard_clusters     = as.integer(hard_clusters),
+                k                 = as.integer(k),
+                config            = config,
+                tuned             = isTRUE(tuned),
+                score             = as.numeric(score),
+                metric            = as.character(metric),
+                strategy          = as.character(strategy),
+                tuning_log        = tuning_log,
+                candidates        = candidates,
+                n_ensembles_built = as.integer(n_ensembles_built),
+                prior_strength    = prior_strength,
+                coverage          = coverage,
+                fit               = fit,
+                trees             = trees,
+                ensemble          = ensemble,
+                p0                = p0,
+                n_eff             = n_eff
+        )
+        
+        # Enforce the canonical order, and fail loudly if a field was added here
+        # without being added to the contract.
+        stopifnot(setequal(names(out), .PULSE_REGIONS_FIELDS))
+        structure(out[.PULSE_REGIONS_FIELDS], class = "pulse_regions")
 }
 
-
-#' Recompute fuzzy memberships at a different fuzzifier
-#'
-#' The membership transform \eqn{u_{ij} \propto d_{ij}^{-2/(m-1)}} is a
-#' deterministic function of the stored distances to medoids, so changing the
-#' fuzzifier requires no re-clustering and no re-sampling of spanning trees.
-#'
-#' Useful for sensitivity analysis (how much does the reported uncertainty
-#' depend on \emph{m}?) and for calibration work, where \emph{m} is the natural
-#' recalibration parameter: it rescales confidence monotonically, so it changes
-#' calibration completely while leaving every rank-based diagnostic untouched.
-#'
-#' @param x A "pulse_regions" object.
-#' @param fuzziness Numeric > 1.
-#' @param update Logical. If TRUE (default) return a modified copy of \code{x}
-#'   with memberships, entropy and fuzziness updated; if FALSE return the bare
-#'   N x k matrix.
-#' @return A "pulse_regions" object or a numeric matrix.
-#' @export
-recompute_memberships <- function(x, fuzziness, update = TRUE) {
-    stopifnot(inherits(x, "pulse_regions"))
-    if (is.null(x$d_to_medoids))
-        stop("this object carries no `d_to_medoids` (exact-prior result?); ",
-             "memberships cannot be recomputed.", call. = FALSE)
-    U <- .memberships_from_d(x$d_to_medoids, fuzziness)
-    if (!isTRUE(update)) return(U)
-    x$memberships <- U
-    x$entropy     <- .row_entropy(U)
-    x$fuzziness   <- fuzziness
-    # hard_clusters come from PAM/CLARA, not from argmax(U), so they are
-    # unchanged by construction. typicality is left as-is: it is derived from
-    # the same distances but under the possibilistic transform, which has its
-    # own scale parameter.
-    x
-}
 
 #' @export
 print.pulse_regions <- function(x, ...) {
-    cat(sprintf("<pulse_regions>  %d units x %d regions | m = %s | %s\n",
-                nrow(x$memberships), x$k, format(x$fuzziness),
-                if (x$tuned) sprintf("tuned (%s, %s)", x$metric, x$strategy)
-                else "single configuration"))
-    cfg <- x$config
-    cat(sprintf("  ir = %d | gamma = %g | ppt = %d | n_st = %d\n",
-                cfg$intermediate_regions, cfg$weight_exponent,
-                cfg$partitions_per_tree, cfg$n_st))
-    cat(sprintf("  mean normalised entropy = %.3f | lambda_E = %s\n",
-                mean(x$entropy), format(x$prior_strength)))
-    if (!is.null(x$coverage))
-        cat(sprintf("  prior coverage: %d/%d vertices\n",
-                    sum(x$coverage), length(x$coverage)))
-    invisible(x)
+        cat(sprintf("<pulse_regions>  %d units x %d regions | %s\n",
+                    nrow(x$memberships), x$k,
+                    if (x$tuned) sprintf("tuned (%s, %s)", x$metric, x$strategy)
+                    else "single configuration"))
+        cfg <- x$config
+        cat(sprintf("  ir = %d | gamma = %g | N_tree = %d\n",
+                    cfg$regions_per_partition, cfg$weight_exponent, cfg$N_tree))
+        cat(sprintf("  mean normalised entropy = %.3f | lambda_E = %s\n",
+                    mean(x$entropy, na.rm = TRUE), format(x$prior_strength)))
+        if (!is.null(x$coverage))
+                cat(sprintf("  prior coverage: %d/%d vertices\n",
+                            sum(x$coverage), length(x$coverage)))
+        invisible(x)
+}
+
+.turnover <- function(t0_ids, t1_ids) 1 - length(intersect(t0_ids, t1_ids)) / length(t0_ids)
+.calibrate_eta_empirical <- function(graph,
+                                     w,
+                                     s,
+                                     target,
+                                     n_probe = 20,
+                                     tol = 0.02,
+                                     max_iter = 12) {
+        # if target is 0 hard code an eta of zero and exit 
+        if (target == 0){
+                return(0)
+        }
+        
+        t0 <- igraph::E(igraph::mst(graph, weights = w))$eid
+        measure <- function(eta) {
+                mean(replicate(n_probe, {
+                        wp <- w + eta * s * stats::rnorm(length(w))
+                        t1 <- igraph::E(igraph::mst(graph, weights = pmax(wp, 0)))$eid
+                        .turnover(t0, t1)
+                }))
+        }
+        lo <- 1e-4
+        hi <- 1000
+        
+        for (i in seq_len(max_iter)) {
+                mid <- sqrt(lo * hi)
+                tm <- measure(mid)
+                if (abs(tm - target) < tol)
+                        return(mid)
+                if (tm < target)
+                        lo <- mid
+                else
+                        hi <- mid
+        }
+        return(mid)
+}
+
+
+#' Permutation null baseline for the Level 1 validity criteria
+#'
+#' Shuffles the rows of \code{env} among units, recomputes every edge weight
+#' as the Euclidean distance between the shuffled rows of its two end units,
+#' and reruns the Level 1 pipeline (spanning trees, ensemble, consensus,
+#' validity criteria) at one ensemble configuration and every requested
+#' \code{final_regions}. Contiguity is kept and environmental structure is
+#' removed, so each replicate shows what the criteria report when only the
+#' map drives the result: the "contiguity-only" floor.
+#'
+#' @details Edge weights are recomputed as Euclidean distance on \code{env},
+#'   which matches \code{\link{add_edge_weight}} when \code{env} is the matrix
+#'   the weights were computed from (scaled raw variables, or GDM-transformed
+#'   predictors with \code{scale = FALSE}). Shuffling leaves column means and
+#'   standard deviations unchanged, so no rescaling is needed. A prior
+#'   typology is not used in the null. With \code{B} replicates the smallest
+#'   attainable p-value is \eqn{1 / (B + 1)}; \code{B = 19} is the minimum for
+#'   a 5\% test.
+#'
+#'   The shuffle also removes spatial autocorrelation in \code{env}. Smooth
+#'   but ecologically meaningless gradients therefore count as signal here.
+#'
+#' @param graph,env,env_id As in \code{\link{tune_regions}}. \code{env} is required.
+#' @param final_regions Integer vector of k values; all are evaluated on each
+#'   null ensemble (k is cheap).
+#' @param regions_per_partition,N_tree,weight_exponent Single values: the
+#'   ensemble configuration under test (e.g. \code{tune_regions()$best_config}).
+#' @param size_influence,target_edge_turnover As in \code{\link{get_regions}}.
+#' @param B Integer. Null replicates. Default 19.
+#' @param stability_B Integer. Subsamples for \code{STAB}; use the value of
+#'   the observed run.
+#' @param observed Optional \code{"regions_tuning"} object or a data frame
+#'   with \code{final_regions} and validity columns (e.g. a \code{tuning_log}).
+#'   Rows are matched on the ensemble configuration when those columns exist.
+#' @param large_n_threshold,sample_size,n_cores As in \code{\link{tune_regions}}.
+#' @param seed Optional integer seed; the caller's RNG state is restored.
+#' @param verbose Logical.
+#'
+#' @return An object of class \code{"null_baseline"}: \code{null} (one row per
+#'   replicate and k), \code{summary} (one row per k and criterion: observed,
+#'   null mean, null 95\% bound in the "better" direction, \code{excess} =
+#'   observed minus null mean with the sign set so positive is better than the
+#'   null, and the empirical \code{p}), \code{config}, and \code{B}.
+#' @export
+compute_null_baseline <- function(graph, env, env_id = NULL, final_regions,
+                                  regions_per_partition = 50, N_tree,
+                                  weight_exponent = 1, size_influence = 2,
+                                  target_edge_turnover = 0.2,
+                                  B = 19L, stability_B = 25L, observed = NULL,
+                                  large_n_threshold = 20000, sample_size = 5000L,
+                                  n_cores = 1, seed = NULL, verbose = TRUE) {
+        stopifnot(inherits(graph, "igraph"), !is.null(env),
+                  length(regions_per_partition) == 1L, length(N_tree) == 1L,
+                  length(weight_exponent) == 1L, B >= 1)
+        env <- as.data.frame(env)
+        if (!is.null(env_id)) env <- env[, setdiff(names(env), env_id), drop = FALSE]
+        env <- as.matrix(env[, vapply(env, is.numeric, logical(1)), drop = FALSE])
+        if (nrow(env) != igraph::vcount(graph))
+                stop("`env` must have one row per vertex of `graph`.", call. = FALSE)
+        if (anyNA(env))
+                stop("`env` has missing values; the null needs complete rows.", call. = FALSE)
+        final_regions <- sort(unique(as.integer(final_regions)))
+        cvi_cols <- names(.CVI_DIRECTION)
+        .local_seed(seed)
+        
+        ep  <- igraph::ends(graph, igraph::E(graph), names = FALSE)
+        out <- vector("list", B)
+        for (b in seq_len(B)) {
+                if (verbose) message(sprintf("Null replicate %d / %d ...", b, B))
+                env_b <- env[sample.int(nrow(env)), , drop = FALSE]
+                g_b   <- graph
+                igraph::E(g_b)$weight <- sqrt(rowSums(
+                        (env_b[ep[, 1], , drop = FALSE] - env_b[ep[, 2], , drop = FALSE])^2))
+                tr  <- sample_spanning_trees(g_b, n = N_tree, verbose = FALSE,
+                                             target_edge_turnover = target_edge_turnover)
+                ens <- compute_ensemble_memberships(tr, N_tree = N_tree, graph = g_b,
+                                                    regions_per_partition = regions_per_partition,
+                                                    weight_exponent = weight_exponent,
+                                                    size_influence = size_influence,
+                                                    verbose = FALSE)
+                stab_seed <- sample.int(.Machine$integer.max, 1L)
+                out[[b]] <- do.call(rbind, lapply(final_regions, function(k) {
+                        res <- tryCatch(
+                                cluster_consensus(ens, k, graph = g_b,
+                                                  large_n_threshold = large_n_threshold,
+                                                  sample_size = sample_size, n_cores = n_cores,
+                                                  report_native = FALSE, verbose = FALSE),
+                                error = function(e) NULL)
+                        cv <- if (is.null(res))
+                                as.data.frame(as.list(stats::setNames(rep(NA_real_, length(cvi_cols)), cvi_cols)))
+                        else .consensus_cvis(res, ens$memberships, env = env_b,
+                                             stability_B = stability_B, stability_seed = stab_seed,
+                                             large_n_threshold = large_n_threshold,
+                                             sample_size = sample_size, n_cores = n_cores)
+                        cbind(data.frame(rep = b, final_regions = k), cv[, cvi_cols, drop = FALSE])
+                }))
+        }
+        null <- do.call(rbind, out)
+        cfg  <- list(regions_per_partition = as.integer(regions_per_partition),
+                     N_tree = as.integer(N_tree), weight_exponent = as.numeric(weight_exponent))
+        structure(list(null = null, summary = .null_summary(null, observed, cfg),
+                       config = cfg, B = as.integer(B)),
+                  class = "null_baseline")
+}
+
+#' @keywords internal
+#' @noRd
+.null_summary <- function(null, observed, cfg) {
+        if (inherits(observed, "regions_tuning")) observed <- observed$tuning_log
+        if (!is.null(observed)) {
+                observed <- as.data.frame(observed)
+                for (ax in names(cfg)) if (ax %in% names(observed))
+                        observed <- observed[abs(observed[[ax]] - cfg[[ax]]) < 1e-9, , drop = FALSE]
+        }
+        rows <- list()
+        for (k in sort(unique(null$final_regions))) for (cr in names(.CVI_DIRECTION)) {
+                x   <- null[[cr]][null$final_regions == k]; x <- x[is.finite(x)]
+                sgn <- if (.CVI_DIRECTION[[cr]] == "max") 1 else -1
+                obs <- if (is.null(observed)) NA_real_ else {
+                        o <- observed[[cr]][observed$final_regions == k]
+                        if (length(o)) o[1] else NA_real_
+                }
+                rows[[length(rows) + 1L]] <- data.frame(
+                        final_regions = k, criterion = cr, observed = obs,
+                        null_mean = if (length(x)) mean(x) else NA_real_,
+                        null_95   = if (length(x)) unname(stats::quantile(x, if (sgn > 0) 0.95 else 0.05)) else NA_real_,
+                        excess    = sgn * (obs - mean(x)),
+                        p         = if (length(x) && is.finite(obs)) (1 + sum(sgn * x >= sgn * obs)) / (length(x) + 1) else NA_real_,
+                        n_null    = length(x))
+        }
+        do.call(rbind, rows)
+}
+
+#' @export
+print.null_baseline <- function(x, ...) {
+        cat(sprintf("<null_baseline>  %d replicates | regions_per_partition = %d | N_tree = %d | weight_exponent = %g\n",
+                    x$B, x$config$regions_per_partition, x$config$N_tree, x$config$weight_exponent))
+        s <- x$summary[x$summary$criterion %in% c("CH_ENV", "STAB"), ]
+        s[] <- lapply(s, function(v) if (is.numeric(v)) signif(v, 3) else v)
+        print(s, row.names = FALSE)
+        invisible(x)
 }

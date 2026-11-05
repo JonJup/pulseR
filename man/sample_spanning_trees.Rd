@@ -6,22 +6,18 @@
 \title{Sample spanning trees from a Spatial Graph}
 \usage{
 sample_spanning_trees(
-  graph,
+  weighted_graph,
   n,
   seed = NULL,
   verbose = TRUE,
-  prior_typology = FALSE,
-  target_eta = 0.1
+  prior_typology = NULL,
+  target_edge_turnover = 0.1,
+  prior_strength = 0
 )
 
 \method{print}{spanning_trees}(x, ...)
 }
 \arguments{
-\item{graph}{An \code{igraph} object. Edges must carry a numeric
-\code{weight} attribute (dissimilarity / cost; finite and non-negative).
-Vertices may optionally carry a prior-typology attribute (see
-\code{prior_typology}).}
-
 \item{n}{Integer scalar \eqn{\ge 1}. Number of spanning trees to sample.}
 
 \item{seed}{Integer scalar or \code{NULL}. If supplied, used to seed the
@@ -40,12 +36,17 @@ weight halving in the SKATER cutting step (see \code{prior_strength}
 in \code{\link{compute_ensemble_memberships}} and
 \code{\link{get_regions}}). Default \code{NULL} (no prior).}
 
-\item{target_eta}{numeric. How many edges of the MST should be altered on
+\item{target_edge_turnover}{numeric. How many edges of the MST should be altered on
 average in each iteration.}
 
 \item{x}{An object to print (e.g. of class \code{"spanning_trees"}).}
 
 \item{...}{Further arguments passed to or from other methods (unused).}
+
+\item{graph}{An \code{igraph} object. Edges must carry a numeric
+\code{weight} attribute (dissimilarity / cost; finite and non-negative).
+Vertices may optionally carry a prior-typology attribute (see
+\code{prior_typology}).}
 }
 \value{
 An object of class \code{"spanning_trees"} — a list with:

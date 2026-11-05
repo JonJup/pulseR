@@ -2,35 +2,19 @@
 % Please edit documentation in R/mosaic.R
 \name{get_reachability}
 \alias{get_reachability}
-\title{Compute k-order reachability matrix}
+\title{k-order reachability matrix}
 \usage{
 get_reachability(graph, k)
 }
 \arguments{
-\item{graph}{An \code{igraph} graph object. Typically created with
-\code{polygon_to_network()}.}
+\item{graph}{An \code{igraph} object.}
 
-\item{k}{Integer scalar \eqn{\ge 1}. The neighborhood order (number of steps).}
+\item{k}{Integer \eqn{\ge 1}, neighbourhood order.}
 }
 \value{
-A sparse binary \code{CsparseMatrix} of dimension \eqn{n \times n},
-where entry \eqn{(i, j) = 1} if node \eqn{j} is reachable from node \eqn{i}
-within \code{k} steps (including self).
+Sparse binary symmetric \code{CsparseMatrix}: the non-zero pattern of
+\eqn{(A + I)^k}.
 }
 \description{
-Computes the k-order reachability matrix from a graph's adjacency matrix,
-indicating which nodes can reach each other within k steps.
-}
-\details{
-The reachability pattern is the non-zero pattern of \eqn{(A + I)^k},
-where \eqn{A} is the (binary) adjacency matrix and \eqn{I} the identity.
-All stored non-zero entries are set to 1 to give a binary indicator.
-
-The identity is added as a \emph{sparse} matrix (\code{Matrix::Diagonal});
-using base \code{diag(n)} would coerce the whole computation to a dense
-\eqn{n \times n} object. Note that fill-in grows with \code{k}, so very
-large \code{k} on a dense graph can still produce a large matrix.
-}
-\seealso{
-\code{\link{compute_all_signatures}}
+k-order reachability matrix
 }

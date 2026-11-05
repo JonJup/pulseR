@@ -2,30 +2,16 @@
 % Please edit documentation in R/mosaic.R
 \name{js_distance_fast}
 \alias{js_distance_fast}
-\title{Compute Jensen-Shannon distance matrix}
+\title{Legacy wrapper}
 \usage{
 js_distance_fast(sigs)
 }
 \arguments{
-\item{sigs}{Numeric matrix of signatures (\eqn{n \times sig\_len}), as
-returned by \code{\link{compute_all_signatures}}.}
+\item{sigs}{Signature matrix.}
 }
 \value{
-A \code{dist} object of pairwise Jensen-Shannon distances (the square
-root of the divergence, which is a proper metric) over all complete cases.
+A \code{dist} of square-root Jensen-Shannon divergences.
 }
 \description{
-Computes pairwise Jensen-Shannon distances between signature vectors,
-excluding rows with missing values.
-}
-\details{
-A tiny epsilon is added and each row renormalised to a distribution
-to avoid \eqn{\log(0)}. The divergence is clamped at 0 before the square
-root to absorb floating-point underflow. \strong{Note:} the result is over
-the complete-case subset only, and the underlying distance matrix is dense
-(\eqn{O(N^2)} memory); this stage is intended for an intermediate scale \code{N},
-not the full polygon set.
-}
-\seealso{
-\code{\link{compute_all_signatures}}, \code{\link{get_mosaic_types}}
+Legacy wrapper
 }

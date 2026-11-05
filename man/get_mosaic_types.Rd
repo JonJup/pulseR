@@ -2,49 +2,77 @@
 % Please edit documentation in R/mosaic.R
 \name{get_mosaic_types}
 \alias{get_mosaic_types}
-\title{Cluster signatures with automatic selection of cluster number}
+\title{Mosaic types from co-occurrence signatures}
 \usage{
 get_mosaic_types(
   sigs,
   n_clusters = 2:10,
-  method = c("pam"),
+  method = c("pam", "dmm"),
+  distance = c("js", "hellinger", "tv", "bray", "euclidean"),
   crisp = FALSE,
-  metric = c("borda", "FCH", "FS", "stability", "FH", "GD5", "silhouette"),
+  metric = c("borda", "CH_JS", "R2_JS", "GD5", "FS", "stability", "silhouette_fuzzy",
+    "silhouette", "ICL", "BIC"),
+  fuzziness = 2,
   stability_B = 25L,
-  seed = NULL
+  sample_size = 20000L,
+  dmm_control = list(),
+  seed = NULL,
+  verbose = TRUE
 )
 }
 \arguments{
-\item{sigs}{Signature matrix (\eqn{n \times sig\_len}).}
+\item{sigs}{Signature matrix from \code{\link{compute_all_signatures}}. With
+\code{method = "dmm"} it must carry the \code{"totals"} attribute, which
+subsetting or \code{rbind()} drops.}
 
-\item{n_clusters}{Candidate \code{k} values (all \eqn{\ge 2}). Default 2:10.}
+\item{n_clusters}{Candidate counts, all \eqn{\ge 2}. Default 2:10.}
 
-\item{method}{Currently only "pam".}
+\item{method}{\code{"pam"} (default): fuzzy PAM on a signature distance.
+\code{"dmm"}: Dirichlet-multinomial mixture on the signatures converted
+back to edge pseudo-counts (Holmes et al. 2012). Memberships are then
+posterior type probabilities ("which type, and how confidently") rather
+than distance-based fuzzy degrees.}
 
-\item{crisp}{Logical. Default \code{FALSE}.}
+\item{distance}{Metric; see \code{\link{signature_distance}}. With
+\code{method = "dmm"} it is used only for saturation and silhouettes.}
 
-\item{metric}{Character: "borda" (default), "XB_star", "SIL_F", "stability",
-or "silhouette" (legacy crisp).}
+\item{crisp}{Logical. Hard memberships. With \code{"dmm"} only the returned
+memberships are hardened; selection still uses the soft fit.}
 
-\item{stability_B}{Bootstrap replicates for stability. Default 25; 0 skips.}
+\item{metric}{Selection criterion: \code{"borda"}, \code{"CH_JS"},
+\code{"R2_JS"}, \code{"GD5"}, \code{"FS"}, \code{"stability"},
+\code{"silhouette_fuzzy"}, \code{"silhouette"}, \code{"ICL"} or
+\code{"BIC"}. Default \code{"borda"} for PAM, \code{"ICL"} for DMM.
+\code{"GD5"}, \code{"FS"} and \code{"stability"} need medoids (PAM only);
+\code{"ICL"} and \code{"BIC"} need a likelihood (DMM only).}
 
-\item{seed}{Optional seed. The caller's RNG state is restored on exit.}
+\item{fuzziness}{Numeric \eqn{> 1}. Default 2. PAM only.}
+
+\item{stability_B}{Bootstrap replicates. 0 skips. PAM only.}
+
+\item{sample_size}{Objects clustered exactly. Above this the routine samples,
+fits on the sample and assigns the remainder (PAM: nearest medoid; DMM:
+posterior under the fitted mixture). \code{Inf} forces the exact path.
+Default 20000.}
+
+\item{dmm_control}{Named list overriding DMM defaults: \code{n_start} (5),
+\code{max_iter} (500), \code{tol} (1e-5, relative log-likelihood change, as in mclust), \code{A_init} (50),
+\code{alpha_min} (1e-4), \code{n_scale} (1). \code{n_scale} multiplies the
+pseudo-counts; rerun at 0.5 and 2 to check that \code{best_k} is not an
+artefact of the count scale.}
+
+\item{seed}{Optional integer; the caller's RNG state is restored on exit.}
+
+\item{verbose}{Logical.}
 }
 \value{
-A list with \code{clusters} (final fuzzy or crisp result),
-\code{best_k}, \code{validity} (data.frame), \code{best} (alias of
-\code{best_k}), and \code{valid} -- a logical vector mapping the clustered
-rows back to the rows of \code{sigs} (the complete cases).
+A list of class \code{"mosaic_types"} with \code{clusters} (PAM fit
+or \code{pulse_dmm} object), \code{memberships}, \code{hard_clusters},
+\code{d_to_medoids}, \code{medoid_signatures} (DMM: component mean
+signatures), \code{best_k}, \code{validity}, \code{saturation},
+\code{distance}, \code{method}, \code{dmm_control}, \code{sampled} and
+\code{valid} (map back to rows of \code{sigs}).
 }
 \description{
-Clusters polygons by their fuzzy co-occurrence signatures using PAM with
-Jensen-Shannon distance, selecting the number of clusters with a fuzzy-aware
-rule: per candidate \code{k} it computes \code{XB_star} (min), \code{SIL_F}
-(max) and a bootstrap stability ARI (max), then selects \code{k} by Borda
-rank-consensus. The full validity profile is returned. With
-\code{crisp = TRUE} the fuzzy indices degenerate, so selection falls back to
-the crisp silhouette.
-}
-\seealso{
-\code{\link{compute_fuzzy}}, \code{\link{js_distance_fast}}
+Clusters polygons by their signatures and selects the number of mosaic types.
 }

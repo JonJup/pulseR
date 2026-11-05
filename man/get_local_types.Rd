@@ -2,125 +2,170 @@
 % Please edit documentation in R/local.R
 \name{get_local_types}
 \alias{get_local_types}
-\title{Classify local Types using Regional Gaussian Mixture Models}
+\alias{print.pulse_local_types}
+\title{Local Types within Regions via Weighted Gaussian Mixture Models}
 \usage{
 get_local_types(
-  graph,
-  core_regions = NULL,
-  cutoff = NULL,
-  n_local_types = 1:9,
+  env,
   regions,
-  non_value_cols = "ID",
-  crisp = FALSE,
-  verbose = FALSE,
-  modelNames = NULL,
-  typicality = FALSE
+  variables = NULL,
+  non_value_cols = NULL,
+  n_local_types = 2:9,
+  cutoff = 0.1,
+  weights = c("memberships", "typicality"),
+  model_name = c("VVV", "EEE", "VVI", "VII"),
+  hc_use = "VARS",
+  drop_constant = TRUE,
+  weight_eps = 1e-06,
+  prior = mclust::priorControl(),
+  keep_models = TRUE,
+  verbose = FALSE
 )
+
+\method{print}{pulse_local_types}(x, ...)
 }
 \arguments{
-\item{graph}{The output of \code{\link{polygon_to_network}}. Contains a,
-\code{igraph} graph object and an \code{sf} object containing the complete
-dataset to be classified.
-Any \code{sf} geometry column is dropped automatically.}
+\item{env}{A \code{data.frame} or \code{sf} object with one row per unit, in
+the same order as the rows of the region weight matrix. Geometry is
+dropped automatically.}
 
-\item{core_regions}{A non-empty list of \code{sf} objects or
-\code{data.frame}s. Each element holds the training observations for one
-region. All elements must contain the same predictor columns.}
+\item{regions}{A \code{"pulse_regions"} object from \code{\link{get_regions}},
+a \code{"regions_tuning"} object from \code{\link{tune_regions}}, or a bare
+N x k numeric weight matrix.}
 
-\item{cutoff}{numeric in range \code{0,1}`. Sets the membership degree threshold
-for deriving core regions. Directly passed to \code{\link{get_core_regions}}
-inside the function.}
+\item{variables}{Character vector of predictor columns to use. \code{NULL}
+(default) uses every numeric column of \code{env} that is not listed in
+\code{non_value_cols}.}
 
-\item{n_local_types}{Integer scalar or vector passed to the \code{G} argument
-of \code{\link[mclust]{Mclust}}; the number(s) of mixture components to
-consider. When a vector is supplied, \code{Mclust} selects the best value
-by BIC. Default \code{1:9}.}
+\item{non_value_cols}{Character vector of identifier columns to exclude
+(e.g. \code{"ID"}). Default \code{NULL}.}
 
-\item{regions}{The output of \code{\link{get_regions}} or \code{\link{tune_regions}}.}
+\item{n_local_types}{Integer vector of candidate component counts. Default
+\code{2:9}. Candidates larger than a region's core allow are dropped for
+that region only.}
 
-\item{non_value_cols}{Character vector of identifier columns to drop before
-training (e.g. primary keys). Default \code{"ID"}. The column
-\code{"core_region_id"} is always dropped from the training data.}
+\item{cutoff}{Numeric in \eqn{(0, 1]}. Weight at or above which a unit joins
+a region's core. Must exceed \code{weight_eps}. Default 0.1. Note that its
+meaning differs between the two \code{weights} settings: memberships shrink
+as \eqn{k} grows (a mean membership at \eqn{k = 20} is 0.05), whereas
+typicality is a co-association probability and does not.}
 
-\item{crisp}{Logical. When \code{TRUE} both the regional memberships and the
-per-region local-type probabilities are hardened to 0/1 (each observation
-assigned to its single most probable region and, within a region, its
-single most probable local type) before weighting. Default \code{FALSE}.}
+\item{weights}{One of \code{"memberships"} (default; row-normalised, rows sum
+to 1) or \code{"typicality"} (possibilistic co-association).}
 
-\item{verbose}{Logical. When \code{TRUE} progress over regions is reported
-via \code{\link{message}}. Default \code{FALSE}.}
+\item{model_name}{Character vector of candidate \pkg{mclust} covariance
+models, compared by weighted BIC within each region. Default
+\code{c("VVV", "EEE", "VVI", "VII")}: full, shared full, diagonal,
+spherical. Pass \code{"VVV"} to reproduce the single-family behaviour of
+earlier versions. \code{"EEI"} and \code{"EII"} are valid but excluded
+by default: weighted EM for equal-volume models can need ~40x more
+iterations than \code{"VVV"}. With a single predictor the names are
+mapped to \code{"E"}/\code{"V"}.}
 
-\item{modelNames}{Character vector indicating the models to be fitted in the
-EM phase of clustering. Is passed directly to mclust::Mclust, see there for
-for more details}
+\item{hc_use}{Character scalar passed to \code{\link[mclust]{hc}} as
+\code{use}. Set explicitly (default \code{"VARS"}) because the
+\pkg{mclust} default has changed between versions.}
 
-\item{typicality}{Logical scalar. If \code{FALSE} (default) the membership matrix
-\code{.$memberships} is used to weight results of mixuter models If \code{TRUE} the
-typicality matrix \code{.$typicality} is used instead.}
+\item{drop_constant}{Logical. Drop predictors that are constant within any
+region's core from \emph{all} regions, since a zero-variance predictor
+gives a singular covariance. Default \code{TRUE}.}
+
+\item{weight_eps}{Numeric. Units with weight at or below this are excluded
+from a region's fit. Default 1e-6.}
+
+\item{prior}{Prior passed to \code{\link[mclust]{me.weighted}}. Default
+\code{mclust::priorControl()}; \code{NULL} disables regularisation.}
+
+\item{keep_models}{Logical. Return the selected fits (with the large
+\code{$z} slot stripped). Default \code{TRUE}.}
+
+\item{verbose}{Logical. Report progress. Default \code{FALSE}.}
+
+\item{x}{An object of class \code{"pulse_local_types"}.}
+
+\item{...}{Unused.}
 }
 \value{
-A named list with:
+An object of class \code{"pulse_local_types"}: a list with
 \describe{
-\item{\code{localtypes}}{Numeric matrix of membership-weighted local-type
-probabilities, one row per observation in \code{graph$polygons}. Columns are
-named \code{"Region{i}localType{k}"}.}
-\item{\code{localtypes_raw}}{List (one element per region, named
-\code{"Region{i}"}) of the \emph{unweighted} predicted probability
-matrices.}
-\item{\code{models}}{List of the fitted \code{Mclust} objects, named by
-region.}
-}
-}
-\description{
-Trains a Gaussian Mixture Model (GMM) on each of several user-defined
-"core regions" and projects those classifications onto a larger target
-dataset. For every observation the predicted local-type probabilities from
-each regional model are weighted by that observation's (fuzzy or crisp)
-membership in the corresponding region and concatenated into a single wide
-probability matrix.
-}
-\details{
-Pre-processing applied before fitting:
-\itemize{
-\item \code{sf} geometry is removed with \code{\link[sf]{st_drop_geometry}}
-(a no-op for plain data frames).
-\item Identifier and prior-membership columns are removed.
-\item Columns that are constant in \emph{any} region are removed from
-\emph{all} regions, since a zero-variance predictor produces a singular
-covariance matrix in \code{Mclust}.
+\item{\code{memberships}}{N x sum(G_r) matrix, rows sum to 1.}
+\item{\code{weighted}}{The same matrix before row-normalisation.}
+\item{\code{hard_classes}}{Integer vector, column index of the row maximum.}
+\item{\code{certainty}}{Row maximum of \code{memberships}.}
+\item{\code{certainty_raw}}{Row maximum of \code{weighted}.}
+\item{\code{entropy}}{Normalised row entropy of \code{memberships}.}
+\item{\code{key}}{Data frame mapping each column to its region and local type.}
+\item{\code{n_local_types}}{Selected G per region.}
+\item{\code{BIC}}{G x region matrix: the best weighted BIC over
+covariance models for each G.}
+\item{\code{BIC_by_model}}{G x model x region array of weighted BIC
+values; \code{NA} where a candidate was infeasible or failed.}
+\item{\code{model_names}}{Selected covariance model per region.}
+\item{\code{models}}{Selected fits, or \code{NULL}.}
+\item{\code{variables}, \code{cutoff}, \code{weights},
+\code{model_name}}{Settings used (\code{model_name} = candidates).}
 }
 
-For region \eqn{r} and local type \eqn{k} the returned weighted probability
-is \eqn{P(\mathrm{Type}_k \mid \mathrm{Region}_r)\, W_r}, where \eqn{W_r} is
-the membership weight in column \eqn{r} of \code{membership_id}.
+\code{print.pulse_local_types} returns \code{x} invisibly.
+}
+\description{
+Refines each region of a \code{"pulse_regions"} object into \emph{local
+types} by fitting one membership-weighted Gaussian mixture model per region
+and concatenating the weighted component probabilities into a single wide
+matrix.
+}
+\details{
+For region \eqn{r}, every unit carries a weight \eqn{w_{ir}} — its membership
+in (or typicality for) that region. Units with \eqn{w_{ir} \ge}
+\code{cutoff} form the region's \emph{core} and provide the model-based
+hierarchical initialisation (\code{\link[mclust]{hc}} +
+\code{\link[mclust]{hclass}}); every other unit starts from a flat
+\eqn{1/G} row. The EM step (\code{\link[mclust]{me.weighted}}) then runs on
+all units with \eqn{w_{ir} >} \code{weight_eps}, weighted by \eqn{w_{ir}},
+so a unit informs a region's mixture in proportion to how much it belongs
+to that region.
+
+The number of components \emph{and} the covariance model are chosen jointly
+per region by weighted BIC, \eqn{2\ell - p \log n_{\mathrm{eff}}} with
+\eqn{n_{\mathrm{eff}} = \sum_i w_{ir}} over the fitted units. A
+(model, G) candidate is only fitted if its parameter count \eqn{p} is below
+\eqn{n_{\mathrm{eff}}}; this is what lets small regions fall back to
+shared, diagonal or spherical covariances instead of failing.
+
+The hierarchical initialisation uses \code{"VVV"} when a region's core has
+more units than predictors and \code{"EII"} otherwise. It is computed once
+per region and shared by every candidate model, so all candidates start
+from the same partition.
+
+The returned local-type probability for region \eqn{r}, component \eqn{k} is
+\eqn{z_{irk} w_{ir}}. Because each \eqn{z_i} row sums to one, the raw row
+sums of the combined matrix equal \eqn{\sum_r w_{ir}} — exactly 1 when
+\code{weights = "memberships"}, and something else when
+\code{weights = "typicality"}, which is why \code{memberships} is returned
+row-normalised and the unnormalised version is kept as \code{weighted}.
+
+Units with \eqn{w_{ir} \le} \code{weight_eps} are excluded from region
+\eqn{r}'s fit and receive a zero in that region's columns. This is exact,
+not an approximation: their contribution \eqn{z_{irk} w_{ir}} is negligible
+by construction, and it is what keeps the fit affordable at continental
+\eqn{N}.
 }
 \examples{
 \donttest{
 set.seed(1)
-make_region <- function(n, shift) {
-  data.frame(
-    ID             = seq_len(n),
-    core_region_id = 1,
-    X1 = stats::runif(n), X2 = stats::runif(n), # prior-membership cols (dropped)
-    temp     = stats::rnorm(n, shift),
-    slope    = stats::rnorm(n, -shift),
-    rainfall = stats::rnorm(n)
-  )
-}
-core_regions  <- list(make_region(100, 0), make_region(100, 3))
-graph <- list()
-regions <- list()
-graph$polygons <- rbind(make_region(50, 0), make_region(50, 3))
-
-memb <- matrix(stats::runif(nrow(graph$polygons) * 2), ncol = 2)
-memb <- memb / rowSums(memb)                    # fuzzy weights summing to 1
-regions$memberships <- memb
-
-res <- get_local_types(graph = graph,
-                       core_regions = core_regions,
-                       regions = regions,
-                       n_local_types = 1:4)
-head(res$localtypes)
+n <- 200
+env <- data.frame(ID = seq_len(n),
+                  temp     = stats::rnorm(n),
+                  slope    = stats::rnorm(n),
+                  rainfall = stats::rnorm(n))
+W <- matrix(stats::runif(n * 2), ncol = 2)
+W <- W / rowSums(W)
+res <- get_local_types(env, regions = W, non_value_cols = "ID",
+                       n_local_types = 2:3)
+res
 }
 
+}
+\seealso{
+\code{\link{get_regions}}, \code{\link[mclust]{me.weighted}}.
 }

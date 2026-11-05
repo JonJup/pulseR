@@ -3,71 +3,122 @@
 \name{cluster_consensus}
 \alias{cluster_consensus}
 \alias{print.fuzzy_clusters}
-\title{Fuzzy Consensus Clustering from Ensemble Memberships}
+\title{Consensus Regions from Ensemble Memberships (salso + piece composition)}
 \usage{
 cluster_consensus(
   ensemble,
   k,
-  graph,
-  fuzziness = 2,
-  crisp = FALSE,
+  graph = NULL,
   large_n_threshold = 20000,
-  clara_samples = 50,
-  clara_sampsize = NULL,
+  sample_size = 5000L,
+  refine_iter = 10L,
+  enforce_contiguity = !is.null(graph),
+  n_runs = 16L,
+  n_cores = 1L,
+  report_native = TRUE,
   verbose = TRUE
 )
 
 \method{print}{fuzzy_clusters}(x, ...)
 }
 \arguments{
-\item{ensemble}{An \code{"ensemble_memberships"} object or a raw integer
-matrix (N x n_trees).}
+\item{ensemble}{An \code{"ensemble_memberships"} object or a bare integer
+matrix (\eqn{N \times M}).}
 
-\item{k}{Integer scalar with \eqn{2 \le k < N}. Number of final clusters.}
+\item{k}{Integer, \eqn{2 \le k < N}.}
 
-\item{graph}{The parent \code{igraph} object the trees were sampled from.}
+\item{graph}{The parent \code{igraph}; needed for contiguity enforcement.}
 
-\item{fuzziness}{Numeric \eqn{> 1}. Fuzzifier \emph{m}. Default 2.}
+\item{large_n_threshold}{Above this \eqn{N}, use the sampled path.}
 
-\item{crisp}{Logical. If \code{TRUE}, returns one-hot (hard) memberships.}
+\item{sample_size}{Units passed to \pkg{salso} on the sampled path.}
 
-\item{large_n_threshold}{Integer. Above this N, CLARA is used instead of PAM.
-Default 20000.}
+\item{refine_iter}{Maximum rounds of single-unit moves on the VI loss
+(sampled path only). Each round starts from a full loss-gap pass.}
 
-\item{clara_samples}{Integer. Number of CLARA samples. Default 50.}
+\item{enforce_contiguity}{Logical. Reattach fragments so every region is a
+single connected component of \code{graph}.}
 
-\item{clara_sampsize}{Integer or \code{NULL}. CLARA sample size; default
-\code{NULL} selects \code{min(N, 200 + 2k)}.}
+\item{n_runs, n_cores}{Passed to \code{salso::salso()}.}
 
-\item{verbose}{Logical. Default \code{TRUE}.}
+\item{report_native}{Logical. Also run salso without a target region count
+and return its partition as \code{salso_native}. Costs one extra salso
+run. Default \code{TRUE}; \code{tune_regions()} turns it off per
+configuration and on for the winner.}
+
+\item{verbose}{Logical.}
 
 \item{x}{An object of class \code{"fuzzy_clusters"}.}
 
 \item{...}{Further arguments passed to or from other methods (unused).}
 }
 \value{
-An object of class \code{"fuzzy_clusters"} — a list with:
+A \code{"fuzzy_clusters"} object with
 \describe{
-\item{\code{memberships}}{Numeric matrix (N x k).}
-\item{\code{hard_clusters}}{Integer vector of hard cluster assignments.}
-\item{\code{medoid_idx}}{Integer vector of medoid row indices.}
-\item{\code{avg_sil_width}}{Hardened average silhouette width from
-CLARA/PAM. NOTE: computed on the argmax labels, i.e. a crisp index;
-do NOT use it as the primary k-selection criterion.}
-\item{\code{k}}{Number of clusters.}
-\item{\code{fuzziness}}{The fuzziness parameter used.}
-\item{\code{method}}{Either \code{"clara"} or \code{"pam"}.}
-\item{\code{cluster_result}}{The raw \code{clara} or \code{pam} object.}
-\item{\code{d_to_medoids}}{N x k matrix of Hamming distances from each
-node to each medoid. Reused by fuzzy CVI computations.}
-\item{\code{medoid_dist}}{k x k matrix of inter-medoid Hamming
-distances. Reused by XB*.}
+\item{\code{memberships}}{\eqn{N \times k} matrix \eqn{\Pi}; rows sum to 1, \code{NA} where \code{pi_support == 0}.}
+\item{\code{hard_clusters}}{Final labels (after contiguity repair).}
+\item{\code{certainty}}{\eqn{\Pi_{i, \mathrm{hard}_i}}.}
+\item{\code{margin}}{Best minus second-best entry of \eqn{\Pi}.}
+\item{\code{entropy}}{Row entropy of \eqn{\Pi}, normalised by \eqn{\log k}.}
+\item{\code{pi_support}}{\eqn{M_i}, partitions in which \eqn{i} had a piece-mate.}
+\item{\code{cohesion}}{Raw \eqn{A} (formerly \code{affinity}); not a probability.}
+\item{\code{silhouette}, \code{avg_sil_width}}{Co-association silhouette, from cohesion.}
+\item{\code{expected_vi}, \code{region_coassoc}}{Mean VI(draw, consensus); \eqn{k \times k} mean co-association.}
+\item{\code{salso_a}}{The generalised-VI parameter \eqn{a} salso settled on (on the sample, if sampled).}
+\item{\code{expected_loss}}{Generalised VI of the final labels at \code{salso_a}, per unit, in bits.}
+\item{\code{loss_gap}, \code{loss_alt}}{Change in total loss (bits) if the unit alone moved to \code{loss_alt}; negative means a single move would lower the loss.}
+\item{\code{label_step}}{Factor: last step that changed the label (salso, merge, assign, refine, contiguity).}
+\item{\code{salso_info}, \code{refine_info}}{salso's own fit summary; on the sampled path, VI-move convergence and per-round log (else \code{NULL}).}
+\item{\code{salso_native}}{\code{NULL}, or a list: \code{k}, the
+region count salso picks under VI with \eqn{a = 1} and no target;
+\code{labels}, its partition (length N, \code{NA} for units outside
+the sample, no contiguity repair); \code{sampled}; \code{n_units}.
+This count can depend strongly on \code{regions_per_partition}; check
+with \code{\link{sweep_native_regions}} before reading it as a
+property of the landscape.}
 }
+plus \code{k}, \code{method = "salso"}, \code{sampled}, \code{n_eff},
+\code{n_members}, \code{ensemble_meta}.
 
 \code{print.fuzzy_clusters} returns \code{x} invisibly.
 }
 \description{
-Clusters nodes into \code{k} groups based on an ensemble membership matrix,
-using CLARA (for large datasets) or PAM (for small ones), then converts
-Hamming distances to medoids into fuzzy membership values.
+Finds a hard consensus partition of the \eqn{N} units into \code{k} regions
+by minimising expected variation of information over the ensemble with
+\pkg{salso}, then derives graded memberships \eqn{\Pi} from the regional
+composition of each unit's ensemble pieces.
+}
+\details{
+\strong{Memberships \eqn{\Pi}.} For each ensemble partition \eqn{t}, take
+the share of unit \eqn{i}'s piece-mates (the other units in its piece) that
+belong to each consensus region, then average over partitions:
+\deqn{\Pi_{ik} = \frac{1}{M_i} \sum_t
+  \frac{\#\{\text{piece-mates of } i \text{ in region } k\}}
+       {\#\{\text{piece-mates of } i\}},}
+where \eqn{M_i} (returned as \code{pi_support}) counts the partitions in
+which \eqn{i} has at least one piece-mate. Rows sum to 1 by construction,
+there is no tuning parameter, and a boundary unit whose pieces fall half
+into each of two regions gets 0.5 and 0.5 whatever the region sizes. Units
+with \eqn{M_i = 0} get an \code{NA} row. \eqn{\Pi} is an ensemble
+frequency, not a probability of class membership.
+
+\strong{Cohesion.} Let \eqn{c_{im}} be the fraction of ensemble partitions
+in which \eqn{i} and \eqn{m} share a piece. The \emph{cohesion} of \eqn{i}
+to region \eqn{j} is
+\deqn{A_{ij} = \frac{1}{|C_j \setminus \{i\}|} \sum_{m \in C_j,\, m \ne i} c_{im}.}
+Rows do not sum to one and keep the absolute level of co-association, so
+cohesion answers "is there structure here at all?" rather than "which
+region?". Because a piece holds about \eqn{N/R} units, cohesion shrinks
+roughly as one over the region size; do not row-normalise it into
+memberships (the pre-\eqn{\Pi} behaviour, which favoured small regions).
+
+\strong{Order of operations.} salso (plus merging and, above
+\code{large_n_threshold}, cohesion-based refinement), then contiguity repair
+guided by \eqn{\Pi} of the unrepaired labels, then \eqn{\Pi} and every
+per-unit summary recomputed on the final, repaired labels. Repair uses
+\eqn{\Pi} rather than cohesion because regrowth compares scores across
+regions, where cohesion favours small regions.
+
+Everything is done through sparse indicator products and never materialises
+the \eqn{N \times N} similarity matrix.
 }

@@ -11,7 +11,8 @@ add_edge_weight(
   id_col = NULL,
   variables = NULL,
   scale = TRUE,
-  prior = NULL
+  prior = NULL,
+  verbose = TRUE
 )
 }
 \arguments{
@@ -49,6 +50,8 @@ when variables are already on a comparable scale.}
 
 \item{prior}{Numeric or character vector with type memberships to priori
 typology systems.}
+
+\item{verbose}{Logical. Report edge and vertex counts.}
 }
 \value{
 An undirected \code{igraph} object whose edge \code{weight} attribute
@@ -58,8 +61,8 @@ input vertices are retained (including isolated ones), and each undirected
 edge appears exactly once (no multi-edges).
 }
 \description{
-Calculates edge weights based on Euclidean distances between neighbouring
-nodes using (optionally) scaled environmental variables, and returns a new
+Calculates edge weights as Euclidean distances between adjacent
+nodes. Can use scaled environmental variables, and returns a new
 \pkg{igraph} object with weighted edges. Supports two modes: an in-memory
 mode where environmental variables are taken directly from \code{g$polygons},
 and a chunked mode where they are read from one or more parquet files and

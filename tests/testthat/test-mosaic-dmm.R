@@ -1,0 +1,54 @@
+# Planted 4-zone landscape on a lattice; small so it runs in a few seconds.
+.dmm_fixture <- function(n = 20) {
+        set.seed(1)
+        g  <- igraph::make_lattice(c(n, n)); N <- igraph::vcount(g)
+        xy <- as.matrix(expand.grid(1:n, 1:n))
+        zone <- 1 + (xy[, 1] > n / 2) + 2 * (xy[, 2] > n / 2)
+        mix <- rbind(c(.7, .2, .1, 0, 0), c(0, .1, .2, .7, 0),
+                     c(.1, 0, 0, .2, .7), c(.3, .3, .4, 0, 0))
+        lab <- vapply(zone, function(z) sample(5, 1, prob = mix[z, ]), 1L)
+        P <- matrix(0.02, N, 5); P[cbind(seq_len(N), lab)] <- 0.92
+        list(g = g, P = P, zone = zone,
+             sig = compute_all_signatures(P, g, k = 2, verbose = FALSE))
+}
+
+test_that("compute_all_signatures() attaches totals", {
+        fx <- .dmm_fixture()
+        tot <- attr(fx$sig, "totals")
+        expect_length(tot, nrow(fx$sig))
+        expect_true(all(tot[stats::complete.cases(fx$sig)] > 0))
+})
+
+test_that("method = 'dmm' returns a valid mosaic_types object", {
+        fx <- .dmm_fixture()
+        m <- suppressWarnings(get_mosaic_types(fx$sig, 2:4, method = "dmm", seed = 1,
+                                               verbose = FALSE, dmm_control = list(n_start = 2)))
+        expect_s3_class(m, "mosaic_types")
+        expect_s3_class(m$clusters, "pulse_dmm")
+        expect_equal(m$method, "dmm")
+        expect_equal(rowSums(m$memberships), rep(1, sum(m$valid)), tolerance = 1e-8)
+        expect_true(all(c("ICL", "BIC", "n_empty") %in% names(m$validity)))
+        expect_equal(dim(m$medoid_signatures), c(m$best_k, ncol(fx$sig)))
+        expect_gt(.adjusted_rand_index(m$hard_clusters, fx$zone[m$valid]), 0.4)
+})
+
+test_that("sampled DMM path scores every valid row", {
+        fx <- .dmm_fixture()
+        m <- suppressWarnings(get_mosaic_types(fx$sig, 3, method = "dmm", sample_size = 150,
+                                               seed = 1, verbose = FALSE,
+                                               dmm_control = list(n_start = 1)))
+        expect_true(m$sampled)
+        expect_equal(nrow(m$memberships), sum(m$valid))
+})
+
+test_that("engine/metric mismatches and missing totals fail early", {
+        fx <- .dmm_fixture()
+        expect_error(get_mosaic_types(fx$sig, 2:3, method = "dmm", metric = "GD5",
+                                      verbose = FALSE), "needs PAM medoids")
+        expect_error(get_mosaic_types(fx$sig, 2:3, metric = "ICL", verbose = FALSE),
+                     "needs a likelihood")
+        expect_error(get_mosaic_types(unclass(fx$sig)[, ], 2:3, method = "dmm",
+                                      verbose = FALSE), "totals")
+        expect_error(get_mosaic_types(fx$sig, 2:3, method = "dmm", verbose = FALSE,
+                                      dmm_control = list(nstart = 2)), "Unknown")
+})

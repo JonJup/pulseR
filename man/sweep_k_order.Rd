@@ -2,7 +2,7 @@
 % Please edit documentation in R/mosaic.R
 \name{sweep_k_order}
 \alias{sweep_k_order}
-\title{Sweep over neighborhood orders and cluster numbers}
+\title{Sweep neighbourhood order and mosaic-type count}
 \usage{
 sweep_k_order(
   P,
@@ -11,43 +11,47 @@ sweep_k_order(
   k_range = 1:5,
   n_clusters = 2:10,
   kernel = "none",
-  sigma = 1
+  sigma = "global",
+  ...
 )
 }
 \arguments{
-\item{P}{Numeric matrix (\eqn{n \times c}) of fuzzy membership values.}
+\item{P}{Membership matrix or \code{\link{as_mosaic_P}} output.}
 
-\item{graph}{An \code{igraph} graph object (spatial adjacency). \strong{Note:}
-this must be an igraph object, not a raw adjacency matrix -- the original
-argument name \code{A} was misleading.}
+\item{graph}{An \code{igraph} adjacency graph.}
 
-\item{coords}{A numeric \eqn{n \times 2} matrix of centroids, rows aligned to P)}
+\item{coords}{Centroid matrix.}
 
-\item{k_range}{Integer vector of neighborhood orders to evaluate (default
-\code{1:5}).}
+\item{k_range}{Neighbourhood orders. Default 1:5.}
 
-\item{n_clusters}{Integer vector of candidate cluster counts (default
-\code{2:10}).}
+\item{n_clusters}{Candidate mosaic-type counts. Default 2:10.}
 
-\item{kernel, sigma}{Distance-weighting kernel and bandwidth passed to
-\code{\link{compute_all_signatures}}. Defaults "none" / 1.}
+\item{kernel, sigma}{Passed to \code{\link{compute_all_signatures}}.}
+
+\item{...}{Passed to \code{\link{get_mosaic_types}} (\code{distance},
+\code{metric}, \code{stability_B}, \code{sample_size}, \code{seed}).}
 }
 \value{
-A \code{data.frame} with columns \code{k_order}, \code{n_clusters},
-\code{silhouette} (average hard silhouette width for that solution), and
-\code{best} (the selected number of clusters for that \code{k_order}). The
-overall best combination is also reported via a message.
+A data frame with one row per (\code{k_order}, \code{n_clusters}),
+with attribute \code{"by_order"}: one row per order at its own
+\code{best_k}.
 }
 \description{
-Evaluates each neighborhood order \code{k} and reports the (hard) silhouette
-width of every candidate number of clusters, plus the selected best \code{k}
-per order.
+Sweep neighbourhood order and mosaic-type count
 }
 \details{
-Iterates over \code{k_range}, computing signatures with
-\code{\link{compute_all_signatures}} and evaluating clustering with
-\code{\link{get_mosaic_types}}.
-}
-\seealso{
-\code{\link{compute_all_signatures}}, \code{\link{get_mosaic_types}}
+\code{k} is bounded on both sides: too small and the signatures are
+noisy and saturate; too large and every neighbourhood converges on the
+global mixture, so the signature field goes flat and the clustering returns
+a few huge blobs. The returned \code{SAT} and \code{contrast} columns
+diagnose the two ends.
+
+\code{score} is a Borda rank among the \code{n_clusters} candidates of one
+\code{k_order}, so it selects \code{best_k} within an order and must not be
+compared across orders. The function therefore does not pick an order.
+To compare orders, use the bounded columns at a fixed type count, e.g.
+\code{subset(res, n_clusters == 6)[, c("k_order", "R2_JS", "SAT", "contrast")]}.
+\code{R2_JS} rises with \code{n_clusters} and may rise with \code{k_order}
+as signatures smooth, so read it together with \code{SAT} and
+\code{contrast}, not alone.
 }
