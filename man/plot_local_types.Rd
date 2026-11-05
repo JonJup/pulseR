@@ -47,7 +47,7 @@ the hues identical to the level-1 figures and enables
 built on \code{\link{pulse_palette}(regions)}.}
 
 \item{confidence}{\code{"own"} (default) uses the local-type row maximum;
-\code{"joint"} multiplies it by the parent region's confidence, so a unit
+\code{"joint"} multiplies it by the parent region's \eqn{\Pi} certainty, so a unit
 the regionalisation never placed cannot look confident about its local
 type. Use \code{"joint"} for any figure that stands alone.}
 

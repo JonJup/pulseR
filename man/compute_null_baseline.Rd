@@ -6,7 +6,7 @@
 \usage{
 compute_null_baseline(
   graph,
-  env,
+  env = NULL,
   env_id = NULL,
   final_regions,
   regions_per_partition = 50,
@@ -25,7 +25,9 @@ compute_null_baseline(
 )
 }
 \arguments{
-\item{graph, env, env_id}{As in \code{\link{tune_regions}}. \code{env} is required.}
+\item{graph, env, env_id}{As in \code{\link{tune_regions}}. \code{env}
+must reproduce the edge weights (see Details); \code{NULL} (default)
+uses the matrix stored on \code{graph}.}
 
 \item{final_regions}{Integer vector of k values; all are evaluated on each
 null ensemble (k is cheap).}
@@ -37,7 +39,7 @@ ensemble configuration under test (e.g. \code{tune_regions()$best_config}).}
 
 \item{B}{Integer. Null replicates. Default 19.}
 
-\item{stability_B}{Integer. Subsamples for \code{STAB}; use the value of
+\item{stability_B}{Integer. Random splits for \code{STAB}; use the value of
 the observed run.}
 
 \item{observed}{Optional \code{"regions_tuning"} object or a data frame
@@ -68,10 +70,14 @@ map drives the result: the "contiguity-only" floor.
 }
 \details{
 Edge weights are recomputed as Euclidean distance on \code{env},
-which matches \code{\link{add_edge_weight}} when \code{env} is the matrix
-the weights were computed from (scaled raw variables, or GDM-transformed
-predictors with \code{scale = FALSE}). Shuffling leaves column means and
-standard deviations unchanged, so no rescaling is needed. A prior
+the same function \code{\link{add_edge_weight}} uses. This tests
+environmental signal only if \code{env} is the matrix the observed
+weights were computed from, so the function first recomputes the weights
+from the unshuffled \code{env} and stops unless they correlate with
+\code{E(graph)$weight} above 0.999. The default \code{env = NULL} uses
+the matrix \code{add_edge_weight()} stored on \code{graph}, which always
+passes. Shuffling leaves column means and standard deviations unchanged,
+so no rescaling is needed. A prior
 typology is not used in the null. With \code{B} replicates the smallest
 attainable p-value is \eqn{1 / (B + 1)}; \code{B = 19} is the minimum for
 a 5\\% test.

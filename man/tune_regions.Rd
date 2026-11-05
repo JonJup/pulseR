@@ -48,15 +48,20 @@ number(s) of final consensus clusters \emph{k}.}
 \item{weight_exponent}{Numeric or numeric vector (each \eqn{\ge 0}).
 Candidate cut-probability exponent(s) \eqn{\gamma}. Default 1.}
 
-\item{metric}{Character. One of \code{"borda"} (default; rank aggregate),
-\code{"fuzzy_calinski_harabasz"}, \code{"Fukuyama_Sugeno"},
-\code{"dunn5"}, \code{"fuzzy_hyper_volume"}, \code{"stability"}.}
+\item{metric}{Character. Selection criterion, higher is better:
+\code{"borda"} (default; mean rank over \code{voters}),
+\code{"ch_env"} (\code{CH_ENV}, pseudo-F of the hard labels on
+\code{env}), \code{"r2_env"} (\code{R2_ENV}), \code{"stability"}
+(\code{STAB}), \code{"silhouette_ca"} (\code{SIL_CA}, co-association
+silhouette) or \code{"expected_vi"} (minus \code{EVI}, mean variation of
+information between ensemble columns and the consensus).}
 
 \item{strategy}{Character. \code{"grid"} (default), \code{"sequential"}, or
 \code{"iterative"}. See Details.}
 
-\item{stability_B}{Integer. Bootstrap replicates for the stability
-sub-metric. Set to 0 to skip. Default 25.}
+\item{stability_B}{Integer. Random splits for \code{STAB} (see
+Validity indices). Each split costs two consensus runs at half the
+ensemble size. 0 skips it. Default 25.}
 
 \item{voters}{Character. Validity columns that vote in the Borda aggregate
 (\code{metric = "borda"}). Default \code{c("CH_ENV", "STAB")}. Check
@@ -77,25 +82,39 @@ only by the \code{prior_strength = Inf} short-circuit.}
 
 \item{max_iter}{Integer. Maximum passes for \code{"iterative"}. Default 10.}
 
+\item{size_influence}{Non-negative numeric, passed to
+\code{\link{compute_ensemble_memberships}}. Not a tuning axis. Default 2.}
+
 \item{max_ensembles}{Integer or \code{Inf}. Guard against an accidentally
 enormous search: the call fails before any work if the number of distinct
 ensemble pairs exceeds this. Default 64.}
 
-\item{large_n_threshold}{Integer. CLARA/PAM cutoff. Default 20000.}
+\item{large_n_threshold}{Integer. Above this number of vertices, salso runs
+on \code{sample_size} units and the rest are assigned and refined.
+Default 20000.}
 
-\item{env}{Environmental data passed through to \code{.compute_fuzzy_cvis()}.
-The same data used to weight the edges in \code{\link{add_edge_weight}}.}
+\item{sample_size}{Integer. Units passed to salso above
+\code{large_n_threshold}. Default 5000.}
 
-\item{env_id}{Name of any ID columns in \code{env}, which should not be used in
-the computation of cluster validity metrics. If \code{NULL} (default) no columns
-are removed from \code{env}.}
+\item{n_cores}{Integer. Cores passed to \code{salso::salso()}. Default 1.}
+
+\item{env}{Optional data frame or matrix, one row per vertex of
+\code{graph}, for the validity indices \code{CH_ENV} and \code{R2_ENV}.
+\code{NULL} (default) uses the matrix \code{\link{add_edge_weight}}
+stored on \code{graph} (graph attribute \code{env}), so the indices are
+computed in the space of the edge weights. A supplied \code{env} is used
+as given: non-numeric columns are dropped and nothing is scaled. Columns
+that look like IDs trigger a warning.}
+
+\item{env_id}{Character vector of columns in \code{env} to exclude, for
+example numeric ID columns. Default \code{NULL}.}
 
 \item{seed}{Optional integer seed; the caller's RNG state is restored on
 exit.}
 
 \item{stability_seed}{Optional integer. Seeds the subsampling inside the
 \code{STAB} metric, identically for every configuration, so configurations
-are compared on the same subsamples. Defaults to \code{seed}.}
+are compared on the same column splits. Defaults to \code{seed}.}
 
 \item{verbose}{Logical. Default \code{TRUE}.}
 }
@@ -107,8 +126,11 @@ slots \code{best_regions_per_partition}, \code{best_final_regions},
 \code{best_weight_exponent},
 \code{best_N_tree}, plus \code{best_score}, \code{tuning_log} (one row per
 configuration, with all four axis columns and all CVI columns),
-\code{candidates}, \code{n_ensembles_built}, \code{metric},
-\code{strategy}, and \code{prior_strength}.
+\code{candidates}, \code{active_axes}, \code{n_ensembles_built},
+\code{metric}, \code{voters}, \code{strategy}, \code{prior_strength} and
+\code{ensemble} (the winner's \eqn{N \times N_{tree}} label matrix).
+When \code{prior_strength = Inf}, the exact-prior list is returned
+instead.
 }
 \description{
 Searches over up to four hyper-parameters -- \code{regions_per_partition},
@@ -163,5 +185,20 @@ Most validity indices drift monotonically with \code{N_tree} (Monte Carlo
 noise falls and co-association resolution rises as 1 / N_tree) rather than
 showing an interior optimum, so a CVI-selected \code{N_tree} will typically
 just be the largest candidate. Choose it by convergence, not by tuning.
+}
+
+\section{Validity indices}{
+
+\code{CH_ENV} and \code{R2_ENV}: pseudo-F and \eqn{R^2} of the hard labels
+on \code{env}. \code{STAB}: split-half ensemble agreement. The ensemble
+columns are split at random into two disjoint halves, the consensus is
+computed at the same \code{final_regions} on each half, and the ARI
+between the two partitions is averaged over \code{stability_B} splits.
+The halves share no trees and no cuts, so \code{STAB} asks whether new
+trees and cuts would give the same regions. Each half has half the
+columns, so the value is conservative for the full ensemble, and it rises
+with \code{N_tree}. \code{SIL_CA}, \code{CERT}, \code{EVI} and \code{PAC}
+are computed from the ensemble itself and are reported, not used by the
+default Borda vote.
 }
 

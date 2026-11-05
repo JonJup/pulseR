@@ -10,7 +10,7 @@ plot_regions(
     "affinity", "ordination", "tuning"),
   geom = NULL,
   palette = NULL,
-  confidence = c("typicality", "membership"),
+  confidence = c("certainty", "margin", "typicality"),
   which = NULL,
   margin = 0.1,
   raster = "auto",
@@ -25,7 +25,7 @@ plot_regions(
 \describe{
 \item{\code{"map"}}{Hard regions, faded by confidence. The headline figure.}
 \item{\code{"crisp"}}{Hard regions at full saturation, no fading.}
-\item{\code{"confidence"}}{Own-region typicality as a continuous surface.}
+\item{\code{"confidence"}}{The \code{confidence} quantity as a continuous surface.}
 \item{\code{"entropy"}}{Normalised membership entropy.}
 \item{\code{"transition"}}{Units whose best and second-best regions are
 within \code{margin} — the fuzzy boundaries themselves.}
@@ -39,11 +39,15 @@ within \code{margin} — the fuzzy boundaries themselves.}
 
 \item{palette}{Region colours; defaults to \code{\link{pulse_palette}(x)}.}
 
-\item{confidence}{\code{"typicality"} (default) or \code{"membership"}. Which
-quantity drives the fade. Typicality is the better choice: it is a
-co-association probability, so a unit sitting between two regions is low on
-both, whereas normalised memberships are forced to sum to one and can look
-confident about a unit the ensemble never placed anywhere.}
+\item{confidence}{Which quantity drives the fade and the confidence surface.
+\code{"certainty"} (default): own-region composition membership
+\eqn{\Pi_{i,\mathrm{hard}_i}}. \code{"margin"}: best minus second-best
+\eqn{\Pi}, which isolates boundaries. \code{"typicality"}: own-region
+cohesion. Cohesion shrinks with region size, so large homogeneous regions
+look uncertain; use it only to compare units within one region.
+\code{"membership"} is accepted as an alias for \code{"certainty"}.
+Units with no \eqn{\Pi} row (\code{pi_support == 0}) are drawn fully
+faded.}
 
 \item{which}{Integer vector of regions, for \code{what = "membership"}.}
 

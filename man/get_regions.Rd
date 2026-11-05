@@ -2,7 +2,7 @@
 % Please edit documentation in R/regions.R
 \name{get_regions}
 \alias{get_regions}
-\title{Delineate Fuzzy Contiguity-Constrained Regions using SKATER (one-call wrapper)}
+\title{Delineate fuzzy contiguous regions (Level 1, one-call wrapper)}
 \usage{
 get_regions(
   graph,
@@ -29,97 +29,135 @@ get_regions(
 )
 }
 \arguments{
-\item{graph}{An \code{igraph} object. Edges must carry a numeric
-\code{weight} attribute (dissimilarity / cost; finite and non-negative).
-Vertices may optionally carry a prior-typology attribute (see
-\code{prior_typology}).}
+\item{graph}{A weighted \code{igraph} object, usually from
+\code{\link{add_edge_weight}}. Edges must carry a numeric \code{weight}
+attribute (finite, non-negative).}
 
-\item{regions_per_partition, final_regions, N_tree}{Integer or integer vectors of
-candidate values. If a vector of length > 1 is supplied for
-\code{regions_per_partition} or \code{final_regions}, tuning is triggered; if
-\code{N_tree} has length > 1, the ensemble size is chosen by stability.}
+\item{env}{Optional data frame or matrix, one row per vertex of
+\code{graph} in vertex order, for the validity indices \code{CH_ENV} and
+\code{R2_ENV} during tuning. \code{NULL} (default) uses the matrix
+\code{\link{add_edge_weight}} stored on \code{graph}, so the indices are
+computed in the space of the edge weights. A supplied \code{env} is used
+as given: non-numeric columns are dropped and nothing is scaled.}
 
-\item{weight_exponent}{Non-negative numeric scalar \eqn{\gamma}. The cut
-probability of an edge is proportional to its (prior-adjusted) weight raised
-to \eqn{\gamma}. \eqn{\gamma = 0} cuts edges uniformly at random,
-\eqn{\gamma = 1} (default) cuts with probability proportional to weight, and
-larger \eqn{\gamma} concentrates cuts on the heaviest edges (approaching
-deterministic heaviest-edge removal as \eqn{\gamma \to \infty}).}
+\item{env_id}{Character vector of columns in \code{env} to exclude from the
+validity indices, for example numeric ID columns. Default \code{NULL}.}
+
+\item{regions_per_partition}{Integer, or integer vector of candidates.
+Number of contiguous pieces each spanning tree is cut into. Default 50.}
+
+\item{final_regions}{Integer, or integer vector of candidates. Number of
+consensus regions \eqn{k}.}
+
+\item{N_tree}{Integer, or integer vector of candidates. Number of spanning
+trees, one partition each. Trees are sampled once at \code{max(N_tree)}.}
+
+\item{weight_exponent}{Non-negative numeric scalar or vector of candidates
+\eqn{\gamma}. The cut probability of an edge is proportional to its
+weight raised to \eqn{\gamma}, times the size factor. \eqn{\gamma = 0}
+ignores the weights, \eqn{\gamma = 1} (default) is proportional to
+weight, larger values concentrate cuts on the heaviest edges.}
+
+\item{size_influence}{Non-negative numeric. Spread of the size-balance term
+\eqn{\log(n_c (N - n_c) / N)} relative to the spread of the environmental
+term \eqn{\gamma \log w}, per tree. 0 ignores piece size; the default 2
+lets size dominate, so cuts rarely shave off single units.}
 
 \item{prior_typology}{Optional. Vertex attribute name (single character)
 or vector of length \code{vcount(graph)} giving a prior ecoregion label
-at each catchment. \code{NA} = no prior at that vertex. The user is
-expected to attach this to the polygons / graph themselves before
-calling. Default \code{NULL}.}
+at each vertex. \code{NA} means no prior at that vertex. Default
+\code{NULL}.}
 
 \item{prior_strength}{Non-negative numeric scalar \eqn{\lambda}. Lowers the
 log cutting propensity of within-prior edges by \eqn{\lambda} standard
 deviations of the environmental term \eqn{\gamma \log w}, computed per
-tree: the same unit as \code{size_influence}, so a value means the same
-on any graph. \eqn{\lambda = 0} (default) ignores the prior;
-\eqn{\lambda = 1} makes a within-prior edge as hard to cut as an edge
-one standard deviation lighter on the log scale. If that spread is zero
-(\code{weight_exponent = 0} or constant weights), one unit halves the
-propensity instead, with a warning.}
+tree: the same unit as \code{size_influence}. \eqn{\lambda = 0} (default)
+ignores the prior; \code{Inf} returns the prior itself as one-hot
+memberships. If that spread is zero (\code{weight_exponent = 0} or
+constant weights), one unit halves the propensity instead, with a
+warning.}
 
-\item{target_edge_turnover}{numeric. How many edges of the MST should be altered on
-average in each iteration.}
+\item{target_edge_turnover}{Numeric in \eqn{[0, 1)}. Average share of the
+unperturbed minimum spanning tree's edges replaced in each sampled tree.
+Default 0.2 here (0.1 in \code{\link{sample_spanning_trees}}).}
 
 \item{tuning_strategy}{Character. One of \code{"grid"} (default),
-\code{"sequential"}, \code{"iterative"}.}
+\code{"sequential"}, \code{"iterative"}. See \code{\link{tune_regions}}.}
 
-\item{tuning_metric}{Character. See \code{\link{tune_regions}}. Default
-\code{"borda"}.}
+\item{tuning_metric}{Character. One of \code{"borda"} (default),
+\code{"ch_env"}, \code{"r2_env"}, \code{"stability"},
+\code{"silhouette_ca"}, \code{"expected_vi"}. See
+\code{\link{tune_regions}}.}
 
-\item{stability_B}{Integer. Only used if tuning is necesary. Passed to
-\code{\link{tune_regions}}. Bootstrap replicates for the stability
-sub-metric. Set to 0 to skip. Default 25.}
+\item{stability_B}{Integer. Random splits for the \code{STAB} index
+(split-half ensemble agreement, see \code{\link{tune_regions}}) during
+tuning. 0 skips it. Default 25.}
 
-\item{trees}{A \code{"spanning_trees"} object from
-\code{\link{sample_spanning_trees}}.}
+\item{large_n_threshold}{Integer. Above this number of vertices, salso
+runs on a sample of units and the rest are assigned and refined. Default
+20000. See \code{\link{cluster_consensus}}.}
 
-\item{max_iter}{Integer. Maximum iterations for the \code{"iterative"}
-tuning strategy. Default 10.}
+\item{n_cores}{Integer. Cores passed to \code{salso::salso()}. Default 1.}
+
+\item{trees}{Optional \code{"spanning_trees"} object from
+\code{\link{sample_spanning_trees}}. If supplied, no trees are sampled
+and \code{prior_typology} and \code{target_edge_turnover} are ignored.}
+
+\item{max_iter}{Integer. Maximum passes for the \code{"iterative"}
+strategy. Default 10.}
 
 \item{verbose}{Logical. Default \code{TRUE}.}
 
-\item{seed}{Optional integer seed; the caller's RNG state is restored on
-exit.}
+\item{seed}{Optional integer seed. One stream drives the whole call; the
+caller's RNG state is restored on exit.}
 }
 \value{
-A plain list with:
+An object of class \code{"pulse_regions"}, a list with
 \describe{
-\item{\code{memberships}}{Final N x k membership matrix.}
-\item{\code{hard_clusters}}{Integer vector of hard cluster labels.}
-\item{\code{best_regions_per_partition}, \code{best_final_regions},
-\code{best_N_tree}}{The selected hyper-parameters.}
-\item{\code{best_score}}{For a tuned run, the chosen \code{tuning_metric}
-score; for a single-configuration run, the hardened average silhouette
-width (these are NOT directly comparable).}
-\item{\code{tuning_log}}{The tuning data frame, or \code{NULL} if no
-tuning was performed.}
-\item{\code{N_tree_stability}}{The stability data frame, or \code{NULL}.}
+\item{\code{memberships}}{\eqn{N \times k} matrix \eqn{\Pi}. Rows sum
+to 1; \code{NA} where a unit never shared a piece
+(\code{fit$pi_support == 0}); all-zero for uncovered units when
+\code{prior_strength = Inf}.}
+\item{\code{entropy}}{Row entropy of \code{memberships}.}
+\item{\code{hard_clusters}}{Integer vector of consensus labels.}
+\item{\code{k}}{Number of regions.}
+\item{\code{config}}{One-row data frame: \code{regions_per_partition},
+\code{weight_exponent}, \code{N_tree}, \code{final_regions}.}
+\item{\code{tuned}}{Logical. \code{TRUE} if \code{tune_regions()} ran.}
+\item{\code{score}, \code{metric}, \code{strategy}}{Tuning result;
+\code{NA} when not tuned.}
+\item{\code{tuning_log}, \code{candidates},
+\code{n_ensembles_built}}{Search provenance; \code{NULL} or \code{NA}
+when not tuned.}
+\item{\code{prior_strength}}{\eqn{\lambda} as applied.}
+\item{\code{coverage}}{Logical per unit when
+\code{prior_strength = Inf}, else \code{NULL}.}
+\item{\code{fit}}{The \code{"fuzzy_clusters"} object from
+\code{\link{cluster_consensus}}, with certainty, margin, cohesion,
+loss terms and diagnostics; \code{NULL} when
+\code{prior_strength = Inf}.}
 \item{\code{trees}}{The \code{"spanning_trees"} object used.}
-\item{\code{cluster_result}}{The raw CLARA/PAM object.}
-\item{\code{prior_strength}}{The prior strength used.}
+\item{\code{ensemble}}{The \eqn{N \times N_{tree}} label matrix.}
+\item{\code{p0}, \code{n_eff}}{Mean chance co-association of the
+ensemble and \eqn{1 / p_0}.}
 }
-When \code{prior_strength = Inf}, the exact-prior list (see
-\code{.exact_prior_result}) is returned instead.
 }
 \description{
-All-in-one convenience wrapper that samples spanning trees, optionally
-chooses the ensemble size by stability analysis, optionally tunes
-\code{regions_per_partition} / \code{final_regions}, and returns the final fuzzy
-regionalisation. See \code{\link{tune_regions}} for the full menu of
-\code{tuning_metric} options. Default is \code{"borda"}.
+Samples spanning trees, cuts them into an ensemble of contiguous
+partitions, and summarises the ensemble as \code{final_regions} consensus
+regions with composition memberships \eqn{\Pi}. If any of
+\code{regions_per_partition}, \code{weight_exponent}, \code{N_tree} or
+\code{final_regions} has more than one value, the configuration is chosen
+by \code{\link{tune_regions}}; otherwise one ensemble and one consensus are
+computed.
 }
 \examples{
 \dontrun{
 library(igraph)
-g <- sample_gnp(200, 0.05)
+g <- make_lattice(c(15, 15))
 E(g)$weight <- runif(ecount(g))
 res <- get_regions(g, regions_per_partition = c(10, 20), final_regions = c(3, 4),
-                         N_tree = 30, seed = 1)
+                   N_tree = 30, seed = 1)
 table(res$hard_clusters)
 }
 

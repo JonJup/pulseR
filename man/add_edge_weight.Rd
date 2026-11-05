@@ -58,7 +58,14 @@ An undirected \code{igraph} object whose edge \code{weight} attribute
 is the Euclidean distance between neighbouring nodes in (optionally scaled)
 environmental space. Vertex names from \code{g$graph} are preserved, all
 input vertices are retained (including isolated ones), and each undirected
-edge appears exactly once (no multi-edges).
+edge appears exactly once (no multi-edges). The graph attribute
+\code{env} holds the numeric matrix the distances were computed from
+(after dropping constant columns and, if \code{scale = TRUE},
+standardising), one row per vertex. \code{\link{tune_regions}} and
+\code{\link{compute_null_baseline}} use it as their default \code{env},
+so validity indices are computed in the space the weights live in. For
+weights from another source (for example GDM), store the transformed
+predictors with \code{igraph::graph_attr(g, "env") <- X}.
 }
 \description{
 Calculates edge weights as Euclidean distances between adjacent

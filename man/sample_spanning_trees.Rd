@@ -18,6 +18,12 @@ sample_spanning_trees(
 \method{print}{spanning_trees}(x, ...)
 }
 \arguments{
+\item{weighted_graph}{A connected \code{igraph} object. Edges must carry a
+numeric \code{weight} attribute (dissimilarity; finite and non-negative).
+Any \code{eid} edge attribute is overwritten with the edge position.
+Vertices may optionally carry a prior-typology attribute (see
+\code{prior_typology}).}
+
 \item{n}{Integer scalar \eqn{\ge 1}. Number of spanning trees to sample.}
 
 \item{seed}{Integer scalar or \code{NULL}. If supplied, used to seed the
@@ -31,28 +37,30 @@ name of a vertex attribute on \code{graph} that holds prior ecoregion
 labels (character / factor / integer); or (b) a vector of length
 \code{vcount(graph)} of such labels. \code{NA} indicates no prior at
 that vertex. When supplied, edges connecting two vertices with the same
-non-NA label are flagged as "within-prior" and become eligible for
-weight halving in the SKATER cutting step (see \code{prior_strength}
-in \code{\link{compute_ensemble_memberships}} and
-\code{\link{get_regions}}). Default \code{NULL} (no prior).}
+non-NA label are flagged as "within-prior"; their cut propensity is
+lowered in the cutting step (see \code{prior_strength} in
+\code{\link{compute_ensemble_memberships}} and
+\code{\link{get_regions}}). Default \code{NULL} (no prior). Tree shape
+does not depend on the prior.}
 
-\item{target_edge_turnover}{numeric. How many edges of the MST should be altered on
-average in each iteration.}
+\item{target_edge_turnover}{Numeric in \eqn{[0, 1)}. Average share of the
+unperturbed minimum spanning tree's edges replaced in each sampled tree.
+The noise scale is calibrated to reach it. 0 gives \code{n} copies of
+the minimum spanning tree. Default 0.1.}
+
+\item{prior_strength}{Numeric. Stored in the result for
+\code{\link{compute_ensemble_memberships}}; not used for sampling.}
 
 \item{x}{An object to print (e.g. of class \code{"spanning_trees"}).}
 
 \item{...}{Further arguments passed to or from other methods (unused).}
-
-\item{graph}{An \code{igraph} object. Edges must carry a numeric
-\code{weight} attribute (dissimilarity / cost; finite and non-negative).
-Vertices may optionally carry a prior-typology attribute (see
-\code{prior_typology}).}
 }
 \value{
 An object of class \code{"spanning_trees"} — a list with:
 \describe{
-\item{\code{trees}}{List of sampled spanning-tree objects (igraph edge
-sequences or graphs, depending on the installed igraph version).}
+\item{\code{trees}}{List of sampled spanning trees (\code{igraph}
+objects carrying the original \code{weight} and the parent-edge
+position \code{eid}).}
 \item{\code{n_trees}}{Number of trees sampled.}
 \item{\code{n_vertices}}{Number of vertices in the original graph.}
 \item{\code{edge_weights}}{Numeric vector of all parent-graph edge
@@ -64,13 +72,14 @@ endpoint vertex indices, ordered as \code{E(graph)}.}
 length N), or \code{NULL}.}
 \item{\code{within_prior_edge}}{Logical vector length |E| flagging
 within-prior edges, or \code{NULL}.}
+\item{\code{prior_strength}}{As supplied.}
 }
 
 \code{print.spanning_trees} returns \code{x} invisibly.
 }
 \description{
-Draws \code{n} spanning trees from a weighted, (ideally) connected
-\code{igraph} object. The trees, together with the parent graph's edge
+Draws \code{n} spanning trees from a weighted, connected \code{igraph}
+object; a disconnected graph is an error. The trees, together with the parent graph's edge
 weights/endpoints and any resolved prior-typology information, are bundled
 into a \code{"spanning_trees"} object that the rest of the pipeline consumes.
 }

@@ -15,7 +15,7 @@ get_local_types(
   weights = c("memberships", "typicality"),
   model_name = c("VVV", "EEE", "VVI", "VII"),
   hc_use = "VARS",
-  drop_constant = TRUE,
+  drop_constant = FALSE,
   weight_eps = 1e-06,
   prior = mclust::priorControl(),
   keep_models = TRUE,
@@ -48,10 +48,14 @@ that region only.}
 a region's core. Must exceed \code{weight_eps}. Default 0.1. Note that its
 meaning differs between the two \code{weights} settings: memberships shrink
 as \eqn{k} grows (a mean membership at \eqn{k = 20} is 0.05), whereas
-typicality is a co-association probability and does not.}
+cohesion does not depend on \eqn{k}.}
 
-\item{weights}{One of \code{"memberships"} (default; row-normalised, rows sum
-to 1) or \code{"typicality"} (possibilistic co-association).}
+\item{weights}{One of \code{"memberships"} (default; composition memberships
+\eqn{\Pi}, rows sum to 1) or \code{"typicality"} (the fit's
+\code{cohesion}: mean co-association with the members of each region,
+rows do not sum to 1). Cohesion shrinks as a region grows, so large
+homogeneous regions get low weights and small cores; prefer
+\code{"memberships"}.}
 
 \item{model_name}{Character vector of candidate \pkg{mclust} covariance
 models, compared by weighted BIC within each region. Default
@@ -66,15 +70,22 @@ mapped to \code{"E"}/\code{"V"}.}
 \code{use}. Set explicitly (default \code{"VARS"}) because the
 \pkg{mclust} default has changed between versions.}
 
-\item{drop_constant}{Logical. Drop predictors that are constant within any
-region's core from \emph{all} regions, since a zero-variance predictor
-gives a singular covariance. Default \code{TRUE}.}
+\item{drop_constant}{Logical. How to handle a predictor that is constant
+within one region's core or active set, which would give that region a
+singular covariance. \code{FALSE} (default) keeps it everywhere and fits
+the affected regions with the \pkg{mclust} default prior whose
+\code{scale} is computed from the covariance of all units instead of the
+region's own units. \code{TRUE} drops it from \emph{all} regions (the
+behaviour of earlier versions), with a warning. Dropping is also used, with
+a warning, when \code{prior} is \code{NULL} or not the default prior.
+Predictors constant across all units are always dropped, with a warning.}
 
 \item{weight_eps}{Numeric. Units with weight at or below this are excluded
 from a region's fit. Default 1e-6.}
 
 \item{prior}{Prior passed to \code{\link[mclust]{me.weighted}}. Default
-\code{mclust::priorControl()}; \code{NULL} disables regularisation.}
+\code{mclust::priorControl()}; \code{NULL} disables regularisation (and
+forces \code{drop_constant = TRUE} behaviour, see above).}
 
 \item{keep_models}{Logical. Return the selected fits (with the large
 \code{$z} slot stripped). Default \code{TRUE}.}
@@ -102,6 +113,9 @@ covariance models for each G.}
 values; \code{NA} where a candidate was infeasible or failed.}
 \item{\code{model_names}}{Selected covariance model per region.}
 \item{\code{models}}{Selected fits, or \code{NULL}.}
+\item{\code{constant}}{Logical predictor x region matrix: \code{TRUE}
+where the predictor is constant within the region and the region was
+fitted with the globally scaled prior.}
 \item{\code{variables}, \code{cutoff}, \code{weights},
 \code{model_name}}{Settings used (\code{model_name} = candidates).}
 }

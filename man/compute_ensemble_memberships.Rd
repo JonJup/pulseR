@@ -50,6 +50,11 @@ deterministic heaviest-edge removal as \eqn{\gamma \to \infty}).}
 
 \item{verbose}{Logical. Default \code{TRUE}.}
 
+\item{size_influence}{Non-negative numeric. Spread of the size term
+\eqn{\alpha \log s_e} relative to the spread \eqn{u} of the
+environmental term \eqn{\gamma \log w}, per tree. 0 ignores piece size;
+the default 2 lets size dominate, so cuts rarely shave off single units.}
+
 \item{x}{An object of class \code{"ensemble_memberships"}.}
 
 \item{...}{Further arguments passed to or from other methods (unused).}
@@ -61,21 +66,22 @@ An object of class \code{"ensemble_memberships"} — a list with:
 is a region assignment from one spanning tree.}
 \item{\code{N_tree}}{Ensemble size used.}
 \item{\code{regions_per_partition}}{Number of regions per tree.}
+\item{\code{n_members}}{Number of columns.}
+\item{\code{weight_exponent}}{\eqn{\gamma} used.}
 \item{\code{n_vertices}}{Number of vertices.}
 \item{\code{prior_strength}}{The prior strength used.}
-\item{\code{chance_coassoc}}{Mean chance co-association \eqn{\bar p_0}; the reference scale for cohesion.}
+\item{\code{chance_coassoc}}{Per-column chance co-association
+\eqn{p_{0,t} = \sum_r (n_r / N)^2}; its mean is the reference scale
+for cohesion.}
 }
 
 \code{print.ensemble_memberships} returns \code{x} invisibly.
 }
 \description{
-For each spanning tree, removes \code{regions_per_partition - 1} edges (sampled
-without replacement, with probability proportional to edge weight) to produce
-\code{regions_per_partition} connected components, then records each node's region
-label. Returns an integer matrix (one column per tree).
-}
-\details{
-When both a prior and \eqn{\gamma \ne 1} are in use, weights are first
-exponentiated and the weighted by the prior. Thus the halvings are relative
-to the exponentiated weights.
+For each spanning tree, removes \code{regions_per_partition - 1} edges to
+produce \code{regions_per_partition} connected pieces, then records each
+vertex's piece label. Edges are drawn without replacement by an exponential
+race on the log propensity
+\eqn{\gamma \log w_e + \alpha \log s_e - \lambda u 1[e \text{ within prior}]},
+where \eqn{s_e = n_c (N - n_c) / N} is the size balance of the cut.
 }
