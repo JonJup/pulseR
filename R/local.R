@@ -128,6 +128,30 @@
         vapply(seq_len(ncol(X)), function(j) stats::var(X[rows, j]), numeric(1))
 }
 
+#' mclust default prior with its scale taken from all units
+#'
+#' Mirrors \code{mclust::defaultPrior()} but computes \code{scale} from the
+#' covariance \code{V} of all units, so a predictor that is constant within
+#' one region still gets a positive prior variance there. A user-supplied
+#' \code{scale} is kept.
+#'
+#' @param prior A \code{priorControl()} list for \code{"defaultPrior"}.
+#' @param V Covariance matrix of all units (d x d).
+#' @param model mclust model name.
+#' @param G Number of components.
+#' @return \code{prior} with \code{scale} set.
+#' @keywords internal
+#' @noRd
+.global_scale_prior <- function(prior, V, model, G) {
+        if (!is.null(prior$scale)) return(prior)
+        d <- ncol(V)
+        prior$scale <- switch(model,
+                E = , V = V[1, 1] / G^2,
+                EII = , VII = , EEI = , EVI = , VEI = , VVI = (1 / G)^(2 / d) * sum(diag(V)) / d,
+                (1 / G)^(2 / d) * V)
+        prior
+}
+
 
 # -----------------------------------------------------------------------------
 # Main function
@@ -208,13 +232,20 @@
 #' @param hc_use Character scalar passed to \code{\link[mclust]{hc}} as
 #'   \code{use}. Set explicitly (default \code{"VARS"}) because the
 #'   \pkg{mclust} default has changed between versions.
-#' @param drop_constant Logical. Drop predictors that are constant within any
-#'   region's core from \emph{all} regions, since a zero-variance predictor
-#'   gives a singular covariance. Default \code{TRUE}.
+#' @param drop_constant Logical. How to handle a predictor that is constant
+#'   within one region's core or active set, which would give that region a
+#'   singular covariance. \code{FALSE} (default) keeps it everywhere and fits
+#'   the affected regions with the \pkg{mclust} default prior whose
+#'   \code{scale} is computed from the covariance of all units instead of the
+#'   region's own units. \code{TRUE} drops it from \emph{all} regions (the
+#'   behaviour of earlier versions), with a warning. Dropping is also used, with
+#'   a warning, when \code{prior} is \code{NULL} or not the default prior.
+#'   Predictors constant across all units are always dropped, with a warning.
 #' @param weight_eps Numeric. Units with weight at or below this are excluded
 #'   from a region's fit. Default 1e-6.
 #' @param prior Prior passed to \code{\link[mclust]{me.weighted}}. Default
-#'   \code{mclust::priorControl()}; \code{NULL} disables regularisation.
+#'   \code{mclust::priorControl()}; \code{NULL} disables regularisation (and
+#'   forces \code{drop_constant = TRUE} behaviour, see above).
 #' @param keep_models Logical. Return the selected fits (with the large
 #'   \code{$z} slot stripped). Default \code{TRUE}.
 #' @param verbose Logical. Report progress. Default \code{FALSE}.
@@ -235,6 +266,9 @@
 #'       values; \code{NA} where a candidate was infeasible or failed.}
 #'     \item{\code{model_names}}{Selected covariance model per region.}
 #'     \item{\code{models}}{Selected fits, or \code{NULL}.}
+#'     \item{\code{constant}}{Logical predictor x region matrix: \code{TRUE}
+#'       where the predictor is constant within the region and the region was
+#'       fitted with the globally scaled prior.}
 #'     \item{\code{variables}, \code{cutoff}, \code{weights},
 #'       \code{model_name}}{Settings used (\code{model_name} = candidates).}
 #'   }
@@ -268,7 +302,7 @@ get_local_types <- function(env,
                             weights        = c("memberships", "typicality"),
                             model_name     = c("VVV", "EEE", "VVI", "VII"),
                             hc_use         = "VARS",
-                            drop_constant  = TRUE,
+                            drop_constant  = FALSE,
                             weight_eps     = 1e-6,
                             prior          = mclust::priorControl(),
                             keep_models    = TRUE,
@@ -373,21 +407,48 @@ get_local_types <- function(env,
                                 length(orphan)),
                         "their local-type rows will be all zero.", call. = FALSE)
         
-        if (drop_constant) {
-                keep <- rep(TRUE, ncol(Xdata))
-                for (r in re) keep <- keep & (.col_var(Xdata, core[[r]]) > 0) &
-                                (.col_var(Xdata, act[[r]])  > 0)
-                if (!all(keep)) {
-                        if (verbose || sum(!keep) > 0)
-                                message("Dropping predictor(s) constant within a region: ",
-                                        paste(colnames(Xdata)[!keep], collapse = ", "))
-                        Xdata <- Xdata[, keep, drop = FALSE]
-                        variables <- colnames(Xdata)
-                }
+        ## A predictor constant across all units carries no information.
+        glob_const <- !(.col_var(Xdata, seq_len(N)) > 0)
+        if (any(glob_const)) {
+                warning("Dropping predictor(s) constant across all units: ",
+                        paste(colnames(Xdata)[glob_const], collapse = ", "), call. = FALSE)
+                Xdata <- Xdata[, !glob_const, drop = FALSE]
                 if (!ncol(Xdata))
-                        stop("Every predictor is constant within at least one region.",
-                             call. = FALSE)
+                        stop("Every predictor is constant across all units.", call. = FALSE)
         }
+        
+        ## Predictor x region: constant within the region's core or active set.
+        const <- matrix(vapply(re, function(r)
+                !(.col_var(Xdata, core[[r]]) > 0) | !(.col_var(Xdata, act[[r]]) > 0),
+                logical(ncol(Xdata))),
+                nrow = ncol(Xdata), dimnames = list(colnames(Xdata), paste0("Region", re)))
+        can_regularise <- !is.null(prior) && identical(prior$functionName, "defaultPrior")
+        if (any(const)) {
+                bad <- rownames(const)[rowSums(const) > 0]
+                if (drop_constant || !can_regularise) {
+                        warning(sprintf(paste0(
+                                "Dropping predictor(s) %s from ALL regions: constant within ",
+                                "region(s) %s%s."),
+                                paste(bad, collapse = ", "),
+                                paste(which(colSums(const) > 0), collapse = ", "),
+                                if (drop_constant) "" else
+                                        " and `prior` cannot regularise them (NULL or not the default prior)"),
+                                call. = FALSE)
+                        Xdata <- Xdata[, !(colnames(Xdata) %in% bad), drop = FALSE]
+                        if (!ncol(Xdata))
+                                stop("Every predictor is constant within at least one region.",
+                                     call. = FALSE)
+                        const <- const[colnames(Xdata), , drop = FALSE]
+                } else {
+                        message(sprintf(paste0(
+                                "Predictor(s) %s constant within region(s) %s: those regions ",
+                                "use a prior scaled by the covariance of all units."),
+                                paste(bad, collapse = ", "),
+                                paste(which(colSums(const) > 0), collapse = ", ")))
+                }
+        }
+        variables <- colnames(Xdata)
+        V_all     <- stats::cov(Xdata)
         d      <- ncol(Xdata)
         models <- .resolve_model_names(model_name, d)
         
@@ -411,6 +472,9 @@ get_local_types <- function(env,
                 ## core is a subset of act because cutoff > weight_eps (checked above).
                 c_in_a <- match(c_r, a_r)
                 n_eff  <- sum(w_r)
+                prior_r <- if (any(const[, r]))
+                        function(m, G) .global_scale_prior(prior, V_all, m, G)
+                else function(m, G) prior
                 
                 ## Candidates a region can actually support.
                 G_r <- n_local_types[n_local_types <= length(c_r) - 1L]
@@ -455,7 +519,8 @@ get_local_types <- function(env,
                                 
                                 fit <- tryCatch(
                                         mclust::me.weighted(data = X_r, modelName = m,
-                                                            z = z0, weights = w_r, prior = prior),
+                                                            z = z0, weights = w_r,
+                                                            prior = prior_r(m, G)),
                                         error = function(e) NULL)
                                 if (is.null(fit) || is.null(fit$loglik) || !is.finite(fit$loglik))
                                         next
@@ -497,7 +562,8 @@ get_local_types <- function(env,
                 z0 <- matrix(1 / G, nrow = length(a_r), ncol = G)
                 z0[c_in_a, ] <- mclust::unmap(cls[, best[[r]]$j], groups = seq_len(G))
                 fit <- mclust::me.weighted(data = X_r, modelName = best[[r]]$model,
-                                           z = z0, weights = w_r, prior = prior)
+                                           z = z0, weights = w_r,
+                                           prior = prior_r(best[[r]]$model, G))
                 best[[r]]$z     <- fit$z
                 fit$z           <- NULL                  # stored model without the bulk
                 best[[r]]$fit   <- fit
@@ -552,6 +618,7 @@ get_local_types <- function(env,
                 models        = if (keep_models)
                         stats::setNames(lapply(best, `[[`, "fit"), paste0("Region", re))
                 else NULL,
+                constant      = const,
                 variables     = variables,
                 cutoff        = cutoff,
                 weights       = weights,
