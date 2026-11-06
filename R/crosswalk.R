@@ -6,7 +6,8 @@
                  "pulse_meta_types", "mosaic_types")
 
 .CW_INDICES <- c("ARI", "AMI", "NMI", "VI", "H_ext_given_pulse",
-                 "H_pulse_given_ext", "purity", "inverse_purity", "cramers_v")
+                 "H_pulse_given_ext", "purity", "inverse_purity", "cramers_v",
+                 "H_pulse", "H_ext")
 
 #' Crosswalk a pulseR typology against an external typology
 #'
@@ -39,6 +40,14 @@
 #' means, which isolates level 2. To compare pooled river types with an
 #' external river typology, pass a \code{pulse_meta_types} object.
 #'
+#' @section External typologies assembled from parts:
+#' An external typology built from independently defined parts (one system
+#' per jurisdiction, basin or survey programme, each with its own labels) has
+#' a block structure that inflates agreement, because the parts alone already
+#' predict much of the label. Run one crosswalk per part instead, with
+#' \code{min_coverage = 0}, and compare the results with
+#' \code{plot_crosswalk(list(...), what = "plane")}.
+#'
 #' @param x A \code{pulse_regions}, \code{regions_tuning},
 #'   \code{pulse_local_types}, \code{pulse_meta_types} or \code{mosaic_types}
 #'   object, or a named list of such objects (for example
@@ -64,6 +73,10 @@
 #'   Used for \code{pulse_local_types} only; see the Level 2 scope section.
 #' @param nesting Share in \eqn{(0.5, 1]} above which a type counts as lying
 #'   within one type of the other typology. Default 0.7.
+#' @param min_coverage Warn when fewer than this share of typed PULSE units
+#'   find a usable external match. Default 0.95. Set it to 0 when
+#'   \code{external} deliberately covers only part of the study area, such as
+#'   one basin, jurisdiction or survey region. Counts stay in \code{coverage}.
 #' @param ami_max_terms Largest number of hypergeometric terms for the exact
 #'   expected mutual information. Above it the asymptotic approximation
 #'   \eqn{(K-1)(L-1)/(2N)} is used. The method used is reported in
@@ -82,7 +95,8 @@
 #'       normalisation), VI and its two parts \code{H_ext_given_pulse} (zero
 #'       when PULSE types nest in external types) and \code{H_pulse_given_ext}
 #'       (zero when external types nest in PULSE types), both in nats,
-#'       \code{purity}, \code{inverse_purity} and Cramer's V.}
+#'       \code{purity}, \code{inverse_purity}, Cramer's V, and the
+#'       marginal entropies \code{H_pulse} and \code{H_ext} (nats).}
 #'     \item{\code{by_region}}{Per-region indices (\code{"within_region"}
 #'       only), otherwise \code{NULL}.}
 #'     \item{\code{types}}{List with \code{pulse} and \code{external} data
@@ -109,14 +123,19 @@
 #' @export
 crosswalk_types <- function(x, external, label, units, id = NULL, weights = NULL,
                             local_scope = c("global", "within_region"),
-                            nesting = 0.7, ami_max_terms = 5e7) {
+                            nesting = 0.7, min_coverage = 0.95,
+                            ami_max_terms = 5e7) {
         local_scope <- match.arg(local_scope)
         if (!is.numeric(nesting) || length(nesting) != 1L || !(nesting > 0.5) || nesting > 1)
                 stop("`nesting` must be a single number in (0.5, 1].", call. = FALSE)
         
+        if (!is.numeric(min_coverage) || length(min_coverage) != 1L ||
+            is.na(min_coverage) || min_coverage < 0 || min_coverage > 1)
+                stop("`min_coverage` must be a single number in [0, 1].", call. = FALSE)
+        
         if (is.list(x) && !inherits(x, .CW_CLASSES))
                 return(.crosswalk_set(x, external, label, units, id, weights,
-                                      local_scope, nesting, ami_max_terms))
+                                      local_scope, nesting, min_coverage, ami_max_terms))
         
         side <- .cw_pulse_side(x)
         if (local_scope == "within_region" && side$level != "local") {
@@ -145,9 +164,11 @@ crosswalk_types <- function(x, external, label, units, id = NULL, weights = NULL
         if (sum(keep) < 2L)
                 stop("Fewer than two units matched. Check that `units` and `external[[id]]` ",
                      "use the same identifiers.", call. = FALSE)
-        if (coverage$share_matched < 0.95)
+        if (coverage$share_matched < min_coverage)
                 warning(sprintf(paste0("Only %.1f%% of typed PULSE units matched an external ",
-                                       "unit with a usable label; see `coverage`."),
+                                       "unit with a usable label; see `coverage`. If `external` ",
+                                       "covers part of the study area on purpose, set ",
+                                       "`min_coverage = 0`."),
                                 100 * coverage$share_matched), call. = FALSE)
         
         U  <- side$U
@@ -236,6 +257,7 @@ crosswalk_types <- function(x, external, label, units, id = NULL, weights = NULL
                                     external_fuzzy = !is.null(ext$V),
                                     weights = if (is.null(weights)) "unit counts" else weights,
                                     nesting = nesting,
+                                    min_coverage = min_coverage,
                                     ami_method = attr(agreement, "ami_method"),
                                     chance_corrected_on = "unit counts"))
         structure(out, class = "pulse_crosswalk")
@@ -430,7 +452,9 @@ crosswalk_types <- function(x, external, label, units, id = NULL, weights = NULL
           H_pulse_given_ext = max(Hj - Hc, 0),
           purity            = sum(apply(P, 1, max)),
           inverse_purity    = sum(apply(P, 2, max)),
-          cramers_v         = cv)
+          cramers_v         = cv,
+          H_pulse           = Hr,
+          H_ext             = Hc)
 }
 
 #' Adjusted Rand index from a count table
@@ -608,7 +632,7 @@ crosswalk_types <- function(x, external, label, units, id = NULL, weights = NULL
 #' @keywords internal
 #' @noRd
 .crosswalk_set <- function(x, external, label, units, id, weights,
-                           local_scope, nesting, ami_max_terms) {
+                           local_scope, nesting, min_coverage, ami_max_terms) {
         nm <- names(x)
         if (!length(x) || is.null(nm) || any(!nzchar(nm)))
                 stop("A list `x` must be named, e.g. list(regions = reg, local = loc).",
@@ -616,7 +640,7 @@ crosswalk_types <- function(x, external, label, units, id = NULL, weights = NULL
         res <- lapply(x, function(obj) {
                 sc <- if (inherits(obj, "pulse_local_types")) local_scope else "global"
                 crosswalk_types(obj, external, label, units, id, weights, sc,
-                                nesting, ami_max_terms)
+                                nesting, min_coverage, ami_max_terms)
         })
         get <- function(a, ix, b) a[[b]][a$index == ix]
         by_level <- do.call(rbind, lapply(nm, function(k) {
@@ -649,7 +673,7 @@ print.pulse_crosswalk <- function(x, ...) {
                     cv$n_matched, 100 * cv$share_matched, cv$n_external_unmatched,
                     cv$n_no_pulse_type))
         cat(sprintf("Weights: %s | AMI: %s\n\n", x$settings$weights, x$settings$ami_method))
-        a <- x$agreement
+        a <- x$agreement[!x$agreement$index %in% c("H_pulse", "H_ext"), ]
         print(data.frame(index = a$index, crisp = round(a$crisp, 3), fuzzy = round(a$fuzzy, 3)),
               row.names = FALSE)
         tp <- x$types$pulse[x$types$pulse$basis == "crisp", ]
