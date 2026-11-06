@@ -40,9 +40,14 @@ N x k numeric weight matrix.}
 \item{non_value_cols}{Character vector of identifier columns to exclude
 (e.g. \code{"ID"}). Default \code{NULL}.}
 
-\item{n_local_types}{Integer vector of candidate component counts. Default
-\code{2:9}. Candidates larger than a region's core allow are dropped for
-that region only.}
+\item{n_local_types}{Candidate component counts. Either an integer vector
+(default \code{2:9}) shared by all regions, or a list with one integer
+vector per region, in column order of the region weights, e.g.
+\code{list(3, 2:5, 4)}. A length-1 element fixes that region's number of
+local types; its covariance model is still chosen by weighted BIC.
+Candidates larger than a region's core allows are dropped for that region
+(with a warning when given as a list); a region left with no candidate is
+an error.}
 
 \item{cutoff}{Numeric in \eqn{(0, 1]}. Weight at or above which a unit joins
 a region's core. Must exceed \code{weight_eps}. Default 0.1. Note that its
@@ -107,8 +112,9 @@ An object of class \code{"pulse_local_types"}: a list with
 \item{\code{entropy}}{Normalised row entropy of \code{memberships}.}
 \item{\code{key}}{Data frame mapping each column to its region and local type.}
 \item{\code{n_local_types}}{Selected G per region.}
-\item{\code{BIC}}{G x region matrix: the best weighted BIC over
-covariance models for each G.}
+\item{\code{BIC}}{G x region matrix over all requested G: the best
+weighted BIC over covariance models for each G; \code{NA} where G was
+not a candidate for that region.}
 \item{\code{BIC_by_model}}{G x model x region array of weighted BIC
 values; \code{NA} where a candidate was infeasible or failed.}
 \item{\code{model_names}}{Selected covariance model per region.}

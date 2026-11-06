@@ -211,9 +211,14 @@
 #'   \code{non_value_cols}.
 #' @param non_value_cols Character vector of identifier columns to exclude
 #'   (e.g. \code{"ID"}). Default \code{NULL}.
-#' @param n_local_types Integer vector of candidate component counts. Default
-#'   \code{2:9}. Candidates larger than a region's core allow are dropped for
-#'   that region only.
+#' @param n_local_types Candidate component counts. Either an integer vector
+#'   (default \code{2:9}) shared by all regions, or a list with one integer
+#'   vector per region, in column order of the region weights, e.g.
+#'   \code{list(3, 2:5, 4)}. A length-1 element fixes that region's number of
+#'   local types; its covariance model is still chosen by weighted BIC.
+#'   Candidates larger than a region's core allows are dropped for that region
+#'   (with a warning when given as a list); a region left with no candidate is
+#'   an error.
 #' @param cutoff Numeric in \eqn{(0, 1]}. Weight at or above which a unit joins
 #'   a region's core. Must exceed \code{weight_eps}. Default 0.1. Note that its
 #'   meaning differs between the two \code{weights} settings: memberships shrink
@@ -264,8 +269,9 @@
 #'     \item{\code{entropy}}{Normalised row entropy of \code{memberships}.}
 #'     \item{\code{key}}{Data frame mapping each column to its region and local type.}
 #'     \item{\code{n_local_types}}{Selected G per region.}
-#'     \item{\code{BIC}}{G x region matrix: the best weighted BIC over
-#'       covariance models for each G.}
+#'     \item{\code{BIC}}{G x region matrix over all requested G: the best 
+#'       weighted BIC over covariance models for each G; \code{NA} where G was 
+#'       not a candidate for that region.}
 #'     \item{\code{BIC_by_model}}{G x model x region array of weighted BIC
 #'       values; \code{NA} where a candidate was infeasible or failed.}
 #'     \item{\code{model_names}}{Selected covariance model per region.}
@@ -319,10 +325,27 @@ get_local_types <- function(env,
                 stop("`env` must be a data.frame or sf object.", call. = FALSE)
         if (!is.logical(verbose) || length(verbose) != 1L || is.na(verbose))
                 stop("`verbose` must be a single TRUE/FALSE value.", call. = FALSE)
-        if (!is.numeric(n_local_types) || length(n_local_types) == 0L ||
-            any(n_local_types < 1L) || any(n_local_types != as.integer(n_local_types)))
-                stop("`n_local_types` must be one or more positive integers.", call. = FALSE)
-        n_local_types <- sort(unique(as.integer(n_local_types)))
+        ## n_local_types: one shared candidate vector, or a list with one
+        ## candidate vector per region (length-1 element = fixed G). The list
+        ## length is checked against the region count in step 1.
+        .check_G <- function(g, what) {
+                if (!is.numeric(g) || !length(g) || anyNA(g) ||
+                    any(g < 1) || any(g != round(g)))
+                        stop(sprintf("%s must be one or more positive integers.", what),
+                             call. = FALSE)
+                sort(unique(as.integer(g)))
+        }
+        G_per_region <- is.list(n_local_types)
+        if (G_per_region) {
+                if (!length(n_local_types))
+                        stop("`n_local_types` is an empty list.", call. = FALSE)
+                n_local_types <- lapply(seq_along(n_local_types), function(r)
+                        .check_G(n_local_types[[r]], sprintf("`n_local_types[[%d]]`", r)))
+        } else {
+                n_local_types <- .check_G(n_local_types, "`n_local_types`")
+        }
+        
+        
         if (!is.null(variables) && !is.character(variables))
                 stop("`variables` must be a character vector or NULL.", call. = FALSE)
         ## FIX: `cutoff` was never range-checked, and core must be a subset of the
@@ -347,7 +370,15 @@ get_local_types <- function(env,
                 stop(sprintf("Region weights have %d rows but `env` has %d; they must match.",
                              N, nrow(env)), call. = FALSE)
         if (n_regions < 1L) stop("Region weight matrix has no columns.", call. = FALSE)
-        
+        G_list <- if (G_per_region) {
+                if (length(n_local_types) != n_regions)
+                        stop(sprintf(paste0("`n_local_types` is a list of length %d but there ",
+                                            "are %d regions; supply one element per region, ",
+                                            "in column order of the region weights."),
+                                     length(n_local_types), n_regions), call. = FALSE)
+                n_local_types
+        } else rep(list(n_local_types), n_regions)
+        G_all <- sort(unique(unlist(G_list)))
         ## ---- 2. Predictors --------------------------------------------------*
         ## FIX: `inherits()` rather than `"sf" %in% class()`.
         if (inherits(env, "sf")) env <- sf::st_drop_geometry(env)
@@ -463,8 +494,8 @@ get_local_types <- function(env,
         ## loop: the hc initialisation is computed once per region, the fit runs on
         ## the active rows only, and just the incumbent-best z is retained.
         BIC_all <- array(NA_real_,
-                         dim = c(length(n_local_types), length(models), n_regions),
-                         dimnames = list(G = as.character(n_local_types), model = models,
+                         dim = c(length(G_all), length(models), n_regions),
+                         dimnames = list(G = as.character(G_all), model = models,
                                          region = paste0("Region", re)))
         best <- vector("list", n_regions)
         
@@ -481,10 +512,18 @@ get_local_types <- function(env,
                 else function(m, G) prior
                 
                 ## Candidates a region can actually support.
-                G_r <- n_local_types[n_local_types <= length(c_r) - 1L]
+                G_req <- G_list[[r]]
+                G_r   <- G_req[G_req <= length(c_r) - 1L]
                 if (!length(G_r))
-                        stop(sprintf("Region %d supports no candidate in `n_local_types` (core has %d units).",
-                                     r, length(c_r)), call. = FALSE)
+                        stop(sprintf(paste0("Region %d supports no requested G (%s): its core ",
+                                            "has %d units, so G <= %d. Lower `cutoff` or ",
+                                            "request fewer local types."),
+                                     r, paste(G_req, collapse = ", "), length(c_r),
+                                     length(c_r) - 1L), call. = FALSE)
+                if (G_per_region && length(G_r) < length(G_req))
+                        warning(sprintf("Region %d: dropped G = %s (core has %d units).",
+                                        r, paste(setdiff(G_req, G_r), collapse = ", "),
+                                        length(c_r)), call. = FALSE)
                 
                 ## Initialisation: full-covariance hc needs more core units than
                 ## predictors; below that, spherical hc is always defined. One hc
@@ -576,7 +615,7 @@ get_local_types <- function(env,
         ## G x region summary (best over models), so existing BIC plots still work.
         BIC <- apply(BIC_all, c(1L, 3L), function(v)
                 if (all(is.na(v))) NA_real_ else max(v, na.rm = TRUE))
-        BIC <- matrix(BIC, nrow = length(n_local_types),
+        BIC <- matrix(BIC, nrow = length(G_all),
                       dimnames = list(as.character(n_local_types), paste0("Region", re)))
         
         ## ---- 5. Assemble ----------------------------------------------------*
