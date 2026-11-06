@@ -57,7 +57,7 @@ in at most one merge per round.
 }
 \details{
 Environmental variables for a merged catchment are calculated as the
-arithmetic mean of the corresponding values of the two catchments being
+area-weighted mean of the corresponding values of the two catchments being
 merged. Geometries are combined using \code{\link[sf:st_union]{sf::st_union()}}. Original catchment
 IDs are retained in the .original_ids list column.
 

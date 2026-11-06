@@ -6,7 +6,7 @@
 #' in at most one merge per round.
 #'
 #' Environmental variables for a merged catchment are calculated as the
-#' arithmetic mean of the corresponding values of the two catchments being
+#' area-weighted mean of the corresponding values of the two catchments being
 #' merged. Geometries are combined using [sf::st_union()]. Original catchment
 #' IDs are retained in the .original_ids list column.
 #'
@@ -54,6 +54,7 @@
 #'
 #' @importFrom sf st_as_sf st_crs st_geometry st_sfc st_union
 #' @importFrom igraph ecount E ends
+#' @importFrom stats weighted.mean
 #' 
 #' @export
 #' 
@@ -106,7 +107,7 @@ merge_catchments <- function(
         geom_col <- attr(x, "sf_column")
         # Keep original IDs as a list column
         x$.original_ids <- as.list(x[[id_col]])
-        
+        x$area          <- as.numeric(sf::st_area(x))
         round <- 0
         
         repeat {
@@ -213,17 +214,23 @@ merge_catchments <- function(
                         
                         # Environmental values = mean of the two current
                         # catchments (using vapply instead of map_dbl)
-                        env_mean <- vapply(
-                                env_cols,
-                                function(v) {
-                                        mean(
-                                                c(x[[v]][i], x[[v]][j]),
-                                                na.rm = TRUE
-                                        )
-                                },
-                                FUN.VALUE = numeric(1)
-                        )
                         
+                        # area weight 
+                        w <- c(x$area[i], x$area[j])
+                        env_mean <- 
+                                vapply(
+                                        env_cols, 
+                                        function(v) stats::weighted.mean(
+                                                x = c(
+                                                        x[[v]][i],
+                                                        x[[v]][j]
+                                                        ),
+                                                w = w, 
+                                                na.rm = TRUE
+                                                ),
+                                        FUN.VALUE = numeric(1)
+                                        )
+
                         # Combine original IDs
                         original_ids <- c(
                                 x$.original_ids[[i]],
@@ -236,11 +243,12 @@ merge_catchments <- function(
                         )[[1]]
                         
                         merged[[k]] <- list(
-                                i = i,
-                                j = j,
-                                env = env_mean,
+                                i            = i,
+                                j            = j,
+                                env          = env_mean,
                                 original_ids = original_ids,
-                                geometry = geom
+                                area         = sum(w),
+                                geometry     = geom
                         )
                         
                         merged_indices <- c(
@@ -265,15 +273,16 @@ merge_catchments <- function(
                 # Create merged rows
                 # ----------------------------------------------------------
                 
-                # Using lapply + bind_rows instead of map_dfr
+                # TODO what is happening here? 
                 new_rows_list <- lapply(
                         merged,
                         function(m) {
                                 
                                 out <- dplyr::tibble(
-                                        .merge_round = round,
-                                        .n_original = length(m$original_ids),
-                                        .original_ids = list(m$original_ids)
+                                        .merge_round  = round,
+                                        .n_original   = length(m$original_ids),
+                                        .original_ids = list(m$original_ids),
+                                        .area         = m$area
                                 )
                                 
                                 for (k in seq_along(env_cols)) {

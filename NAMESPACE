@@ -141,6 +141,7 @@ importFrom(stats,
   mad,
   rnorm,
   sd,
-  var
+  var,
+  weighted.mean
 )
 importFrom(utils,globalVariables)
