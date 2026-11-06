@@ -12,7 +12,8 @@ merge_catchments(
   threshold,
   max_original = Inf,
   target_n = NULL,
-  max_rounds = Inf
+  max_rounds = Inf,
+  bridge_scale = NULL
 )
 }
 \arguments{
@@ -39,6 +40,11 @@ of catchments below target_n are not performed.}
 
 \item{max_rounds}{Maximum number of merging rounds to perform. Defaults to
 Inf.}
+
+\item{bridge_scale}{Length scale of the bridge penalty in meters, passed
+to \code{\link[=add_edge_weight]{add_edge_weight()}}. \code{NULL} (default) takes the default scale of the
+first round's network and holds it fixed across rounds; \code{Inf} leaves
+bridges unpenalized. Not a tuning parameter.}
 }
 \value{
 An sf object containing the resulting catchments. Merged

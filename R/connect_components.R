@@ -19,8 +19,10 @@
 #' @param g An \pkg{igraph} object whose vertices correspond, \emph{in order},
 #'   to the features in \code{polygons} / \code{centroids}. No name-based
 #'   matching is performed; vertex \code{i} is feature \code{i}.
-#' @param polygons Optional \pkg{sf} polygon object. Used only to derive
-#'   \code{centroids} when the latter is not supplied; ignored otherwise.
+#' @param polygons Optional \pkg{sf} polygon object, one feature per vertex
+#'   of \code{g}. Used to derive \code{centroids} when the latter is not
+#'   supplied, and, whenever supplied, to measure bridge length as the
+#'   shortest boundary-to-boundary distance.
 #' @param centroids Optional \pkg{sf} point object or \pkg{sf} geometry column
 #'   (\code{sfc}) giving one centroid per vertex of \code{g}. If \code{NULL},
 #'   centroids are computed from \code{polygons} via \code{\link[sf]{st_centroid}}.
@@ -41,8 +43,12 @@
 #'   via \code{message()}.
 #'
 #' @return The input graph \code{g} with additional bridge edges, guaranteed to
-#'   form a single connected component. If \code{g} is already connected it is
-#'   returned unchanged.
+#'   form a single connected component. Every edge carries the logical
+#'   attribute \code{bridge} (\code{TRUE} for added edges, \code{FALSE}
+#'   otherwise) and the numeric attribute \code{bridge_dist} (bridge length in
+#'   metres; \code{NA} on non-bridges). The graph attribute
+#'   \code{bridge_dist_method} records how the length was measured. If
+#'   \code{g} is already connected only the attributes are added.
 #'
 #' @details
 #' The greedy "smallest component first" strategy is cheap -- few query points
@@ -50,9 +56,25 @@
 #' guaranteed to yield a Euclidean minimum spanning forest of the components.
 #'
 #' Either \code{polygons} or \code{centroids} must be supplied; if both are
-#' given, \code{centroids} takes precedence. The number of centroids must equal
-#' the number of vertices of \code{g}, otherwise bridges would be added between
-#' the wrong nodes; a mismatch is a hard error.
+#' given, \code{centroids} is used to choose the bridged pair. The number of
+#' centroids (and of polygons, if given) must equal the number of vertices of
+#' \code{g}, otherwise bridges would be added between the wrong nodes; a
+#' mismatch is a hard error.
+#'
+#' @section Bridge length:
+#' The bridged pair is always chosen by nearest centroid. Its recorded length
+#' (\code{bridge_dist}) depends on what is supplied:
+#' \describe{
+#'   \item{\code{"boundary"}}{\code{polygons} supplied (in-memory
+#'     \code{polygon_to_network()}): shortest distance between the two
+#'     polygons. A topology gap or corner contact gets a length near 0.}
+#'   \item{\code{"centroid"}}{only \code{centroids} supplied (chunked
+#'     \code{polygon_to_network()}): centroid-to-centroid distance, which is
+#'     always at least the boundary distance, so the same bridge receives a
+#'     larger penalty in \code{\link{add_edge_weight}}.}
+#' }
+#' Lengths are in metres for projected and geographic CRSs (great-circle for
+#' lon/lat), and in raw coordinate units when the data have no CRS.
 #'
 #' @section Coordinate reference system:
 #' \code{method = "rann"} measures distance in raw coordinate space. For a
@@ -69,7 +91,7 @@
 #' }
 #'
 #' @importFrom sf st_centroid st_geometry st_coordinates st_distance st_crs
-#' @importFrom igraph is_igraph components vcount add_edges
+#' @importFrom igraph is_igraph components vcount add_edges edge_attr set_graph_attr
 #'
 #' @export
 connect_components <- function(g,
@@ -89,6 +111,15 @@ connect_components <- function(g,
                 stop("Either `polygons` or `centroids` must be supplied.", call. = FALSE)
         }
         
+        # ---- Bridge attributes (set even when nothing is bridged) ------------------
+        # Every edge carries `bridge`/`bridge_dist`, so downstream code never has to
+        # distinguish "no bridges" from "graph built before bridges were flagged".
+        if (is.null(igraph::edge_attr(g, "bridge")))
+                igraph::E(g)$bridge <- rep(FALSE, igraph::ecount(g))
+        if (is.null(igraph::edge_attr(g, "bridge_dist")))
+                igraph::E(g)$bridge_dist <- rep(NA_real_, igraph::ecount(g))
+        dist_method <- if (!is.null(polygons)) "boundary" else "centroid"
+        
         # ---- Early exit ------------------------------------------------------------
         # Cheap connectivity test before any (potentially expensive) centroid work.
         comp <- igraph::components(g)
@@ -96,6 +127,7 @@ connect_components <- function(g,
                 .log(verbose, "Graph is already connected.")
                 return(g)
         }
+        g <- igraph::set_graph_attr(g, "bridge_dist_method", dist_method)
         
         # ---- Derive / normalise centroids -----------------------------------------
         # `centroids` wins over `polygons` when both are given. Reduce to a geometry
@@ -116,6 +148,15 @@ connect_components <- function(g,
                 stop(sprintf(
                         "Centroid count (%d) does not match the number of graph vertices (%d).",
                         length(centroids), igraph::vcount(g)), call. = FALSE)
+        }
+        poly_geom <- NULL
+        if (!is.null(polygons)) {
+                poly_geom <- sf::st_geometry(polygons)
+                if (length(poly_geom) != igraph::vcount(g)) {
+                        stop(sprintf(
+                                "Polygon count (%d) does not match the number of graph vertices (%d).",
+                                length(poly_geom), igraph::vcount(g)), call. = FALSE)
+                }
         }
         if (identical(method, "rann")) .warn_if_longlat(sf::st_crs(centroids), verbose)
         
@@ -152,9 +193,18 @@ connect_components <- function(g,
                 bridge <- find_nearest_pair(coords, idx_small, idx_other, method,
                                             centroids = centroids)
                 
+                # Bridge length in metres: boundary-to-boundary when polygons are
+                # available, centroid-to-centroid otherwise (see "Bridge length").
+                d_bridge <- if (!is.null(poly_geom)) {
+                        .pair_dist_m(poly_geom[bridge$from], poly_geom[bridge$to])
+                } else {
+                        .centroid_pair_dist_m(centroids, bridge$from, bridge$to)
+                }
+                
                 # Add by integer vertex id (graph carries no `name` attribute, so numeric
                 # references are interpreted as ids -- matching polygon_to_network()).
-                g <- igraph::add_edges(g, c(bridge$from, bridge$to))
+                g <- igraph::add_edges(g, c(bridge$from, bridge$to),
+                                       attr = list(bridge = TRUE, bridge_dist = d_bridge))
                 
                 if (verbose && (n_added %% 10L == 0L || n_added <= 5L || comp$no <= 3L)) {
                         .log(verbose, "  [%d] Linked component %d (%d nodes) -> %d remaining",
@@ -162,7 +212,8 @@ connect_components <- function(g,
                 }
         }
         
-        .log(verbose, "Done: added %d bridge edges. Graph is connected.", n_added)
+        .log(verbose, "Done: added %d bridge edges (length by %s distance). Graph is connected.",
+             n_added, dist_method)
         g
 }
 

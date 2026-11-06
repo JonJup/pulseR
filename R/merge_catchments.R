@@ -30,6 +30,10 @@
 #' of catchments below target_n are not performed.
 #' @param max_rounds Maximum number of merging rounds to perform. Defaults to
 #' Inf.
+#' @param bridge_scale Length scale of the bridge penalty in meters, passed
+#' to [add_edge_weight()]. `NULL` (default) takes the default scale of the
+#' first round's network and holds it fixed across rounds; `Inf` leaves
+#' bridges unpenalized. Not a tuning parameter.
 #'
 #' @return An sf object containing the resulting catchments. Merged
 #' catchments receive generated IDs of the form "M<round>_<number>".
@@ -53,7 +57,7 @@
 #' @seealso [polygon_to_network()], [add_edge_weight()], [sf::st_union()]
 #'
 #' @importFrom sf st_as_sf st_crs st_geometry st_sfc st_union
-#' @importFrom igraph ecount E ends
+#' @importFrom igraph ecount E ends graph_attr
 #' @importFrom stats weighted.mean
 #' 
 #' @export
@@ -79,7 +83,8 @@ merge_catchments <- function(
                 threshold,
                 max_original = Inf,
                 target_n = NULL,
-                max_rounds = Inf
+                max_rounds = Inf,
+                bridge_scale = NULL
 ) {
         
         # ------------------------------------------------------------*
@@ -100,7 +105,7 @@ merge_catchments <- function(
         if (anyDuplicated(x[[id_col]])) {
                 stop("Original IDs must be unique.")
         }
-        
+        .assert_bridge_scale(bridge_scale)
         # Turn ID column into character to harmonize with outputs of this 
         # function
         x[[id_col]] <- as.character(x[[id_col]])
@@ -128,8 +133,17 @@ merge_catchments <- function(
                 
                 # Build current graph 
                 g <- polygon_to_network(x)
-                g <- add_edge_weight(g = g, variables = env_cols)
-                
+                # Bridges are re-flagged every round. We fix the penalty scale at 
+                # the first round's default so merging does not change it. 
+                if (is.null(bridge_scale)){
+                        lam <- igraph::graph_attr(g$graph, "bridge_scale_default")
+                        if (!is.null(bridge_scale) && is.finite(lam) && lam > 0) 
+                                bridge_scale <- lam 
+                }
+                g <- add_edge_weight(g = g,
+                                     variables = env_cols, 
+                                     bridge_scale = bridge_scale)
+
                 
                 
                 if (igraph::ecount(g) == 0) {

@@ -281,9 +281,18 @@ neighbourhood_weights <- function(Rk, coords,
 #'   memory is tight. Default 64.
 #' @param digits Rounding, or \code{NULL} (default) for none. Rounding is lossy
 #'   and was only ever cosmetic.
+#' @param exclude_bridges Logical. If \code{TRUE} (default), edges flagged
+#'   \code{bridge} (added by \code{\link{connect_components}}) are removed
+#'   before neighbourhoods are built, so neighbourhoods do not reach across
+#'   the sea or a data gap. They are removed from both the reachability
+#'   pattern \eqn{(A + I)^k} and the edges summed into the signature. A unit
+#'   linked only by bridges (for example a one-catchment island) then gets an
+#'   \code{NA} signature, which \code{\link{get_mosaic_types}} skips. Graphs
+#'   without a \code{bridge} edge attribute are used as they are.
 #' @param verbose Logical.
 #' @return Numeric \eqn{n \times \binom{c+1}{2}} matrix with \code{"a:b"} column
-#'   names. Rows whose neighbourhood contains no edge are \code{NA}.
+#'   names. Rows whose neighbourhood contains no edge are \code{NA}. The
+#'   attribute \code{exclude_bridges} records the setting.
 #' @importFrom igraph as_adjacency_matrix ends E is_igraph vcount
 #' @importFrom Matrix crossprod
 #' @export
@@ -294,8 +303,10 @@ compute_all_signatures <- function(P, graph, k,
                                    drop_zero_cols = TRUE,
                                    block   = 64L,
                                    digits  = NULL,
+                                   exclude_bridges = TRUE,
                                    verbose = TRUE) {
         kernel <- match.arg(kernel)
+        .assert_flag(exclude_bridges, "exclude_bridges")
         
         lab <- NULL
         if (is.list(P) && !is.null(P$P)) { lab <- P$labels; P <- P$P }
@@ -311,6 +322,10 @@ compute_all_signatures <- function(P, graph, k,
         if (anyNA(P)) stop("`P` contains NA.", call. = FALSE)
         if (is.null(lab)) lab <- colnames(P)
         if (is.null(lab)) lab <- paste0("c", seq_len(nc))
+        
+        # Drop bridges first, so both the reachability pattern and the edge set
+        # below exclude them.
+        if (exclude_bridges) graph <- .drop_bridges(graph, verbose)
         
         if (verbose) message(sprintf("Reachability (k = %d) for %d polygons ...", k, n))
         Rk <- get_reachability(graph, k)
@@ -372,6 +387,7 @@ compute_all_signatures <- function(P, graph, k,
         structure(sigs, class = c("mosaic_signatures", "matrix", "array"),
                   n_classes = nc, class_labels = lab, k_order = k,
                   kernel = kernel, sigma = sigma,
+                  exclude_bridges = exclude_bridges,
                   totals = rs)    # summed edge weight per neighbourhood: DMM pseudo-counts
 }
 
@@ -1089,7 +1105,8 @@ print.mosaic_types <- function(x, ...) {
 #' @param coords Centroid matrix.
 #' @param k_range Neighbourhood orders. Default 1:5.
 #' @param n_clusters Candidate mosaic-type counts. Default 2:10.
-#' @param kernel,sigma Passed to \code{\link{compute_all_signatures}}.
+#' @param kernel,sigma,exclude_bridges Passed to
+#'   \code{\link{compute_all_signatures}}.
 #' @param ... Passed to \code{\link{get_mosaic_types}} (\code{distance},
 #'   \code{metric}, \code{stability_B}, \code{sample_size}, \code{seed}).
 #' @details \code{k} is bounded on both sides: too small and the signatures are
@@ -1111,7 +1128,7 @@ print.mosaic_types <- function(x, ...) {
 #'   \code{best_k}.
 #' @export
 sweep_k_order <- function(P, graph, coords = NULL, k_range = 1:5, n_clusters = 2:10,
-                          kernel = "none", sigma = "global", ...) {
+                          kernel = "none", sigma = "global", exclude_bridges = TRUE, ...) {
         if (!igraph::is_igraph(graph)) stop("`graph` must be an igraph object.", call. = FALSE)
         k_range <- sort(unique(as.integer(k_range)))
         
@@ -1120,7 +1137,9 @@ sweep_k_order <- function(P, graph, coords = NULL, k_range = 1:5, n_clusters = 2
                 k <- k_range[i]
                 message("\n=== Neighbourhood order k = ", k, " ===")
                 sigs <- compute_all_signatures(P, graph, k, coords = coords,
-                                               kernel = kernel, sigma = sigma, verbose = TRUE)
+                                               kernel = kernel, sigma = sigma,
+                                               exclude_bridges = exclude_bridges,
+                                               verbose = TRUE)
                 cl <- get_mosaic_types(sigs, n_clusters = n_clusters, ...)
                 ## FIX: the old version built a frame with no `silhouette` column and
                 ## then selected on it, and it indexed cl$validity by column position.
@@ -1166,11 +1185,13 @@ sweep_k_order <- function(P, graph, coords = NULL, k_range = 1:5, n_clusters = 2
 #' neighbourhood order reduced.
 #'
 #' @param sigs Signature matrix.
-#' @param graph The adjacency graph.
+#' @param graph The adjacency graph. If \code{sigs} was computed with
+#'   \code{exclude_bridges = TRUE}, bridge edges are excluded here too.
 #' @return Numeric vector of length \eqn{n}.
 #' @importFrom igraph as_adjacency_matrix
 #' @export
 mosaic_contrast <- function(sigs, graph) {
+        if (isTRUE(attr(sigs, "exclude_bridges"))) graph <- .drop_bridges(graph)
         ## unclass(): Matrix's S4 %*% recurses without end on the S3
         ## "mosaic_signatures" class (C stack overflow in sweep_k_order()).
         S <- unclass(as.matrix(sigs))

@@ -35,6 +35,12 @@
 #'   when variables are already on a comparable scale.
 #' @param prior Numeric or character vector with type memberships to priori 
 #'   typology systems.
+#' @param bridge_scale Length scale \eqn{\lambda} of the bridge penalty, in
+#'   metres (see \emph{Bridge penalty}). \code{NULL} (default) uses the graph
+#'   attribute \code{bridge_scale_default} set by
+#'   \code{\link{polygon_to_network}}. \code{Inf} switches the penalty off.
+#'   This is a fixed modelling choice, not a tuning parameter:
+#'   \code{\link{tune_regions}} does not vary it.
 #' @param verbose Logical. Report edge and vertex counts.
 #'
 #' @return An undirected \code{igraph} object whose edge \code{weight} attribute
@@ -49,6 +55,27 @@
 #'   so validity indices are computed in the space the weights live in. For
 #'   weights from another source (for example GDM), store the transformed
 #'   predictors with \code{igraph::graph_attr(g, "env") <- X}.
+#'
+#'   Edge attributes \code{bridge}, \code{bridge_dist} and \code{weight_env}
+#'   (the weight before the bridge penalty) are carried through, and the graph
+#'   attributes \code{bridge_scale} (the \eqn{\lambda} used, \code{Inf} if
+#'   none) and \code{bridge_dist_method} are set. Graphs without a
+#'   \code{bridge} edge attribute are treated as having no bridges.
+#'
+#' @section Bridge penalty:
+#' Bridge edges (\code{E(g$graph)$bridge}, added by
+#' \code{\link{connect_components}}) join units that do not share a boundary,
+#' such as an island and the mainland. Their weight is
+#' \deqn{w_b = w_b^{env} + s\,(1 - e^{-d_b/\lambda}),}
+#' where \eqn{w^{env}} is the environmental distance, \eqn{d_b} the bridge
+#' length in metres (\code{bridge_dist}), and \eqn{s} the largest non-bridge
+#' weight. The penalty is additive, so a bridge between environmentally
+#' identical units is still penalised. A bridge across a topology gap
+#' (\eqn{d \approx 0}) gets almost no penalty; one much longer than
+#' \eqn{\lambda} is as dissimilar as the most dissimilar real neighbour pair,
+#' so spanning-tree cuts strongly prefer it. Note that the chunked path of
+#' \code{polygon_to_network()} measures \eqn{d} between centroids, the
+#' in-memory path between boundaries.
 #'
 #' @section Node ordering:
 #' This function assumes that the i-th row of the environmental data corresponds
@@ -113,7 +140,7 @@
 #' )
 #' }
 #'
-#' @importFrom igraph as_adjacency_matrix graph_from_data_frame
+#' @importFrom igraph as_adjacency_matrix graph_from_data_frame edge_attr graph_attr set_graph_attr ends
 #' @importFrom spdep mat2listw nbcosts
 #' @importFrom sf st_drop_geometry
 #' @importFrom stats sd
@@ -126,6 +153,7 @@ add_edge_weight <- function(g,
                             variables       = NULL,
                             scale           = TRUE,
                             prior           = NULL,
+                            bridge_scale    = NULL,
                             verbose         = TRUE) {
         
         
@@ -158,6 +186,7 @@ add_edge_weight <- function(g,
         if (!is.null(id_col) && !is.character(id_col)) {
                 stop("`id_col` must be a character vector or NULL.")
         }
+        .assert_bridge_scale(bridge_scale)
         
         # Mode-specific requirements.
         if (chunked) {
@@ -310,10 +339,21 @@ add_edge_weight <- function(g,
         e_to   <- to_idx[upper]
         e_w    <- weight[upper]
         
+        # ---- Bridge flag and penalty ----------------------------------------------
+        # The rebuild below goes through adjacency -> nb, which reorders edges and
+        # drops attributes, so the bridge flag is matched by vertex pair, not by
+        # position.
+        br <- .bridge_info(g$graph, e_from, e_to, bridge_scale)
+        e_w_env <- e_w
+        e_w     <- .bridge_penalty(e_w_env, br$bridge, br$dist, br$scale)
+        
         edges_df <- data.frame(
-                from   = vertex_names[e_from],
-                to     = vertex_names[e_to],
-                weight = e_w,
+                from        = vertex_names[e_from],
+                to          = vertex_names[e_to],
+                weight      = e_w,
+                weight_env  = e_w_env,
+                bridge      = br$bridge,
+                bridge_dist = br$dist,
                 stringsAsFactors = FALSE
         )
         
@@ -331,10 +371,26 @@ add_edge_weight <- function(g,
         # compute_null_baseline()).
         rownames(env_matrix) <- vertex_names
         out.graph <- igraph::set_graph_attr(out.graph, "env", env_matrix)
+        out.graph <- igraph::set_graph_attr(out.graph, "bridge_scale", br$scale)
+        dm <- igraph::graph_attr(g$graph, "bridge_dist_method")
+        if (!is.null(dm))
+                out.graph <- igraph::set_graph_attr(out.graph, "bridge_dist_method", dm)
         
         if (verbose) {
                 message(sprintf("  %d edges, %d vertices.",
                                 igraph::ecount(out.graph), igraph::vcount(out.graph)))
+                n_br <- sum(br$bridge)
+                if (n_br > 0L) {
+                        if (is.infinite(br$scale)) {
+                                message(sprintf("  %d bridge edge(s), not penalised (bridge_scale = Inf).",
+                                                n_br))
+                        } else {
+                                message(sprintf(paste0("  %d bridge edge(s) penalised by length ",
+                                                       "(bridge_scale = %.4g m, %s distance)."),
+                                                n_br, br$scale,
+                                                if (is.null(dm)) "unknown" else dm))
+                        }
+                }
         }
         
         # Adding the prior typology if provided.
@@ -348,6 +404,52 @@ add_edge_weight <- function(g,
 #
 # Internal helpers
 #
+
+#' Bridge flag, length and scale for the edges of the rebuilt graph
+#'
+#' @param graph The input \pkg{igraph} (\code{g$graph}).
+#' @param e_from,e_to Integer vertex indices of the output edges (i < j).
+#' @param bridge_scale User value or \code{NULL}.
+#' @return List with \code{bridge} (logical), \code{dist} (numeric, NA on
+#'   non-bridges), both aligned with \code{e_from}, and \code{scale}.
+#' @keywords internal
+#' @noRd
+.bridge_info <- function(graph, e_from, e_to, bridge_scale) {
+        n_e    <- length(e_from)
+        out    <- list(bridge = rep(FALSE, n_e), dist = rep(NA_real_, n_e),
+                       scale  = Inf)
+        flag   <- igraph::edge_attr(graph, "bridge")
+        idx    <- if (is.null(flag)) integer(0) else which(flag %in% TRUE)
+        
+        if (!length(idx)) {
+                if (is.null(flag) && !is.null(bridge_scale))
+                        warning("`g$graph` has no `bridge` edge attribute, so `bridge_scale` ",
+                                "is ignored. Build the graph with polygon_to_network() to flag ",
+                                "bridges.", call. = FALSE)
+                if (!is.null(bridge_scale)) out$scale <- bridge_scale
+                return(out)
+        }
+        
+        ep   <- igraph::ends(graph, idx, names = FALSE)
+        key  <- function(a, b) paste(pmin(a, b), pmax(a, b), sep = "-")
+        pos  <- match(key(ep[, 1], ep[, 2]), key(e_from, e_to))
+        if (anyNA(pos))
+                stop("Internal error: a bridge edge is missing from the weighted graph.",
+                     call. = FALSE)
+        d    <- igraph::edge_attr(graph, "bridge_dist")
+        out$bridge[pos] <- TRUE
+        out$dist[pos]   <- if (is.null(d)) NA_real_ else d[idx]
+        
+        if (is.null(bridge_scale)) {
+                bridge_scale <- igraph::graph_attr(graph, "bridge_scale_default")
+                if (is.null(bridge_scale) || !is.finite(bridge_scale) || bridge_scale <= 0)
+                        stop("The graph has ", length(idx), " bridge edge(s) but no usable ",
+                             "default `bridge_scale`. Supply `bridge_scale` in metres, or Inf ",
+                             "to leave bridges unpenalised.", call. = FALSE)
+        }
+        out$scale <- bridge_scale
+        out
+}
 
 
 #' Coerce a data frame of environmental variables to a numeric matrix

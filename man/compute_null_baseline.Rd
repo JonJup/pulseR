@@ -69,8 +69,10 @@ removed, so each replicate shows what the criteria report when only the
 map drives the result: the "contiguity-only" floor.
 }
 \details{
-Edge weights are recomputed as Euclidean distance on \code{env},
-the same function \code{\link{add_edge_weight}} uses. This tests
+Edge weights are recomputed as Euclidean distance on \code{env}
+plus the bridge penalty stored on \code{graph} (\code{bridge},
+\code{bridge_dist}, \code{bridge_scale}), the same function
+\code{\link{add_edge_weight}} uses. This tests
 environmental signal only if \code{env} is the matrix the observed
 weights were computed from, so the function first recomputes the weights
 from the unshuffled \code{env} and stops unless they correlate with

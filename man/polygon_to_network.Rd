@@ -37,8 +37,9 @@ pair. Any positive value triggers a per-candidate-edge boundary-length
 computation (see \emph{Details}), which is exact but considerably slower.}
 
 \item{connect_islands}{Logical scalar. If \code{TRUE} (default), disconnected
-components in the network are joined using the package-internal
-\code{connect_components()} helper.}
+components in the network are joined by bridge edges using
+\code{\link{connect_components}}. Bridges are flagged and measured; see
+\emph{Bridge edges}.}
 
 \item{control_paths}{Optional character vector of file paths, only used when
 \code{chunked = TRUE}; must be the same length as \code{polygons}. Each
@@ -78,13 +79,18 @@ A list with the following elements:
 \describe{
 \item{graph}{An \pkg{igraph} object representing the spatial network.
 Nodes correspond to polygons (vertex ids \code{1..n} in input order)
-and edges represent spatial contiguity. The graph is undirected and
-simplified (no multi-edges or self-loops).}
+and edges represent spatial contiguity or bridges. The graph is
+undirected and simplified (no multi-edges or self-loops). Edge
+attributes \code{bridge} and \code{bridge_dist}, and graph attributes
+\code{bridge_scale_default} and (when bridges were added)
+\code{bridge_dist_method} are described under \emph{Bridge edges}.}
 \item{polygons}{Returned only when \code{chunked = FALSE}: the cleaned
 \pkg{sf} polygon object actually used to build the network (after
 validity repair and empty-geometry removal).}
 \item{edge_data}{A data frame with integer columns \code{from} and
-\code{to} giving connected polygon pairs as 1-based global indices.}
+\code{to} giving connected polygon pairs as 1-based global indices,
+logical \code{bridge} and numeric \code{bridge_dist} (metres,
+\code{NA} for contiguity edges). Bridge rows come last.}
 \item{chunk_meta}{Returned only when \code{chunked = TRUE}: a list with
 one entry per chunk recording file paths, node count, global index
 range, and bounding box.}
@@ -141,6 +147,28 @@ This function depends on a package-internal \code{connect_components()}
 helper (used when \code{connect_islands = TRUE}) which must accept either a
 \code{polygons} or a \code{centroids} argument alongside the graph.
 }
+\section{Bridge edges}{
+
+Edges added by \code{connect_islands = TRUE} are not contiguity. Every edge
+carries \code{bridge} (\code{TRUE} for bridges) and \code{bridge_dist}
+(bridge length in metres, \code{NA} otherwise). The length is measured
+differently in the two modes, recorded in the graph attribute
+\code{bridge_dist_method}:
+\describe{
+\item{In memory (\code{"boundary"})}{shortest polygon-to-polygon
+distance.}
+\item{Chunked (\code{"centroid"})}{centroid-to-centroid distance, because
+the polygons are no longer in memory. It is always at least the
+boundary distance, so the two modes do not give identical bridge
+penalties for the same data.}
+}
+The graph attribute \code{bridge_scale_default} holds the default length
+scale for the bridge penalty in \code{\link{add_edge_weight}}: the median,
+over units with a contiguity neighbour, of the centroid distance to the
+nearest such neighbour (metres). \code{\link{compute_all_signatures}}
+excludes bridges from Level 3 neighbourhoods by default.
+}
+
 \section{Coordinate reference system}{
 
 All distance-like arguments (\code{min_shared_length}, \code{snap},

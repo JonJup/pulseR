@@ -30,8 +30,9 @@
 #'   pair. Any positive value triggers a per-candidate-edge boundary-length
 #'   computation (see \emph{Details}), which is exact but considerably slower.
 #' @param connect_islands Logical scalar. If \code{TRUE} (default), disconnected
-#'   components in the network are joined using the package-internal
-#'   \code{connect_components()} helper.
+#'   components in the network are joined by bridge edges using
+#'   \code{\link{connect_components}}. Bridges are flagged and measured; see
+#'   \emph{Bridge edges}.
 #' @param control_paths Optional character vector of file paths, only used when
 #'   \code{chunked = TRUE}; must be the same length as \code{polygons}. Each
 #'   file should contain an identifier column (\code{ID} or \code{id}) listing
@@ -64,13 +65,18 @@
 #'   \describe{
 #'     \item{graph}{An \pkg{igraph} object representing the spatial network.
 #'       Nodes correspond to polygons (vertex ids \code{1..n} in input order)
-#'       and edges represent spatial contiguity. The graph is undirected and
-#'       simplified (no multi-edges or self-loops).}
+#'       and edges represent spatial contiguity or bridges. The graph is
+#'       undirected and simplified (no multi-edges or self-loops). Edge
+#'       attributes \code{bridge} and \code{bridge_dist}, and graph attributes
+#'       \code{bridge_scale_default} and (when bridges were added)
+#'       \code{bridge_dist_method} are described under \emph{Bridge edges}.}
 #'     \item{polygons}{Returned only when \code{chunked = FALSE}: the cleaned
 #'       \pkg{sf} polygon object actually used to build the network (after
 #'       validity repair and empty-geometry removal).}
 #'     \item{edge_data}{A data frame with integer columns \code{from} and
-#'       \code{to} giving connected polygon pairs as 1-based global indices.}
+#'       \code{to} giving connected polygon pairs as 1-based global indices,
+#'       logical \code{bridge} and numeric \code{bridge_dist} (metres,
+#'       \code{NA} for contiguity edges). Bridge rows come last.}
 #'     \item{chunk_meta}{Returned only when \code{chunked = TRUE}: a list with
 #'       one entry per chunk recording file paths, node count, global index
 #'       range, and bounding box.}
@@ -115,6 +121,26 @@
 #' If the input polygons contain an \code{ID} (or \code{id}) column, these
 #' identifiers are stored as the \code{polygon_id} vertex attribute.
 #'
+#' @section Bridge edges:
+#' Edges added by \code{connect_islands = TRUE} are not contiguity. Every edge
+#' carries \code{bridge} (\code{TRUE} for bridges) and \code{bridge_dist}
+#' (bridge length in metres, \code{NA} otherwise). The length is measured
+#' differently in the two modes, recorded in the graph attribute
+#' \code{bridge_dist_method}:
+#' \describe{
+#'   \item{In memory (\code{"boundary"})}{shortest polygon-to-polygon
+#'     distance.}
+#'   \item{Chunked (\code{"centroid"})}{centroid-to-centroid distance, because
+#'     the polygons are no longer in memory. It is always at least the
+#'     boundary distance, so the two modes do not give identical bridge
+#'     penalties for the same data.}
+#' }
+#' The graph attribute \code{bridge_scale_default} holds the default length
+#' scale for the bridge penalty in \code{\link{add_edge_weight}}: the median,
+#' over units with a contiguity neighbour, of the centroid distance to the
+#' nearest such neighbour (metres). \code{\link{compute_all_signatures}}
+#' excludes bridges from Level 3 neighbourhoods by default.
+#'
 #' @section Coordinate reference system:
 #' All distance-like arguments (\code{min_shared_length}, \code{snap},
 #' \code{bbox_buffer}) and centroid-based component joining are interpreted in
@@ -157,7 +183,7 @@
 #'
 #' @importFrom spdep poly2nb
 #' @importFrom sf st_make_valid st_is_empty st_centroid st_geometry st_bbox st_touches st_relate st_length st_intersection st_collection_extract st_crs st_is_longlat
-#' @importFrom igraph make_empty_graph add_edges set_vertex_attr vcount ecount components simplify
+#' @importFrom igraph make_empty_graph add_edges set_vertex_attr vcount ecount components simplify ends set_graph_attr E
 #'
 #' @export
 polygon_to_network <- function(polygons,
@@ -170,7 +196,7 @@ polygon_to_network <- function(polygons,
                                snap                     = 1e-6,
                                bbox_buffer              = 0.01,
                                verbose                  = TRUE) {
-
+  
   # ---- Hard dependency checks ---- *
   # spdep is required for both modes; the heavy I/O packages (sfarrow, arrow)
   # are only needed for chunked mode and are checked there so they can live in
@@ -178,7 +204,7 @@ polygon_to_network <- function(polygons,
   .need("spdep")
   .need("sf")
   .need("igraph")
-
+  
   # ---- Scalar argument validation ---- *-
   # Fail fast and informatively rather than letting a malformed value surface as
   # a cryptic error deep inside spdep / sf.
@@ -190,7 +216,7 @@ polygon_to_network <- function(polygons,
   .assert_nonneg(min_shared_length, "min_shared_length")
   .assert_nonneg(snap,              "snap")
   .assert_nonneg(bbox_buffer,       "bbox_buffer")
-
+  
   # ---- Mode-specific input validation ---------------------------------------
   if (chunked) {
     if (!is.character(polygons) || length(polygons) == 0L) {
@@ -232,7 +258,7 @@ polygon_to_network <- function(polygons,
               call. = FALSE)
     }
   }
-
+  
   # ---- Dispatch ---- *
   if (!chunked) {
     return(.network_in_memory(
@@ -244,7 +270,7 @@ polygon_to_network <- function(polygons,
       verbose           = verbose
     ))
   }
-
+  
   .network_chunked(
     polygon_paths            = polygons,
     control_paths            = control_paths,
@@ -264,9 +290,9 @@ polygon_to_network <- function(polygons,
 # ===========================================================================*
 .network_in_memory <- function(polygons, min_shared_length, connect_islands,
                                queen, snap, verbose) {
-
+  
   .warn_if_longlat(sf::st_crs(polygons), verbose)
-
+  
   # ---- Geometry hygiene before neighbour detection --------------------------
   # poly2nb is intolerant of invalid and empty geometries, so repair and drop
   # them first. Indices below are taken AFTER this step, so the returned
@@ -280,36 +306,41 @@ polygon_to_network <- function(polygons,
   }
   n <- nrow(polygons)
   if (n == 0L) stop("No valid, non-empty geometries remain.", call. = FALSE)
-
+  
   .log(verbose, "Processing %d polygons with spdep::poly2nb()...", n)
-
+  
   # ---- Contiguity neighbours -> from/to edgelist (local == global here) -----
   nb      <- suppressWarnings(spdep::poly2nb(polygons, queen = queen, snap = snap))
   edge_df <- nb_to_edgelist(nb)
-
+  
   # Optional shared-boundary-length filtering (exact but O(edges); see Details).
   if (nrow(edge_df) > 0 && min_shared_length > 0) {
     keep    <- .shared_lengths_pairs(sf::st_geometry(polygons)[edge_df$from],
                                      sf::st_geometry(polygons)[edge_df$to]) >=
-               min_shared_length
+      min_shared_length
     edge_df <- edge_df[keep, , drop = FALSE]
   }
-
+  
   # ---- Assemble graph (isolated vertices preserved) -------------------------
   g <- .build_graph(edge_df, n_total = n)
-
+  
   # Carry polygon identifiers through as a vertex attribute when available.
   id_col <- .id_col(polygons)
   if (!is.na(id_col)) {
     g <- igraph::set_vertex_attr(g, "polygon_id", value = polygons[[id_col]])
   }
-
+  
   comp <- igraph::components(g)$no
   .log(verbose, "Network created: %d nodes, %d edges, %d components.",
        igraph::vcount(g), igraph::ecount(g), comp)
-
+  
+  # Default bridge length scale from the contiguity edges, before bridging.
+  centroids <- suppressWarnings(sf::st_centroid(sf::st_geometry(polygons)))
+  g <- .init_bridge_attrs(g, centroids)
+  
   if (comp != 1L && connect_islands) {
-    g <- connect_components(g, polygons = polygons)
+    g <- connect_components(g, polygons = polygons, centroids = centroids,
+                            verbose = verbose)
   }
   
   igraph::E(g)$eid <- seq_len(ecount(g))
@@ -317,7 +348,7 @@ polygon_to_network <- function(polygons,
   list(
     graph     = g,
     polygons  = polygons,   # cleaned object, aligned with vertex ids
-    edge_data = edge_df
+    edge_data = .edge_data_with_bridges(edge_df, g)
   )
 }
 
@@ -328,29 +359,29 @@ polygon_to_network <- function(polygons,
 .network_chunked <- function(polygon_paths, control_paths, connect_islands,
                              return_combined_polygons, min_shared_length,
                              queen, snap, bbox_buffer, verbose) {
-
+  
   # Chunked mode pulls in the optional GeoParquet I/O stack.
   .need("sfarrow")
   .need("arrow")
-
+  
   all_edges      <- list()   # list of from/to data frames (global indices)
   all_ids        <- NULL     # polygon_id values in global order
   offset         <- 0L       # running global-index offset across chunks
   chunk_meta     <- vector("list", length(polygon_paths))
   centroids_list <- vector("list", length(polygon_paths))
   combined_polys <- if (return_combined_polygons)
-                      vector("list", length(polygon_paths)) else NULL
+    vector("list", length(polygon_paths)) else NULL
   ref_crs        <- NULL     # CRS of the first non-empty chunk, for consistency
   saw_id         <- FALSE    # whether any chunk carried an id column
-
+  
   # ---- Phase 1: within-chunk edges ---- *
   for (k in seq_along(polygon_paths)) {
     .log(verbose, "Processing chunk %d/%d", k, length(polygon_paths))
-
+    
     polys_k <- .load_chunk(polygon_paths[k],
                            if (!is.null(control_paths)) control_paths[k] else NULL)
     n_k     <- nrow(polys_k)
-
+    
     # Enforce a single CRS across the whole dataset; silent CRS mixing would
     # corrupt cross-chunk predicates and centroid distances.
     if (n_k > 0L) {
@@ -364,13 +395,13 @@ polygon_to_network <- function(polygons,
              "all chunks must share one CRS.", call. = FALSE)
       }
     }
-
+    
     # Global indices for this chunk. NB: seq() counts DOWN when n_k == 0, which
     # would silently invent two bogus indices for an empty chunk, so guard it.
     global_idx <- if (n_k > 0L) seq.int(offset + 1L, offset + n_k) else integer(0)
-
+    
     if (return_combined_polygons) combined_polys[[k]] <- polys_k
-
+    
     chunk_meta[[k]] <- list(
       path         = polygon_paths[k],
       control_path = if (!is.null(control_paths)) control_paths[k] else NULL,
@@ -378,16 +409,16 @@ polygon_to_network <- function(polygons,
       global_idx   = global_idx,
       bbox         = if (n_k > 0L) sf::st_bbox(polys_k) else NULL
     )
-
+    
     if (n_k > 0L) {
       # Within-chunk contiguity, mapped onto global indices.
       nb_k    <- suppressWarnings(spdep::poly2nb(polys_k, queen = queen, snap = snap))
       edges_k <- nb_to_edgelist(nb_k)
-
+      
       if (nrow(edges_k) > 0 && min_shared_length > 0) {
         keep    <- .shared_lengths_pairs(sf::st_geometry(polys_k)[edges_k$from],
                                          sf::st_geometry(polys_k)[edges_k$to]) >=
-                   min_shared_length
+          min_shared_length
         edges_k <- edges_k[keep, , drop = FALSE]
       }
       if (nrow(edges_k) > 0) {
@@ -395,7 +426,7 @@ polygon_to_network <- function(polygons,
         edges_k$to   <- edges_k$to   + offset
         all_edges[[length(all_edges) + 1L]] <- edges_k
       }
-
+      
       # Polygon ids (in global order). Track whether ANY chunk had them so a
       # partial set does not get half-applied later.
       id_col <- .id_col(polys_k)
@@ -405,22 +436,22 @@ polygon_to_network <- function(polygons,
       } else {
         all_ids <- c(all_ids, rep(NA_character_, n_k))
       }
-
+      
       # Centroids for optional island-connection. Empty chunks contribute an
       # empty sfc so the per-chunk lists stay aligned with global indices.
       centroids_list[[k]] <-
         suppressWarnings(sf::st_centroid(sf::st_geometry(polys_k)))
     }
-
+    
     offset <- offset + n_k
     # Release per-chunk objects promptly: out-of-core processing exists
     # precisely because we cannot afford to hold everything at once.
     if (!return_combined_polygons) rm(polys_k)
     gc(verbose = FALSE)
   }
-
+  
   n_total <- offset
-
+  
   # ---- Phase 2: cross-chunk edges ---- *-
   # Only inspect chunk pairs whose buffered bounding boxes are adjacent; the
   # rest cannot possibly share a boundary, which is what keeps this scalable.
@@ -484,34 +515,39 @@ polygon_to_network <- function(polygons,
   } else {
     data.frame(from = integer(), to = integer())
   }
-
+  
   g <- .build_graph(edge_df, n_total = n_total)
-
+  
   # Only attach ids if every node has one (a complete vector); a partial set is
   # more misleading than none.
   if (saw_id && length(all_ids) == n_total && !all(is.na(all_ids))) {
     g <- igraph::set_vertex_attr(g, "polygon_id", value = all_ids)
   }
-
+  
   comp <- igraph::components(g)$no
   .log(verbose, "Combined network: %d nodes, %d edges, %d components.",
        igraph::vcount(g), igraph::ecount(g), comp)
-
+  
+  # do.call(c, ...) concatenates the per-chunk sfc objects in global order;
+  # NULL entries (chunks with zero nodes) are dropped harmlessly.
+  all_centroids <- if (n_total > 0L)
+    do.call(c, Filter(Negate(is.null), centroids_list)) else NULL
+  g <- .init_bridge_attrs(g, all_centroids)
+  
   if (connect_islands && comp > 1L) {
-    # do.call(c, ...) concatenates the per-chunk sfc objects in global order;
-    # NULL entries (chunks with zero nodes) are dropped harmlessly.
-    all_centroids <- do.call(c, Filter(Negate(is.null), centroids_list))
-    g <- connect_components(g, centroids = all_centroids)
+    # Polygons are not in memory here, so bridge length is centroid-to-centroid
+    # (bridge_dist_method = "centroid"); the in-memory path uses boundaries.
+    g <- connect_components(g, centroids = all_centroids, verbose = verbose)
   }
-
+  
   igraph::E(g)$eid <- seq_len(ecount(g))
   
   out <- list(
     graph      = g,
-    edge_data  = edge_df,
+    edge_data  = .edge_data_with_bridges(edge_df, g),
     chunk_meta = chunk_meta
   )
-
+  
   if (return_combined_polygons) {
     .log(verbose, "Combining all chunked polygons into a single sf object...")
     # rbind.sf requires matching columns; restrict to the intersection so a
@@ -527,7 +563,7 @@ polygon_to_network <- function(polygons,
       out$combined_polygons <- do.call(rbind, lapply(present, function(x) x[, common]))
     }
   }
-
+  
   out
 }
 
@@ -558,7 +594,7 @@ polygon_to_network <- function(polygons,
 #' @noRd
 .load_chunk <- function(path, control_path = NULL) {
   polys <- sfarrow::st_read_parquet(path, quiet = TRUE)
-
+  
   if (!is.null(control_path)) {
     poly_c   <- arrow::read_parquet(control_path)
     id_poly  <- .id_col(polys)
@@ -569,7 +605,7 @@ polygon_to_network <- function(polygons,
     }
     polys <- polys[polys[[id_poly]] %in% poly_c[[id_ctrl]], ]
   }
-
+  
   polys <- sf::st_make_valid(polys)
   polys[!sf::st_is_empty(polys), ]
 }
@@ -596,6 +632,50 @@ polygon_to_network <- function(polygons,
   igraph::simplify(g, remove.multiple = TRUE, remove.loops = TRUE)
 }
 
+#' Add bridge attributes and the default bridge length scale to a new graph
+#'
+#' Called before bridging, when every edge is a contiguity edge. Sets
+#' \code{bridge = FALSE}, \code{bridge_dist = NA} on all edges and the graph
+#' attribute \code{bridge_scale_default} (metres; \code{NA} without edges).
+#'
+#' @param g An \pkg{igraph} object built by \code{.build_graph()}.
+#' @param centroids \pkg{sf} point geometry column, one per vertex, or NULL.
+#' @return \code{g} with the attributes set.
+#' @keywords internal
+#' @noRd
+.init_bridge_attrs <- function(g, centroids) {
+  ne <- igraph::ecount(g)
+  igraph::E(g)$bridge      <- rep(FALSE, ne)
+  igraph::E(g)$bridge_dist <- rep(NA_real_, ne)
+  lambda <- NA_real_
+  if (ne > 0L && !is.null(centroids)) {
+    ep     <- igraph::ends(g, igraph::E(g), names = FALSE)
+    lambda <- .default_bridge_scale(centroids, ep[, 1], ep[, 2])
+  }
+  igraph::set_graph_attr(g, "bridge_scale_default", lambda)
+}
+
+#' Append bridge edges to the contiguity edge table
+#'
+#' @param edge_df Contiguity edge table (\code{from}, \code{to}).
+#' @param g Final graph carrying the \code{bridge}/\code{bridge_dist} attributes.
+#' @return \code{edge_df} with \code{bridge} and \code{bridge_dist} columns
+#'   and one extra row per bridge edge.
+#' @keywords internal
+#' @noRd
+.edge_data_with_bridges <- function(edge_df, g) {
+  edge_df$bridge      <- rep(FALSE, nrow(edge_df))
+  edge_df$bridge_dist <- rep(NA_real_, nrow(edge_df))
+  br <- which(igraph::E(g)$bridge %in% TRUE)
+  if (!length(br)) return(edge_df)
+  ep <- igraph::ends(g, br, names = FALSE)
+  rbind(edge_df,
+        data.frame(from        = as.integer(pmin(ep[, 1], ep[, 2])),
+                   to          = as.integer(pmax(ep[, 1], ep[, 2])),
+                   bridge      = TRUE,
+                   bridge_dist = igraph::E(g)$bridge_dist[br]))
+}
+
 
 #' Do two bounding boxes touch or overlap (with a buffer)?
 #'
@@ -609,9 +689,9 @@ bboxes_adjacent <- function(bb1, bb2, buffer = 0.01) {
   # keeps the result a bare logical scalar rather than a named one.
   unname(
     !(bb1["xmax"] + buffer < bb2["xmin"] |
-      bb2["xmax"] + buffer < bb1["xmin"] |
-      bb1["ymax"] + buffer < bb2["ymin"] |
-      bb2["ymax"] + buffer < bb1["ymin"])
+        bb2["xmax"] + buffer < bb1["xmin"] |
+        bb1["ymax"] + buffer < bb2["ymin"] |
+        bb2["ymax"] + buffer < bb1["ymin"])
   )
 }
 

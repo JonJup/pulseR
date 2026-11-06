@@ -12,6 +12,7 @@ add_edge_weight(
   variables = NULL,
   scale = TRUE,
   prior = NULL,
+  bridge_scale = NULL,
   verbose = TRUE
 )
 }
@@ -51,6 +52,13 @@ when variables are already on a comparable scale.}
 \item{prior}{Numeric or character vector with type memberships to priori
 typology systems.}
 
+\item{bridge_scale}{Length scale \eqn{\lambda} of the bridge penalty, in
+metres (see \emph{Bridge penalty}). \code{NULL} (default) uses the graph
+attribute \code{bridge_scale_default} set by
+\code{\link{polygon_to_network}}. \code{Inf} switches the penalty off.
+This is a fixed modelling choice, not a tuning parameter:
+\code{\link{tune_regions}} does not vary it.}
+
 \item{verbose}{Logical. Report edge and vertex counts.}
 }
 \value{
@@ -66,6 +74,12 @@ standardising), one row per vertex. \code{\link{tune_regions}} and
 so validity indices are computed in the space the weights live in. For
 weights from another source (for example GDM), store the transformed
 predictors with \code{igraph::graph_attr(g, "env") <- X}.
+
+Edge attributes \code{bridge}, \code{bridge_dist} and \code{weight_env}
+(the weight before the bridge penalty) are carried through, and the graph
+attributes \code{bridge_scale} (the \eqn{\lambda} used, \code{Inf} if
+none) and \code{bridge_dist_method} are set. Graphs without a
+\code{bridge} edge attribute are treated as having no bridges.
 }
 \description{
 Calculates edge weights as Euclidean distances between adjacent
@@ -109,6 +123,23 @@ downstream minimum spanning tree / SKATER step.
 Isolated vertices (degree 0) are retained in the output as isolated nodes but
 contribute no edges; a warning is emitted when any are present.
 }
+\section{Bridge penalty}{
+
+Bridge edges (\code{E(g$graph)$bridge}, added by
+\code{\link{connect_components}}) join units that do not share a boundary,
+such as an island and the mainland. Their weight is
+\deqn{w_b = w_b^{env} + s\,(1 - e^{-d_b/\lambda}),}
+where \eqn{w^{env}} is the environmental distance, \eqn{d_b} the bridge
+length in metres (\code{bridge_dist}), and \eqn{s} the largest non-bridge
+weight. The penalty is additive, so a bridge between environmentally
+identical units is still penalised. A bridge across a topology gap
+(\eqn{d \approx 0}) gets almost no penalty; one much longer than
+\eqn{\lambda} is as dissimilar as the most dissimilar real neighbour pair,
+so spanning-tree cuts strongly prefer it. Note that the chunked path of
+\code{polygon_to_network()} measures \eqn{d} between centroids, the
+in-memory path between boundaries.
+}
+
 \section{Node ordering}{
 
 This function assumes that the i-th row of the environmental data corresponds

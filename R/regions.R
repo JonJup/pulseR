@@ -162,14 +162,7 @@ get_regions <- function(graph,
         if (any(regions_per_partition > igraph::vcount(graph))) {
                 stop("`regions_per_partition` cannot exceed the number of vertices (", igraph::vcount(graph), ").", call. = FALSE)
         }
-        if (max(final_regions) > max(regions_per_partition)) {
-                stop(sprintf(paste0(
-                        "`final_regions` (%d) exceeds `regions_per_partition` (%d). ",
-                        "Each tree is cut into `regions_per_partition` pieces, and the ",
-                        "consensus cannot have more regions than one tree has. Raise ",
-                        "`regions_per_partition`; it is usually several times `final_regions`."),
-                        max(final_regions), max(regions_per_partition)), call. = FALSE)
-        }
+        
         
         # --- Exact prior reproduction short-circuit ----------------------------*
         # Triggered by prior_strength = INF
@@ -2505,8 +2498,10 @@ print.pulse_regions <- function(x, ...) {
 #' removed, so each replicate shows what the criteria report when only the
 #' map drives the result: the "contiguity-only" floor.
 #'
-#' @details Edge weights are recomputed as Euclidean distance on \code{env},
-#'   the same function \code{\link{add_edge_weight}} uses. This tests
+#' @details Edge weights are recomputed as Euclidean distance on \code{env}
+#'   plus the bridge penalty stored on \code{graph} (\code{bridge},
+#'   \code{bridge_dist}, \code{bridge_scale}), the same function
+#'   \code{\link{add_edge_weight}} uses. This tests
 #'   environmental signal only if \code{env} is the matrix the observed
 #'   weights were computed from, so the function first recomputes the weights
 #'   from the unshuffled \code{env} and stops unless they correlate with
@@ -2566,10 +2561,10 @@ compute_null_baseline <- function(graph, env = NULL, env_id = NULL, final_region
         cvi_cols <- names(.CVI_DIRECTION)
         
         # The null is only a test of environmental signal if it uses the same
-        # weight function on the same matrix as the observed graph.
-        ep  <- igraph::ends(graph, igraph::E(graph), names = FALSE)
-        .null_weights <- function(X)
-                sqrt(rowSums((X[ep[, 1], , drop = FALSE] - X[ep[, 2], , drop = FALSE])^2))
+        # weight function on the same matrix as the observed graph, including the
+        # distance penalty on bridge edges (bridge flag, length and scale are
+        # geometry, so they are kept fixed across replicates).
+        .null_weights <- function(X) .edge_weights_from_env(graph, X)
         r <- suppressWarnings(stats::cor(.null_weights(env), igraph::E(graph)$weight))
         if (!is.finite(r) || r < 0.999)
                 stop(sprintf(paste0(

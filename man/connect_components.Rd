@@ -17,8 +17,10 @@ connect_components(
 to the features in \code{polygons} / \code{centroids}. No name-based
 matching is performed; vertex \code{i} is feature \code{i}.}
 
-\item{polygons}{Optional \pkg{sf} polygon object. Used only to derive
-\code{centroids} when the latter is not supplied; ignored otherwise.}
+\item{polygons}{Optional \pkg{sf} polygon object, one feature per vertex
+of \code{g}. Used to derive \code{centroids} when the latter is not
+supplied, and, whenever supplied, to measure bridge length as the
+shortest boundary-to-boundary distance.}
 
 \item{centroids}{Optional \pkg{sf} point object or \pkg{sf} geometry column
 (\code{sfc}) giving one centroid per vertex of \code{g}. If \code{NULL},
@@ -43,8 +45,12 @@ via \code{message()}.}
 }
 \value{
 The input graph \code{g} with additional bridge edges, guaranteed to
-form a single connected component. If \code{g} is already connected it is
-returned unchanged.
+form a single connected component. Every edge carries the logical
+attribute \code{bridge} (\code{TRUE} for added edges, \code{FALSE}
+otherwise) and the numeric attribute \code{bridge_dist} (bridge length in
+metres; \code{NA} on non-bridges). The graph attribute
+\code{bridge_dist_method} records how the length was measured. If
+\code{g} is already connected only the attributes are added.
 }
 \description{
 Iteratively bridges disconnected components of an \pkg{igraph} object by
@@ -58,10 +64,28 @@ per iteration -- and tends to produce a small set of bridge edges, but is not
 guaranteed to yield a Euclidean minimum spanning forest of the components.
 
 Either \code{polygons} or \code{centroids} must be supplied; if both are
-given, \code{centroids} takes precedence. The number of centroids must equal
-the number of vertices of \code{g}, otherwise bridges would be added between
-the wrong nodes; a mismatch is a hard error.
+given, \code{centroids} is used to choose the bridged pair. The number of
+centroids (and of polygons, if given) must equal the number of vertices of
+\code{g}, otherwise bridges would be added between the wrong nodes; a
+mismatch is a hard error.
 }
+\section{Bridge length}{
+
+The bridged pair is always chosen by nearest centroid. Its recorded length
+(\code{bridge_dist}) depends on what is supplied:
+\describe{
+\item{\code{"boundary"}}{\code{polygons} supplied (in-memory
+\code{polygon_to_network()}): shortest distance between the two
+polygons. A topology gap or corner contact gets a length near 0.}
+\item{\code{"centroid"}}{only \code{centroids} supplied (chunked
+\code{polygon_to_network()}): centroid-to-centroid distance, which is
+always at least the boundary distance, so the same bridge receives a
+larger penalty in \code{\link{add_edge_weight}}.}
+}
+Lengths are in metres for projected and geographic CRSs (great-circle for
+lon/lat), and in raw coordinate units when the data have no CRS.
+}
+
 \section{Coordinate reference system}{
 
 \code{method = "rann"} measures distance in raw coordinate space. For a
