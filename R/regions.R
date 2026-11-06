@@ -162,7 +162,14 @@ get_regions <- function(graph,
         if (any(regions_per_partition > igraph::vcount(graph))) {
                 stop("`regions_per_partition` cannot exceed the number of vertices (", igraph::vcount(graph), ").", call. = FALSE)
         }
-        
+        if (max(final_regions) > max(regions_per_partition)) {
+                stop(sprintf(paste0(
+                        "`final_regions` (%d) exceeds `regions_per_partition` (%d). ",
+                        "Each tree is cut into `regions_per_partition` pieces, and the ",
+                        "consensus cannot have more regions than one tree has. Raise ",
+                        "`regions_per_partition`; it is usually several times `final_regions`."),
+                        max(final_regions), max(regions_per_partition)), call. = FALSE)
+        }
         
         # --- Exact prior reproduction short-circuit ----------------------------*
         # Triggered by prior_strength = INF
