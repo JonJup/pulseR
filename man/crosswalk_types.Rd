@@ -15,6 +15,7 @@ crosswalk_types(
   weights = NULL,
   local_scope = c("global", "within_region"),
   nesting = 0.7,
+  min_coverage = 0.95,
   ami_max_terms = 5e+07
 )
 
@@ -46,7 +47,7 @@ used. Rows are never matched by position.}
 character strings.}
 
 \item{weights}{\code{NULL} (default; every unit counts once) or the name of
-a non-negative numeric column in \code{external}, such as catchment area.
+a non-negative numeric column in \code{external}, such as polygon area.
 Weights enter the overlap tables and information-based indices. ARI and
 AMI always use unit counts, because chance correction needs integer counts.}
 
@@ -55,6 +56,11 @@ Used for \code{pulse_local_types} only; see the Level 2 scope section.}
 
 \item{nesting}{Share in \eqn{(0.5, 1]} above which a type counts as lying
 within one type of the other typology. Default 0.7.}
+
+\item{min_coverage}{Warn when fewer than this share of typed PULSE units
+find a usable external match. Default 0.95. Set it to 0 when
+\code{external} deliberately covers only part of the study area, such as
+one basin, jurisdiction or survey region. Counts stay in \code{coverage}.}
 
 \item{ami_max_terms}{Largest number of hypergeometric terms for the exact
 expected mutual information. Above it the asymptotic approximation
@@ -77,7 +83,8 @@ and \code{crisp} weighted overlap, and unweighted crisp \code{counts}.}
 normalisation), VI and its two parts \code{H_ext_given_pulse} (zero
 when PULSE types nest in external types) and \code{H_pulse_given_ext}
 (zero when external types nest in PULSE types), both in nats,
-\code{purity}, \code{inverse_purity} and Cramer's V.}
+\code{purity}, \code{inverse_purity}, Cramer's V, and the
+marginal entropies \code{H_pulse} and \code{H_ext} (nats).}
 \item{\code{by_region}}{Per-region indices (\code{"within_region"}
 only), otherwise \code{NULL}.}
 \item{\code{types}}{List with \code{pulse} and \code{external} data
@@ -102,7 +109,8 @@ table. Compare levels on AMI, not NMI: NMI rises with the number of types.
 }
 \description{
 Cross-tabulates a pulseR typology (any level) against an existing typology
-defined on the same spatial units, such as a national WFD river typology,
+defined on the same spatial units (an existing ecoregion map, an agency
+classification, a land-system map, or another pulseR run)
 and summarises how the two correspond: overall agreement, which types map
 onto which, and where on the map they disagree.
 }
@@ -132,5 +140,15 @@ whatever the level 1 regions already explain. \code{"within_region"}
 computes the indices within each region and returns their mass-weighted
 means, which isolates level 2. To compare pooled river types with an
 external river typology, pass a \code{pulse_meta_types} object.
+}
+
+\section{External typologies assembled from parts}{
+
+An external typology built from independently defined parts (one system
+per jurisdiction, basin or survey programme, each with its own labels) has
+a block structure that inflates agreement, because the parts alone already
+predict much of the label. Run one crosswalk per part instead, with
+\code{min_coverage = 0}, and compare the results with
+\code{plot_crosswalk(list(...), what = "plane")}.
 }
 
