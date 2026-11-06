@@ -11,7 +11,8 @@
 #' Crosswalk a pulseR typology against an external typology
 #'
 #' Cross-tabulates a pulseR typology (any level) against an existing typology
-#' defined on the same spatial units, such as a national WFD river typology,
+#' defined on the same spatial units (an existing ecoregion map, an agency
+#' classification, a land-system map, or another pulseR run)
 #' and summarises how the two correspond: overall agreement, which types map
 #' onto which, and where on the map they disagree.
 #'
@@ -56,7 +57,7 @@
 #'   (default) uses \code{"ID"} or \code{"id"}. Identifiers are compared as
 #'   character strings.
 #' @param weights \code{NULL} (default; every unit counts once) or the name of
-#'   a non-negative numeric column in \code{external}, such as catchment area.
+#'   a non-negative numeric column in \code{external}, such as polygon area.
 #'   Weights enter the overlap tables and information-based indices. ARI and
 #'   AMI always use unit counts, because chance correction needs integer counts.
 #' @param local_scope \code{"global"} (default) or \code{"within_region"}.
@@ -204,7 +205,7 @@ crosswalk_types <- function(x, external, label, units, id = NULL, weights = NULL
         Pf <- .cw_cond_rows(Jf)
         M  <- U %*% Pf                                   # nrow(U) x L, small
         support <- if (is.null(ext$V)) M[cbind(r, he)] / rs
-                   else rowSums(M[r, , drop = FALSE] * ext$V[e, , drop = FALSE]) / rs
+        else rowSums(M[r, , drop = FALSE] * ext$V[e, , drop = FALSE]) / rs
         certainty <- U[cbind(r, max.col(U, ties.method = "first")[r])] / rs
         best_c <- max.col(Jc, ties.method = "first")
         best_c[rowSums(Jc) <= 0] <- NA_integer_
@@ -339,7 +340,7 @@ crosswalk_types <- function(x, external, label, units, id = NULL, weights = NULL
         if (!is.data.frame(external))
                 stop("`external` must be an sf object or a data frame.", call. = FALSE)
         df <- if (inherits(external, "sf")) sf::st_drop_geometry(external)
-              else as.data.frame(external)
+        else as.data.frame(external)
         if (is.null(id)) {
                 id <- .id_col(df)
                 if (is.na(id)) stop("No `ID` or `id` column in `external`; set `id`.",
@@ -367,7 +368,7 @@ crosswalk_types <- function(x, external, label, units, id = NULL, weights = NULL
         if (length(label) == 1L) {
                 lab <- df[[label]]
                 lv  <- if (is.factor(lab)) levels(droplevels(lab))
-                       else sort(unique(as.character(lab[!is.na(lab)])))
+                else sort(unique(as.character(lab[!is.na(lab)])))
                 hard <- match(as.character(lab), lv)
                 ok   <- !is.na(hard)
         } else {
@@ -483,11 +484,11 @@ crosswalk_types <- function(x, external, label, units, id = NULL, weights = NULL
         terms  <- sum(pmax(outer(a, b, pmin) - pmax(outer(a, b, "+") - N, 1) + 1, 0))
         method <- if (terms <= max_terms) "exact" else "approx"
         emi <- if (method == "exact") .cw_emi_exact(a, b, N)
-               else (length(a) - 1) * (length(b) - 1) / (2 * N)
+        else (length(a) - 1) * (length(b) - 1) / (2 * N)
         den <- (Ha + Hb) / 2 - emi
         ami <- if (length(a) == 1L && length(b) == 1L) 1
-               else if (abs(den) < 1e-12) NA_real_
-               else (MI - emi) / den
+        else if (abs(den) < 1e-12) NA_real_
+        else (MI - emi) / den
         list(ARI = .cw_ari(C), AMI = ami, method = method)
 }
 
@@ -527,7 +528,7 @@ crosswalk_types <- function(x, external, label, units, id = NULL, weights = NULL
         rel <- function(one, nest, cont, mass)
                 ifelse(!(mass > 0), NA_character_,
                        ifelse(one, "1:1", ifelse(nest, "nested",
-                                                  ifelse(cont, "contains", "mixed"))))
+                                                 ifelse(cont, "contains", "mixed"))))
         eff <- function(P) exp(apply(P, 1, .cw_h))
         rows <- data.frame(type = rownames(J), basis = basis, mass = rs,
                            share = rs / tot, best_match = colnames(J)[br],
@@ -564,7 +565,7 @@ crosswalk_types <- function(x, external, label, units, id = NULL, weights = NULL
         })
         by_region <- do.call(rbind, lapply(per, `[[`, "br"))
         wmean <- function(v, w) { ok <- !is.na(v) & w > 0
-                if (!any(ok)) NA_real_ else sum(v[ok] * w[ok]) / sum(w[ok]) }
+        if (!any(ok)) NA_real_ else sum(v[ok] * w[ok]) / sum(w[ok]) }
         agreement <- do.call(rbind, lapply(.CW_INDICES, function(ix) {
                 s  <- by_region[by_region$index == ix, ]
                 wc <- if (ix %in% c("ARI", "AMI")) s$n_units else s$mass_crisp
@@ -587,7 +588,7 @@ crosswalk_types <- function(x, external, label, units, id = NULL, weights = NULL
 .cw_by_certainty <- function(u) {
         br <- unique(stats::quantile(u$certainty, seq(0, 1, 0.2), names = FALSE))
         bin <- if (length(br) < 3L) factor(rep("all", nrow(u)))
-               else cut(u$certainty, br, include.lowest = TRUE, dig.lab = 3)
+        else cut(u$certainty, br, include.lowest = TRUE, dig.lab = 3)
         out <- do.call(rbind, lapply(split(seq_len(nrow(u)), bin), function(i) {
                 w <- u$weight[i]
                 data.frame(certainty = as.character(bin[i[1]]), n_units = length(i),
