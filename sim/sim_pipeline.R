@@ -86,7 +86,8 @@ run_pipeline <- function(sim, cfg = list(), seed = 1L) {
     
     if (.ok(reg) && isTRUE(cfg$refine)) {
         rf <- .stage(log, "refine", .refine_regions(reg$hard_clusters, gw,
-                                                    igraph::graph_attr(gw, "env")))
+                                                    igraph::graph_attr(gw, "env"),
+                                                    min_size = getOption("pulseR.min_size", 1L)))
         if (.ok(rf)) {
             m$l1_ari_refined    <- ari(rf$z, tr$z)
             m$l1_refined_pieces <- excess_pieces(rf$z, gw)
