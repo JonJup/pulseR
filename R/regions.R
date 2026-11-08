@@ -661,7 +661,23 @@ compute_ensemble_memberships <- function(trees,
 #' @param prior_strength \eqn{\lambda}, in units of sd(\eqn{\gamma} log w).
 #' @param weight_exponent \eqn{\gamma}.
 #' @param size_influence Size term spread relative to the environmental term.
+#' @param min_size Smallest allowed piece size. Enforced only under
+#'   \code{options(pulseR.cut_rule = "ssd")}, where cuts are sequential.
 #' @return Integer matrix N x N_tree of region labels.
+#' @details Under \code{options(pulseR.cut_rule = "ssd")} each of the
+#'   \code{regions_per_partition - 1} cuts is drawn by an exponential race on
+#'   \deqn{\log \pi_e = \gamma \log g_e + \alpha \log h_e - \lambda u \, 1[e \in \text{prior}],}
+#'   recomputed on the current forest after every cut. \eqn{g_e = h_e D_e} is
+#'   the Ward SSD reduction of cutting \eqn{e}, \eqn{h_e = n_1 n_2 / (n_1 + n_2)}
+#'   and \eqn{D_e} the squared distance between the two side means of
+#'   \code{graph_attr(graph, "env")}. Because \eqn{g_e} contains \eqn{h_e}, the
+#'   Ward term already favours balanced cuts with exponent \eqn{\gamma};
+#'   \code{size_influence} adds to that. \eqn{u = \mathrm{sd}(\gamma \log g)},
+#'   \eqn{\alpha = \texttt{size\_influence} \cdot u / \mathrm{sd}(\log h)},
+#'   with the same \eqn{\log 2} fallback for \eqn{u} as the propensity rule.
+#'   Cuts leaving a side smaller than \code{min_size} are excluded.
+#'   \code{size_influence = 0}, \code{prior_strength = 0} and
+#'   \code{min_size = 1} reproduce the plain Ward race draw for draw.
 #' @keywords internal
 #' @noRd
 .compute_ensemble_memberships_internal <- function(graph,
@@ -670,7 +686,8 @@ compute_ensemble_memberships <- function(trees,
                                                    regions_per_partition,
                                                    prior_strength  = 0,
                                                    weight_exponent = 1,
-                                                   size_influence  = 2) {
+                                                   size_influence  = 2,
+                                                   min_size = getOption("pulseR.min_size", 1L)) {
         n_use <- as.integer(N_tree)
         n_reg <- as.integer(regions_per_partition)
         n_v   <- trees$n_vertices
@@ -681,6 +698,7 @@ compute_ensemble_memberships <- function(trees,
         }
         n_to_cut   <- n_reg - 1L
         n_fallback <- 0L
+        min_size   <- .check_min_size(min_size, n_reg, n_v)
         
         memb_mat <- matrix(0L, nrow = n_v, ncol = n_use)
         for (j in seq_len(n_use)) {
@@ -700,11 +718,35 @@ compute_ensemble_memberships <- function(trees,
                         X <- igraph::graph_attr(graph, "env")
                         if (is.null(X)) stop("cut_rule 'ssd' needs graph_attr(graph, 'env').")
                         ep <- igraph::ends(tree, igraph::E(tree), names = FALSE)
+                        wp <- if (prior_strength > 0 && !is.null(wpe)) wpe[edge_ids] else NULL
+                        if (!is.null(wp)) wp[is.na(wp)] <- FALSE
+                        fb <- FALSE
                         for (s in seq_len(n_to_cut)) {
-                                g_e <- pmax(.forest_cut_gains(ep, X), .Machine$double.xmin)
-                                key <- log(stats::rexp(nrow(ep))) - weight_exponent * log(g_e)
-                                ep  <- ep[-which.min(key), , drop = FALSE]
+                                fc <- .forest_cut_gains(ep, X)
+                                lp   <- weight_exponent * log(pmax(fc$gain, .Machine$double.xmin))
+                                u    <- stats::sd(lp)                 # unit: sd(gamma log g)
+                                ok_u <- is.finite(u) && u > 0
+                                if (size_influence > 0 && ok_u) {
+                                        lh   <- log(fc$h)
+                                        sd_h <- stats::sd(lh)
+                                        if (is.finite(sd_h) && sd_h > 0)
+                                                lp <- lp + size_influence * u / sd_h * lh
+                                }
+                                if (!is.null(wp) && any(wp)) {
+                                        if (!ok_u) { u <- log(2); fb <- TRUE }
+                                        lp <- lp - prior_strength * u * wp
+                                }
+                                if (min_size > 1L) lp[fc$n_min < min_size] <- -Inf
+                                if (!any(is.finite(lp)))
+                                        stop(sprintf(paste0(
+                                                "Tree %d: no cut keeps both sides >= min_size (%d) ",
+                                                "at cut %d of %d. Lower min_size or regions_per_partition."),
+                                                j, min_size, s, n_to_cut), call. = FALSE)
+                                drop <- which.min(log(stats::rexp(nrow(ep))) - lp)
+                                ep   <- ep[-drop, , drop = FALSE]
+                                if (!is.null(wp)) wp <- wp[-drop]
                         }
+                        n_fallback <- n_fallback + fb
                         memb_mat[, j] <- as.integer(igraph::components(igraph::make_graph(
                                 as.vector(t(ep)), n = n_v, directed = FALSE))$membership)
                         next
@@ -794,8 +836,10 @@ compute_ensemble_memberships <- function(trees,
         n_c
 }
 
-# SSD reduction of cutting each edge of a forest, within its own component.
+# Ward SSD reduction of cutting each edge of a forest, within its own component.
 # ep: m x 2 integer edge matrix; X: n x p matrix in vertex order.
+# Returns list: gain = h * D, h = n1 n2 / (n1 + n2), n_min = min(n1, n2),
+# all in the row order of ep.
 .forest_cut_gains <- function(ep, X) {
         n_v <- nrow(X); n_e <- nrow(ep)
         from <- c(ep[, 1], ep[, 2]); to <- c(ep[, 2], ep[, 1])
@@ -828,9 +872,23 @@ compute_ensemble_memberships <- function(trees,
         n1 <- size[ch]; n2 <- size[rt] - n1; k <- nrow(St)
         d  <- St[, ch, drop = FALSE] / rep(n1, each = k) -
                 (St[, rt, drop = FALSE] - St[, ch, drop = FALSE]) / rep(n2, each = k)
-        gain <- numeric(n_e)
-        gain[pedge[ch]] <- n1 * n2 / (n1 + n2) * colSums(d^2)
-        gain
+        gain <- h <- n_min <- numeric(n_e)
+        h[pedge[ch]]     <- n1 * n2 / (n1 + n2)
+        gain[pedge[ch]]  <- h[pedge[ch]] * colSums(d^2)
+        n_min[pedge[ch]] <- pmin(n1, n2)
+        list(gain = gain, h = h, n_min = n_min)
+}
+
+# Validate min_size: one integer >= 1, and k regions of that size must fit.
+.check_min_size <- function(min_size, k, n_v) {
+        if (length(min_size) != 1L || is.na(min_size) || min_size < 1 ||
+            min_size != round(min_size))
+                stop("min_size must be one whole number >= 1.", call. = FALSE)
+        min_size <- as.integer(min_size)
+        if (min_size * k > n_v)
+                stop(sprintf("min_size (%d) x regions (%d) exceeds the number of units (%d).",
+                             min_size, k, n_v), call. = FALSE)
+        min_size
 }
 
 
@@ -1003,7 +1061,8 @@ cluster_consensus <- function(ensemble, k, graph = NULL,
         if (isTRUE(getOption("pulseR.refine")) && !is.null(graph)) {
                 X <- igraph::graph_attr(graph, "env")
                 if (is.null(X)) stop("pulseR.refine needs graph_attr(graph, 'env').", call. = FALSE)
-                hard2   <- .refine_regions(hard, graph, X)$z
+                hard2   <- .refine_regions(hard, graph, X,
+                                           min_size = getOption("pulseR.min_size", 1L))$z
                 n_moved <- sum(hard2 != hard)
                 if (n_moved > 0L) {
                         if (verbose) message(sprintf("  boundary refinement: %d unit(s) moved", n_moved))
@@ -2722,9 +2781,11 @@ print.null_baseline <- function(x, ...) {
 }
 # Contiguity-preserving SSD descent on a hard partition. Moves a boundary
 # unit to an adjacent region if total within-region SSD drops and the old
-# region stays connected. Same objective as the "ssd" cut rule.
-.refine_regions <- function(z, graph, X, max_pass = 20L) {
+# region stays connected and keeps at least min_size units. Same objective
+# as the "ssd" cut rule.
+.refine_regions <- function(z, graph, X, max_pass = 20L, min_size = 1L) {
         z   <- match(z, sort(unique(z))); k <- max(z)
+        min_size <- .check_min_size(min_size, k, length(z))
         nb  <- lapply(igraph::adjacent_vertices(graph, igraph::V(graph)), as.integer)
         n_r <- tabulate(z, k)
         S   <- rowsum(X, z, reorder = TRUE)
@@ -2734,7 +2795,7 @@ print.null_baseline <- function(x, ...) {
                 bnd <- which(vapply(seq_along(z), function(i) any(z[nb[[i]]] != z[i]), logical(1)))
                 for (i in bnd) {
                         a <- z[i]; cand <- setdiff(unique(z[nb[[i]]]), a)
-                        if (!length(cand) || n_r[a] <= 1L) next
+                        if (!length(cand) || n_r[a] <= min_size) next
                         out  <- n_r[a] / (n_r[a] - 1) * sum((X[i, ] - S[a, ] / n_r[a])^2)
                         gain <- vapply(cand, function(b)
                                 out - n_r[b] / (n_r[b] + 1) * sum((X[i, ] - S[b, ] / n_r[b])^2), numeric(1))
