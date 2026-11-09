@@ -42,7 +42,7 @@ ensemble configuration under test (e.g. \code{tune_regions()$best_config}).}
 \item{stability_B}{Integer. Random splits for \code{STAB}; use the value of
 the observed run.}
 
-\item{observed}{Optional \code{"regions_tuning"} object or a data frame
+\item{observed}{Optional \code{"pulse_regions_tuning"} object or a data frame
 with \code{final_regions} and validity columns (e.g. a \code{tuning_log}).
 Rows are matched on the ensemble configuration when those columns exist.}
 
@@ -53,7 +53,7 @@ Rows are matched on the ensemble configuration when those columns exist.}
 \item{verbose}{Logical.}
 }
 \value{
-An object of class \code{"null_baseline"}: \code{null} (one row per
+An object of class \code{"pulse_null"}: \code{null} (one row per
 replicate and k), \code{summary} (one row per k and criterion: observed,
 null mean, null 95\\% bound in the "better" direction, \code{excess} =
 observed minus null mean with the sign set so positive is better than the

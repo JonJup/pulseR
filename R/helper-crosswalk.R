@@ -6,14 +6,14 @@ cw_onehot <- function(h, K = max(h)) {
         U
 }
 cw_regions <- function(U, hard = max.col(U, ties.method = "first"))
-        structure(list(memberships = U, hard_clusters = hard), class = "pulse_regions")
+        structure(list(memberships = U, hard_labels = hard), class = "pulse_regions")
 cw_local <- function(U, region, hard = max.col(U, ties.method = "first"))
-        structure(list(memberships = U, hard_classes = hard,
+        structure(list(memberships = U, hard_labels = hard,
                        key = data.frame(name = paste0("local", region, "_",
                                                       stats::ave(region, region, FUN = seq_along)),
                                         region = region)),
                   class = "pulse_local_types")
 cw_mosaic <- function(U, valid, hard = max.col(U, ties.method = "first"))
-        structure(list(memberships = U, hard_clusters = hard, valid = valid),
-                  class = "mosaic_types")
+        structure(list(memberships = U, hard_labels = hard, valid = valid),
+                  class = "pulse_mosaic_types")
 cw_ext <- function(id, lab, ...) data.frame(ID = id, type = lab, ..., stringsAsFactors = FALSE)

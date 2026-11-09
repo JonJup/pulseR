@@ -4,17 +4,17 @@
 
 #' Convert signatures back to weighted pair counts
 #'
-#' @param sigs Output of \code{compute_all_signatures()}, rows summing to 1.
-#' @param totals Per-row totals; defaults to \code{attr(sigs, "totals")}.
+#' @param signatures Output of \code{compute_all_signatures()}, rows summing to 1.
+#' @param totals Per-row totals; defaults to \code{attr(signatures, "totals")}.
 #' @param n_scale Multiplier on the totals (sensitivity analysis: try 0.5 and 2).
 #' @return Numeric matrix of non-negative, possibly fractional counts, NA rows dropped.
 #' @keywords internal
-.sig_to_counts <- function(sigs, totals = attr(sigs, "totals"), n_scale = 1) {
+.sig_to_counts <- function(signatures, totals = attr(signatures, "totals"), n_scale = 1) {
         if (is.null(totals))
-                stop("No totals: add `attr(sigs, \"totals\") <- rs` in compute_all_signatures().",
+                stop("No totals: add `attr(signatures, \"totals\") <- rs` in compute_all_signatures().",
                      call. = FALSE)
-        ok <- stats::complete.cases(sigs)
-        X <- unclass(sigs)[ok, , drop = FALSE] * (totals[ok] * n_scale)
+        ok <- stats::complete.cases(signatures)
+        X <- unclass(signatures)[ok, , drop = FALSE] * (totals[ok] * n_scale)
         attr(X, "valid") <- which(ok)
         X
 }
@@ -141,7 +141,7 @@
 #' @param max_iter,tol EM limits; \code{tol} is on the relative log-likelihood change.
 #' @param A_init Starting precision sum(alpha) for the DMM EM.
 #' @param alpha_min Floor on alpha. A pair absent from a type would otherwise get
-#'   alpha -> 0, which forbids any catchment containing that pair from joining it.
+#'   alpha -> 0, which forbids any unit containing that pair from joining it.
 #' @param A_max Cap on the precision. At the cap the DMM equals a multinomial
 #'   mixture to numerical precision for any realistic count total.
 #' @param seed Optional integer seed.
@@ -223,7 +223,7 @@
                   class = "pulse_dmm")
 }
 
-#' Memberships and log predictive density for new rows (held-out blocks, unsampled catchments)
+#' Memberships and log predictive density for new rows (held-out blocks, unsampled units)
 #' @param fit A \code{pulse_dmm} object.
 #' @param X_new Count matrix with the same columns as the fitted \code{X}.
 #' @return List with \code{U}, \code{cluster}, per-row \code{logpred} and its sum \code{loglik}.

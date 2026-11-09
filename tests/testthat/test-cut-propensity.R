@@ -25,7 +25,7 @@ test_that("the ensemble runs on a graph with zero weights", {
         w <- stats::runif(igraph::ecount(g)); w[1:4] <- 0
         igraph::E(g)$weight <- w
         tr <- sample_spanning_trees(g, n = 5, seed = 1, verbose = FALSE)
-        em <- compute_ensemble_memberships(tr, N_tree = 5, graph = g,
+        em <- compute_ensemble(tr, N_tree = 5, graph = g,
                                            regions_per_partition = 4, verbose = FALSE)
         expect_true(all(apply(em$memberships, 2, function(l) length(unique(l))) == 4L))
 })

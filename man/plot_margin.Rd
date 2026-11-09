@@ -18,7 +18,7 @@ plot_margin(
 \arguments{
 \item{regions, local, meta, mosaic}{Fitted objects (\code{"pulse_regions"},
 \code{"pulse_local_types"}, \code{"pulse_meta_types"},
-\code{"mosaic_types"}); any may be \code{NULL}, at least one is required.}
+\code{"pulse_mosaic_types"}); any may be \code{NULL}, at least one is required.}
 
 \item{threshold}{Margin at or below which a unit counts as transitional.
 Default 0.1. \code{NULL} drops the line and the percentage.}

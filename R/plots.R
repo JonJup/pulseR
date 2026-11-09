@@ -149,7 +149,7 @@ pulse_palette <- function(x,
         }
         if (!is.null(env) && inherits(x, "pulse_regions")) {
                 X <- scale(as.matrix(env))
-                G <- rowsum(X, x$hard_clusters) / as.vector(tabulate(x$hard_clusters, k))
+                G <- rowsum(X, x$hard_labels) / as.vector(tabulate(x$hard_labels, k))
                 return(as.matrix(stats::dist(G)))
         }
         NULL
@@ -282,7 +282,7 @@ fade_by_confidence <- function(cols, w, floor = 0.12, to_l = 88) {
 #'     \item{\code{"transition"}}{Units whose best and second-best regions are
 #'       within \code{margin} — the fuzzy boundaries themselves.}
 #'     \item{\code{"membership"}}{One faceted panel per region (see \code{which}).}
-#'     \item{\code{"affinity"}}{k x k between-region co-association heatmap.}
+#'     \item{\code{"coassociation"}}{k x k between-region co-association heatmap.}
 #'     \item{\code{"ordination"}}{Regions in co-association space.}
 #'     \item{\code{"tuning"}}{Score against each searched axis.}
 #'   }
@@ -291,7 +291,7 @@ fade_by_confidence <- function(cols, w, floor = 0.12, to_l = 88) {
 #' @param confidence Which quantity drives the fade and the confidence surface.
 #'   \code{"certainty"} (default): own-region composition membership
 #'   \eqn{\Pi_{i,\mathrm{hard}_i}}. \code{"margin"}: best minus second-best
-#'   \eqn{\Pi}, which isolates boundaries. \code{"typicality"}: own-region
+#'   \eqn{\Pi}, which isolates boundaries. \code{"cohesion"}: own-region
 #'   cohesion. Cohesion shrinks with region size, so large homogeneous regions
 #'   look uncertain; use it only to compare units within one region.
 #'   \code{"membership"} is accepted as an alias for \code{"certainty"}.
@@ -303,11 +303,11 @@ fade_by_confidence <- function(cols, w, floor = 0.12, to_l = 88) {
 #' @export
 plot_regions <- function(x,
                          what       = c("map", "crisp", "confidence", "entropy",
-                                        "transition", "membership", "affinity",
+                                        "transition", "membership", "coassociation",
                                         "ordination", "tuning"),
                          geom       = NULL,
                          palette    = NULL,
-                         confidence = c("certainty", "margin", "typicality"),
+                         confidence = c("certainty", "margin", "cohesion"),
                          which      = NULL,
                          margin     = 0.1,
                          raster     = "auto",
@@ -329,13 +329,13 @@ plot_regions <- function(x,
                 what,
                 
                 map = .map(g,
-                           fade_by_confidence(palette[x$hard_clusters], conf),
+                           fade_by_confidence(palette[x$hard_labels], conf),
                            title    = sprintf("River ecotypes (k = %d)", x$k),
                            subtitle = "hue = region, saturation = confidence",
                            raster = raster, raster_px = raster_px) +
                         .region_key(palette),
                 
-                crisp = .map(g, unname(palette[x$hard_clusters]),
+                crisp = .map(g, unname(palette[x$hard_labels]),
                              title = sprintf("River ecotypes (k = %d)", x$k),
                              raster = raster, raster_px = raster_px) +
                         .region_key(palette),
@@ -383,7 +383,7 @@ plot_regions <- function(x,
                                 ggplot2::theme_void(base_size = 10)
                 },
                 
-                affinity = {
+                coassociation = {
                         B <- x$fit$region_coassoc
                         if (is.null(B)) stop("Fit carries no `region_coassoc`.", call. = FALSE)
                         ord <- .seriate(1 - B)
@@ -408,7 +408,7 @@ plot_regions <- function(x,
                         cfg <- as.data.frame(stats::cmdscale(stats::as.dist(D), k = 2))
                         names(cfg) <- c("Axis1", "Axis2")
                         cfg$region <- factor(seq_len(x$k))
-                        cfg$size   <- as.vector(tabulate(x$hard_clusters, x$k))
+                        cfg$size   <- as.vector(tabulate(x$hard_labels, x$k))
                         ggplot2::ggplot(cfg, ggplot2::aes(.data$Axis1, .data$Axis2)) +
                                 ggplot2::geom_point(ggplot2::aes(colour = .data$region,
                                                                  size = .data$size)) +
@@ -439,7 +439,7 @@ plot_regions <- function(x,
                                                     ggplot2::aes(xintercept = .data$value),
                                                     linetype = 2, colour = "#B2182B") +
                                 ggplot2::facet_wrap(~ axis, scales = "free_x") +
-                                ggplot2::labs(title = sprintf("Tuning (%s, %s)", x$metric, x$strategy),
+                                ggplot2::labs(title = sprintf("Tuning (%s, %s)", x$tuning_metric, x$tuning_strategy),
                                               subtitle = "each point is one configuration; dashed line = selected",
                                               x = NULL, y = "score (higher is better)") +
                                 ggplot2::theme_bw(base_size = 10)
@@ -449,8 +449,8 @@ plot_regions <- function(x,
 #' @keywords internal
 #' @noRd
 .conf_matrix <- function(x, confidence) {
-        if (confidence != "typicality") return(x$memberships)
-        M <- .first_non_null(x$typicality, x$fit$cohesion, x$fit$affinity, x$fit$typicality)
+        if (confidence != "cohesion") return(x$memberships)
+        M <- x$fit$cohesion
         if (is.null(M)) {
                 warning("No cohesion matrix on this fit; using memberships.", call. = FALSE)
                 return(x$memberships)
@@ -461,12 +461,12 @@ plot_regions <- function(x,
 #' Per-unit confidence of a pulse_regions fit
 #'
 #' \code{"certainty"}: own-region \eqn{\Pi}. \code{"margin"}: best minus
-#' second-best \eqn{\Pi}. \code{"typicality"}: own-region cohesion. Hard
+#' second-best \eqn{\Pi}. \code{"cohesion"}: own-region cohesion. Hard
 #' labels can be \code{NA} (uncovered units under an exact prior); those units
 #' and \code{NA} rows get \code{NA}.
 #' @keywords internal
 #' @noRd
-.confidence_vec <- function(x, confidence = c("certainty", "margin", "typicality")) {
+.confidence_vec <- function(x, confidence = c("certainty", "margin", "cohesion")) {
         confidence <- match.arg(confidence)
         M <- .conf_matrix(x, confidence)
         if (confidence == "margin") {
@@ -476,7 +476,7 @@ plot_regions <- function(x,
                         s <- sort(r, decreasing = TRUE); s[1] - s[2]
                 }))
         }
-        h <- x$hard_clusters
+        h <- x$hard_labels
         out <- rep(NA_real_, nrow(M))
         ok <- !is.na(h)
         out[ok] <- M[cbind(which(ok), h[ok])]
@@ -588,7 +588,7 @@ plot_local_types <- function(x,
         switch(
                 what,
                 
-                map = .map(g, fade_by_confidence(palette[x$hard_classes], conf),
+                map = .map(g, fade_by_confidence(palette[x$hard_labels], conf),
                            title    = sprintf("Local types (%d across %d regions)",
                                               ncol(x$memberships), length(x$n_local_types)),
                            subtitle = sprintf("hue = region, shade = local type, saturation = %s confidence",
@@ -599,9 +599,9 @@ plot_local_types <- function(x,
                         if (is.null(which)) stop("`what = \"region\"` needs `which = <region>`.",
                                                  call. = FALSE)
                         cols <- x$key$column[x$key$region == which]
-                        inr  <- x$hard_classes %in% cols
+                        inr  <- x$hard_labels %in% cols
                         fill <- rep("#F0F0F0", length(inr))
-                        fill[inr] <- fade_by_confidence(palette[x$hard_classes[inr]], conf[inr])
+                        fill[inr] <- fade_by_confidence(palette[x$hard_labels[inr]], conf[inr])
                         .map(g, fill,
                              title    = sprintf("Region %d: %d local types", which, length(cols)),
                              subtitle = "other regions greyed out",
@@ -611,10 +611,10 @@ plot_local_types <- function(x,
                 facet = {
                         df <- do.call(rbind, lapply(sort(unique(x$key$region)), function(r) {
                                 cols <- x$key$column[x$key$region == r]
-                                inr  <- x$hard_classes %in% cols
+                                inr  <- x$hard_labels %in% cols
                                 d <- g
                                 d$fill <- ifelse(inr,
-                                                 fade_by_confidence(palette[x$hard_classes], conf),
+                                                 fade_by_confidence(palette[x$hard_labels], conf),
                                                  "#F2F2F2")
                                 d$region <- factor(sprintf("Region %d", r))
                                 d
@@ -718,7 +718,7 @@ plot_local_types <- function(x,
 #' @return A \code{patchwork} object if \pkg{patchwork} is installed, otherwise
 #'   a list of two \code{ggplot} objects.
 #' @export
-plot_levels <- function(regions, local, geom = NULL, confidence = "joint", ...) {
+plot_region_local <- function(regions, local, geom = NULL, confidence = "joint", ...) {
         .need("ggplot2")
         pal_r <- pulse_palette(regions)
         pal_l <- local_palette(local, pal_r)
@@ -734,7 +734,7 @@ plot_levels <- function(regions, local, geom = NULL, confidence = "joint", ...) 
 # pulseR — visualisation, levels 2b and 3
 #
 #   Level 2b  pulse_meta_types   N units x M cross-region meta-types
-#   Level 3   mosaic_types       clustered on the COMPLETE-CASE rows only
+#   Level 3   pulse_mosaic_types       clustered on the COMPLETE-CASE rows only
 #
 # Follows the contract in the level-1/2 plotting file: one similarity-ordered
 # palette per fit, confidence baked into the hex fill rather than applied as
@@ -747,7 +747,7 @@ plot_levels <- function(regions, local, geom = NULL, confidence = "joint", ...) 
 #     oversight: if a meta-type map looked like the region map, the merge had
 #     failed.
 #   * A mosaic fit covers only the polygons with a complete signature. Isolated
-#     catchments have no mosaic type at all and must render as absent, not as a
+#     units have no mosaic type at all and must render as absent, not as a
 #     silent extra class. .scatter_valid() handles that everywhere.
 #
 # Replaces plot_meta_types() from meta_types.R and the older
@@ -819,13 +819,13 @@ plot_levels <- function(regions, local, geom = NULL, confidence = "joint", ...) 
 #'
 #' @param x A \code{"pulse_meta_types"} object.
 #' @param method,chroma,luminance,hue_offset Passed to the palette builder.
-#' @return Named character vector of \code{n_meta} hex colours.
+#' @return Named character vector of \code{n_meta_types} hex colours.
 #' @export
 meta_palette <- function(x, method = "auto", chroma = 65, luminance = 65,
                          hue_offset = 40) {
         stopifnot(inherits(x, "pulse_meta_types"))
         D <- .meta_dissimilarity(x)
-        .similarity_palette(D, x$n_meta, method, chroma, luminance,
+        .similarity_palette(D, x$n_meta_types, method, chroma, luminance,
                             hue_offset = hue_offset)
 }
 
@@ -834,7 +834,7 @@ meta_palette <- function(x, method = "auto", chroma = 65, luminance = 65,
 .meta_dissimilarity <- function(x) {
         Dl <- as.matrix(x$distance)
         cl <- x$key$meta
-        M  <- x$n_meta
+        M  <- x$n_meta_types
         if (M < 2L) return(NULL)
         out <- matrix(0, M, M)
         for (i in seq_len(M)) for (j in seq_len(M)) {
@@ -849,17 +849,17 @@ meta_palette <- function(x, method = "auto", chroma = 65, luminance = 65,
 #' Ordered by the distance between the medoid signatures, in the same metric the
 #' fit used.
 #'
-#' @param x A \code{"mosaic_types"} object.
+#' @param x A \code{"pulse_mosaic_types"} object.
 #' @param method,chroma,luminance,hue_offset Passed to the palette builder.
-#' @return Named character vector of \code{best_k} hex colours.
+#' @return Named character vector of \code{n_mosaic_types} hex colours.
 #' @export
 mosaic_palette <- function(x, method = "auto", chroma = 60, luminance = 60,
                            hue_offset = 200) {
-        stopifnot(inherits(x, "mosaic_types"))
+        stopifnot(inherits(x, "pulse_mosaic_types"))
         D <- tryCatch(
-                as.matrix(signature_distance(x$medoid_signatures, x$distance)),
+                as.matrix(compute_signature_distance(x$medoid_signatures, x$distance)),
                 error = function(e) NULL)
-        .similarity_palette(D, x$best_k, method, chroma, luminance,
+        .similarity_palette(D, x$n_mosaic_types, method, chroma, luminance,
                             hue_offset = hue_offset)
 }
 
@@ -876,7 +876,7 @@ mosaic_palette <- function(x, method = "auto", chroma = 60, luminance = 60,
 #' @keywords internal
 #' @noRd
 .n_units <- function(x) {
-        if (inherits(x, "mosaic_types"))      return(length(x$valid))
+        if (inherits(x, "pulse_mosaic_types"))      return(length(x$valid))
         if (inherits(x, "pulse_meta_types"))  return(nrow(x$memberships))
         if (inherits(x, "pulse_local_types")) return(nrow(x$memberships))
         if (inherits(x, "pulse_regions"))     return(nrow(x$memberships))
@@ -885,7 +885,7 @@ mosaic_palette <- function(x, method = "auto", chroma = 60, luminance = 60,
 
 #' Scatter values computed on the clustered subset back onto every polygon
 #'
-#' Isolated catchments have no signature and therefore no mosaic type. They get
+#' Isolated units have no signature and therefore no mosaic type. They get
 #' \code{fill_na}, never a class of their own.
 #' @keywords internal
 #' @noRd
@@ -935,7 +935,7 @@ mosaic_palette <- function(x, method = "auto", chroma = 60, luminance = 60,
 #'     \item{\code{"overlap"}}{Local-type distance matrix ordered by the merge
 #'       tree, with a region annotation strip.}
 #'     \item{\code{"selection"}}{Silhouette and ARI-with-region against
-#'       \code{n_meta}. Choose on the second: cluster tightness is not the
+#'       \code{n_meta_types}. Choose on the second: cluster tightness is not the
 #'       criterion here.}
 #'     \item{\code{"confidence"}, \code{"entropy"}}{Uncertainty surfaces.}
 #'     \item{\code{"profiles"}}{Membership-weighted predictor means per
@@ -972,16 +972,16 @@ plot_meta_types <- function(x,
         what <- match.arg(what)
         if (is.null(palette)) palette <- meta_palette(x)
         
-        conf <- if (rescale_confidence) .rescale_certainty(x$certainty, x$n_meta) else x$certainty
+        conf <- if (rescale_confidence) .rescale_certainty(x$certainty, x$n_meta_types) else x$certainty
         needs_geom <- what %in% c("map", "confidence", "entropy")
         g <- if (needs_geom) .get_geom(x, geom) else NULL
         
         switch(
                 what,
                 
-                map = .map(g, fade_by_confidence(palette[x$hard_classes], conf),
+                map = .map(g, fade_by_confidence(palette[x$hard_labels], conf),
                            title    = sprintf("Meta-types (%d, merged from %d local types)",
-                                              x$n_meta, nrow(x$key)),
+                                              x$n_meta_types, nrow(x$key)),
                            subtitle = sprintf("ARI with region = %.2f; low means these are not region proxies",
                                               x$crossing$ari_with_region),
                            raster = raster, raster_px = raster_px) +
@@ -989,7 +989,7 @@ plot_meta_types <- function(x,
                 
                 composition = {
                         df <- x$key
-                        df$meta_f   <- factor(df$meta, levels = seq_len(x$n_meta))
+                        df$meta_f   <- factor(df$meta, levels = seq_len(x$n_meta_types))
                         df$region_f <- factor(df$region)
                         p <- ggplot2::ggplot(df, ggplot2::aes(y = .data$meta_f,
                                                               fill = .data$region_f)) +
@@ -1041,20 +1041,20 @@ plot_meta_types <- function(x,
                 selection = {
                         sel <- x$selection
                         df <- rbind(
-                                data.frame(n_meta = sel$n_meta, value = sel$silhouette,
+                                data.frame(n_meta_types = sel$n_meta_types, value = sel$silhouette,
                                            panel = "silhouette (tightness)"),
-                                data.frame(n_meta = sel$n_meta, value = sel$ari_with_region,
+                                data.frame(n_meta_types = sel$n_meta_types, value = sel$ari_with_region,
                                            panel = "ARI with region (lower is better)"),
-                                data.frame(n_meta = sel$n_meta, value = sel$mean_regions_per_meta,
+                                data.frame(n_meta_types = sel$n_meta_types, value = sel$mean_regions_per_meta,
                                            panel = "mean regions per meta-type"))
-                        ggplot2::ggplot(df, ggplot2::aes(.data$n_meta, .data$value)) +
+                        ggplot2::ggplot(df, ggplot2::aes(.data$n_meta_types, .data$value)) +
                                 ggplot2::geom_line() + ggplot2::geom_point(size = 1) +
-                                ggplot2::geom_vline(xintercept = x$n_meta, linetype = 2,
+                                ggplot2::geom_vline(xintercept = x$n_meta_types, linetype = 2,
                                                     colour = "#B2182B") +
                                 ggplot2::facet_wrap(~ panel, scales = "free_y", ncol = 1) +
                                 ggplot2::labs(title = "Choosing the number of meta-types",
                                               subtitle = "dashed line = selected; the middle panel is the one that matters",
-                                              x = "n_meta", y = NULL) +
+                                              x = "n_meta_types", y = NULL) +
                                 ggplot2::theme_bw(base_size = 9)
                 },
                 
@@ -1091,7 +1091,7 @@ plot_meta_types <- function(x,
                                                        levels = rev(colnames(x$memberships))),
                                          n_eff = colSums(x$memberships),
                                          n_local = as.vector(table(factor(x$key$meta,
-                                                                          levels = seq_len(x$n_meta)))))
+                                                                          levels = seq_len(x$n_meta_types)))))
                         ggplot2::ggplot(df, ggplot2::aes(.data$n_eff, .data$type,
                                                          fill = .data$type)) +
                                 ggplot2::geom_col() +
@@ -1112,7 +1112,7 @@ plot_meta_types <- function(x,
 
 #' Plot fitted mosaic types
 #'
-#' @param x A \code{"mosaic_types"} object.
+#' @param x A \code{"pulse_mosaic_types"} object.
 #' @param what One of:
 #'   \describe{
 #'     \item{\code{"map"}}{Mosaic types in space, faded by confidence. Polygons
@@ -1120,18 +1120,18 @@ plot_meta_types <- function(x,
 #'     \item{\code{"confidence"}, \code{"entropy"}}{Uncertainty surfaces.}
 #'     \item{\code{"signatures"}}{The fingerprint figure: mean class-by-class
 #'       co-occurrence per mosaic type, lower triangle, never-occurring
-#'       combinations in white. Needs \code{sigs}.}
+#'       combinations in white. Needs \code{signatures}.}
 #'     \item{\code{"ordination"}}{Signatures in two dimensions, coloured by
-#'       mosaic type. Needs \code{sigs}.}
+#'       mosaic type. Needs \code{signatures}.}
 #'     \item{\code{"validity"}}{Every validity index against \code{k}, with the
 #'       selection marked.}
 #'     \item{\code{"saturation"}}{Distribution of pairwise signature distances
 #'       against the metric ceiling. Read this before any of the others: a spike
 #'       at the ceiling means the partition is close to arbitrary. Needs
-#'       \code{sigs}.}
+#'       \code{signatures}.}
 #'     \item{\code{"sizes"}}{Effective size of each mosaic type.}
 #'   }
-#' @param sigs The signature matrix the fit was built on, row-aligned to
+#' @param signatures The signature matrix the fit was built on, row-aligned to
 #'   \code{x$valid}.
 #' @param geom An \code{sf} object, if not attached.
 #' @param palette Mosaic colours; defaults to \code{\link{mosaic_palette}(x)}.
@@ -1149,7 +1149,7 @@ plot_meta_types <- function(x,
 plot_mosaic_types <- function(x,
                               what = c("map", "confidence", "entropy", "signatures",
                                        "ordination", "validity", "saturation", "sizes"),
-                              sigs = NULL,
+                              signatures = NULL,
                               geom = NULL,
                               palette = NULL,
                               class_labels = NULL,
@@ -1160,27 +1160,27 @@ plot_mosaic_types <- function(x,
                               raster_px = 2000,
                               ...) {
         .need("ggplot2")
-        stopifnot(inherits(x, "mosaic_types"))
+        stopifnot(inherits(x, "pulse_mosaic_types"))
         what <- match.arg(what)
         if (is.null(palette)) palette <- mosaic_palette(x)
         
-        k    <- x$best_k
-        own  <- x$memberships[cbind(seq_len(nrow(x$memberships)), x$hard_clusters)]
+        k    <- x$n_mosaic_types
+        own  <- x$memberships[cbind(seq_len(nrow(x$memberships)), x$hard_labels)]
         conf <- if (rescale_confidence) .rescale_certainty(own, k) else own
         
         needs_geom <- what %in% c("map", "confidence", "entropy")
         g <- if (needs_geom) .get_geom(x, geom) else NULL
         needs_sigs <- what %in% c("signatures", "ordination", "saturation")
-        if (needs_sigs && is.null(sigs))
-                stop(sprintf("`what = \"%s\"` needs the signature matrix; pass `sigs =`.", what),
+        if (needs_sigs && is.null(signatures))
+                stop(sprintf("`what = \"%s\"` needs the signature matrix; pass `signatures =`.", what),
                      call. = FALSE)
-        S <- if (needs_sigs) as.matrix(sigs)[x$valid, , drop = FALSE] else NULL
+        S <- if (needs_sigs) as.matrix(signatures)[x$valid, , drop = FALSE] else NULL
         
         switch(
                 what,
                 
                 map = .map(g,
-                           .scatter_valid(fade_by_confidence(palette[x$hard_clusters], conf),
+                           .scatter_valid(fade_by_confidence(palette[x$hard_labels], conf),
                                           x$valid, na_colour),
                            title    = sprintf("Mosaic types (k = %d)", k),
                            subtitle = sprintf("configuration of classes in the neighbourhood | %s distance%s",
@@ -1201,7 +1201,7 @@ plot_mosaic_types <- function(x,
                 signatures = {
                         pr  <- .split_pairs(colnames(S))
                         cls <- if (is.null(class_labels)) sort(unique(c(pr$a, pr$b))) else class_labels
-                        lab <- x$hard_clusters
+                        lab <- x$hard_labels
                         rows <- lapply(sort(unique(lab)), function(gg) {
                                 m <- colMeans(S[lab == gg, , drop = FALSE], na.rm = TRUE)
                                 data.frame(cluster = factor(paste0("Mosaic ", gg)),
@@ -1237,14 +1237,11 @@ plot_mosaic_types <- function(x,
                 
                 ordination = {
                         i <- if (nrow(S) > n_sample) sort(sample.int(nrow(S), n_sample)) else seq_len(nrow(S))
-                        ## Uses the metric the fit used. The previous version tested
-                        ## exists("js_distance_fast") on the search path and silently fell
-                        ## back to Euclidean, which inside a package means the axes could
-                        ## change depending on what the user had sourced.
-                        d   <- signature_distance(S[i, , drop = FALSE], x$distance)
+                        ## Uses the metric the fit used.
+                        d   <- compute_signature_distance(S[i, , drop = FALSE], x$distance)
                         mds <- stats::cmdscale(d, k = 2)
                         df  <- data.frame(MDS1 = mds[, 1], MDS2 = mds[, 2],
-                                          cluster = factor(x$hard_clusters[i]))
+                                          cluster = factor(x$hard_labels[i]))
                         ggplot2::ggplot(df, ggplot2::aes(.data$MDS1, .data$MDS2,
                                                          colour = .data$cluster)) +
                                 ggplot2::geom_point(alpha = 0.5, size = 1.2) +
@@ -1280,8 +1277,8 @@ plot_mosaic_types <- function(x,
                         i  <- sample.int(nrow(S), min(n_sample, nrow(S)))
                         j  <- sample.int(nrow(S), min(n_sample, nrow(S)))
                         ok <- i != j
-                        dv <- diag(signature_distance(S[i[ok], , drop = FALSE], x$distance,
-                                                      sigs_ref = S[j[ok], , drop = FALSE]))
+                        dv <- diag(compute_signature_distance(S[i[ok], , drop = FALSE], x$distance,
+                                                      signatures_ref = S[j[ok], , drop = FALSE]))
                         ceil <- switch(x$distance, js = sqrt(log(2)), hellinger = 1,
                                        tv = 1, bray = 1, NA_real_)
                         p <- ggplot2::ggplot(data.frame(d = dv), ggplot2::aes(.data$d)) +
@@ -1303,7 +1300,7 @@ plot_mosaic_types <- function(x,
                         nm <- paste0("Mosaic ", seq_len(k))
                         df <- data.frame(type = factor(nm, levels = rev(nm)),
                                          n_eff = colSums(x$memberships),
-                                         n_hard = as.vector(tabulate(x$hard_clusters, k)))
+                                         n_hard = as.vector(tabulate(x$hard_labels, k)))
                         ggplot2::ggplot(df, ggplot2::aes(.data$n_eff, .data$type,
                                                          fill = .data$type)) +
                                 ggplot2::geom_col() +
@@ -1342,21 +1339,21 @@ plot_mosaic_types <- function(x,
 
 #' Every level of the typology side by side
 #'
-#' Supersedes \code{plot_levels()}. Pass whichever levels you have; panels are
+#' Supersedes \code{plot_region_local()}. Pass whichever levels you have; panels are
 #' laid out in order. Region and local-type panels share one palette so the
 #' nesting is visible. Meta-type and mosaic panels deliberately do not, because
 #' they are not nested in the regions and a shared palette would imply they were.
 #'
 #' @param regions,local,meta,mosaic Fitted objects; any may be \code{NULL}.
 #' @param geom An \code{sf} object, if not attached to the objects.
-#' @param sigs Signature matrix, only needed if \code{mosaic} is supplied and you
+#' @param signatures Signature matrix, only needed if \code{mosaic} is supplied and you
 #'   want its subtitle to carry the saturation.
 #' @param ... Passed to each plotting call.
 #' @return A \code{patchwork} object if \pkg{patchwork} is installed, otherwise a
 #'   list of \code{ggplot} objects.
 #' @export
-plot_hierarchy <- function(regions = NULL, local = NULL, meta = NULL, mosaic = NULL,
-                           geom = NULL, sigs = NULL, ...) {
+plot_all_levels <- function(regions = NULL, local = NULL, meta = NULL, mosaic = NULL,
+                           geom = NULL, signatures = NULL, ...) {
         .need("ggplot2")
         ps <- list()
         g  <- geom
@@ -1380,7 +1377,7 @@ plot_hierarchy <- function(regions = NULL, local = NULL, meta = NULL, mosaic = N
         if (!is.null(meta))
                 ps$meta <- plot_meta_types(meta, "map", geom = g, ...)
         if (!is.null(mosaic))
-                ps$mosaic <- plot_mosaic_types(mosaic, "map", geom = g, sigs = sigs, ...)
+                ps$mosaic <- plot_mosaic_types(mosaic, "map", geom = g, signatures = signatures, ...)
         
         if (!length(ps)) stop("Nothing to plot.", call. = FALSE)
         if (requireNamespace("patchwork", quietly = TRUE)) Reduce(`+`, ps) else ps

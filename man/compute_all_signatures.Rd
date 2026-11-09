@@ -5,9 +5,9 @@
 \title{Fuzzy co-occurrence signatures for every polygon}
 \usage{
 compute_all_signatures(
-  P,
+  mosaic_input,
   graph,
-  k,
+  k_order,
   coords = NULL,
   kernel = c("none", "gaussian", "exponential", "linear"),
   sigma = "global",
@@ -19,20 +19,20 @@ compute_all_signatures(
 )
 }
 \arguments{
-\item{P}{Numeric \eqn{n \times c} membership matrix, rows in graph vertex
-order, or the list returned by \code{\link{as_mosaic_P}}.}
+\item{mosaic_input}{Numeric \eqn{n \times c} membership matrix, rows in graph vertex
+order, or the list returned by \code{\link{as_mosaic_input}}.}
 
 \item{graph}{An \code{igraph} adjacency graph.}
 
-\item{k}{Neighbourhood order.}
+\item{k_order}{Neighbourhood order.}
 
 \item{coords}{Centroid matrix; required when \code{kernel != "none"}.}
 
-\item{kernel, sigma}{See \code{\link{neighbourhood_weights}}.}
+\item{kernel, sigma}{See \code{\link{compute_neighbourhood_weights}}.}
 
 \item{drop_zero_cols}{Drop class pairs that never occur. Default \code{TRUE}.
 Note this makes signature dimension depend on the data, so matrices from
-two different \code{k} are not column-aligned; \code{\link{sweep_k_order}}
+two different \code{k_order} are not column-aligned; \code{\link{check_k_order}}
 handles that by clustering each \code{k} separately.}
 
 \item{block}{Class-pair columns processed per sparse product. Lower it if
@@ -42,7 +42,7 @@ memory is tight. Default 64.}
 and was only ever cosmetic.}
 
 \item{exclude_bridges}{Drop edges flagged \code{bridge == TRUE} (set by
-\code{\link{polygon_to_network}}) before building neighbourhoods, so
+\code{\link{build_network}}) before building neighbourhoods, so
 neighbourhoods never cross a bridge. Default \code{TRUE}. A graph without
 a \code{bridge} edge attribute is used unchanged.}
 

@@ -4,12 +4,12 @@
 \alias{.sig_to_counts}
 \title{Convert signatures back to weighted pair counts}
 \usage{
-.sig_to_counts(sigs, totals = attr(sigs, "totals"), n_scale = 1)
+.sig_to_counts(signatures, totals = attr(signatures, "totals"), n_scale = 1)
 }
 \arguments{
-\item{sigs}{Output of \code{compute_all_signatures()}, rows summing to 1.}
+\item{signatures}{Output of \code{compute_all_signatures()}, rows summing to 1.}
 
-\item{totals}{Per-row totals; defaults to \code{attr(sigs, "totals")}.}
+\item{totals}{Per-row totals; defaults to \code{attr(signatures, "totals")}.}
 
 \item{n_scale}{Multiplier on the totals (sensitivity analysis: try 0.5 and 2).}
 }

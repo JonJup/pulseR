@@ -4,7 +4,7 @@
 # What changed and why
 # --------------------
 # INPUT      Level 1 and 2 no longer return the objects this file was written
-#            against. as_mosaic_P() adapts pulse_regions / pulse_local_types /
+#            against. as_mosaic_input() adapts pulse_regions / pulse_local_types /
 #            bare matrices, and records which level and which class labels the
 #            signatures are built from.
 # SPEED      The per-focal R loop is replaced by one sparse product over EDGES.
@@ -45,11 +45,11 @@
 #'       local type determines its region, so signatures built on these encode
 #'       region identity and the mosaic level will tend to recover the region
 #'       map.}
-#'     \item{\code{"pulse_regions"} / \code{"regions_tuning"}}{Level-1 regions.}
+#'     \item{\code{"pulse_regions"} / \code{"pulse_regions_tuning"}}{Level-1 regions.}
 #'     \item{A numeric matrix}{Used as is.}
 #'   }
 #' @param use \code{"memberships"} (default; rows sum to one),
-#'   \code{"affinity"} (possibilistic co-association, level 1 only) or
+#'   \code{"cohesion"} (the fit's co-association cohesion, level 1 only) or
 #'   \code{"weighted"} (the un-normalised \eqn{z \cdot w} of a local-type fit).
 #' @param level \code{"as_is"} (default) or \code{"region"}. For local types,
 #'   \code{"region"} sums each region's local-type columns back into one column.
@@ -64,12 +64,12 @@
 #'   \code{FALSE} (leave the matrix as it came).
 #' @param drop_empty Drop classes with no mass anywhere. They contribute only
 #'   zero bins and inflate the signature dimension. Default \code{TRUE}.
-#' @return An object of class \code{"mosaic_P"}: a list with \code{P},
+#' @return An object of class \code{"pulse_mosaic_input"}: a list with \code{P},
 #'   \code{labels}, \code{region_of} (parent region per column, \code{NA} where
 #'   the class has none) and \code{level}.
 #' @export
-as_mosaic_P <- function(x,
-                        use       = c("memberships", "affinity", "weighted"),
+as_mosaic_input <- function(x,
+                        use       = c("memberships", "cohesion", "weighted"),
                         level     = c("as_is", "region"),
                         normalise = FALSE,
                         drop_empty = TRUE) {
@@ -88,7 +88,7 @@ as_mosaic_P <- function(x,
                 ## region_of stays NA on purpose. Downstream code keys the smoothing
                 ## kernel on it, and a fabricated parent region would reintroduce
                 ## exactly the nesting the merge was meant to remove.
-                return(.new_mosaic_P(x$memberships, colnames(x$memberships),
+                return(.new_mosaic_input(x$memberships, colnames(x$memberships),
                                      rep(NA_integer_, ncol(x$memberships)), "meta",
                                      normalise, drop_empty))
         }
@@ -98,7 +98,7 @@ as_mosaic_P <- function(x,
                 P <- switch(use,
                             memberships = x$memberships,
                             weighted    = x$weighted,
-                            affinity    = stop("`use = \"affinity\"` is a level-1 quantity; ",
+                            cohesion    = stop("`use = \"cohesion\"` is a level-1 quantity; ",
                                                "pass the pulse_regions object.", call. = FALSE))
                 P   <- as.matrix(P)
                 lb  <- x$key$name
@@ -112,27 +112,25 @@ as_mosaic_P <- function(x,
                         idx <- split(seq_len(ncol(P)), factor(reg, levels = lv))
                         P   <- vapply(idx, function(j) rowSums(P[, j, drop = FALSE]),
                                       numeric(nrow(P)))
-                        return(.new_mosaic_P(P, paste0("R", lv), lv, "region",
+                        return(.new_mosaic_input(P, paste0("R", lv), lv, "region",
                                              normalise, drop_empty))
                 }
-                return(.new_mosaic_P(P, lb, reg, "local", normalise, drop_empty))
+                return(.new_mosaic_input(P, lb, reg, "local", normalise, drop_empty))
         }
         
         # --- regions ---------------------------------------------------------*
-        if (inherits(x, "pulse_regions") || inherits(x, "regions_tuning")) {
-                src <- if (inherits(x, "regions_tuning")) x$best_result else x
+        if (inherits(x, "pulse_regions") || inherits(x, "pulse_regions_tuning")) {
+                src <- if (inherits(x, "pulse_regions_tuning")) x$best_result else x
                 if (is.null(src))
-                        stop("`regions_tuning` object carries no `$best_result`.", call. = FALSE)
+                        stop("`pulse_regions_tuning` object carries no `$best_result`.", call. = FALSE)
                 P <- switch(use,
                             memberships = .first_non_null(src$memberships, src$fit$memberships),
-                            affinity    = .first_non_null(src$cohesion, src$typicality, src$affinity,
-                                                          src$fit$cohesion, src$fit$affinity,
-                                                          src$fit$typicality),
+                            cohesion    = .first_non_null(src$cohesion, src$fit$cohesion),
                             weighted    = stop("`use = \"weighted\"` is a level-2 quantity.",
                                                call. = FALSE))
                 if (is.null(P)) stop("Could not find a `", use, "` matrix on `x`.", call. = FALSE)
                 P <- as.matrix(P)
-                return(.new_mosaic_P(P, paste0("R", seq_len(ncol(P))),
+                return(.new_mosaic_input(P, paste0("R", seq_len(ncol(P))),
                                      seq_len(ncol(P)), "region", normalise, drop_empty))
         }
         
@@ -141,12 +139,12 @@ as_mosaic_P <- function(x,
                 P  <- as.matrix(x)
                 lb <- colnames(P)
                 if (is.null(lb)) lb <- paste0("c", seq_len(ncol(P)))
-                return(.new_mosaic_P(P, lb, rep(NA_integer_, ncol(P)), "matrix",
+                return(.new_mosaic_input(P, lb, rep(NA_integer_, ncol(P)), "matrix",
                                      normalise, drop_empty))
         }
         
         stop("`x` must be a pulse_meta_types, pulse_local_types, pulse_regions, ",
-             "regions_tuning, or a numeric matrix.", call. = FALSE)
+             "pulse_regions_tuning, or a numeric matrix.", call. = FALSE)
 }
 
 
@@ -158,18 +156,18 @@ as_mosaic_P <- function(x,
 #' k-order reachability matrix
 #'
 #' @param graph An \code{igraph} object.
-#' @param k Integer \eqn{\ge 1}, neighbourhood order.
+#' @param k_order Integer \eqn{\ge 1}, neighbourhood order.
 #' @return Sparse binary symmetric \code{CsparseMatrix}: the non-zero pattern of
 #'   \eqn{(A + I)^k}.
 #' @importFrom igraph as_adjacency_matrix is_igraph
 #' @importFrom Matrix Diagonal drop0
 #' @importFrom methods as
 #' @export
-get_reachability <- function(graph, k) {
+get_reachability <- function(graph, k_order) {
         if (!igraph::is_igraph(graph)) stop("`graph` must be an igraph object.", call. = FALSE)
-        if (length(k) != 1L || is.na(k) || k < 1 || k != as.integer(k))
-                stop("`k` must be a single positive integer.", call. = FALSE)
-        k <- as.integer(k)
+        if (length(k_order) != 1L || is.na(k_order) || k_order < 1 || k_order != as.integer(k_order))
+                stop("`k_order` must be a single positive integer.", call. = FALSE)
+        k <- as.integer(k_order)
         
         A  <- igraph::as_adjacency_matrix(graph, sparse = TRUE, attr = NULL)
         AI <- A + Matrix::Diagonal(nrow(A))
@@ -195,7 +193,7 @@ get_reachability <- function(graph, k) {
 #'   focal-neighbour distances, or \code{"adaptive"} for a per-focal median.
 #' @details
 #' \strong{Prefer a fixed \code{sigma} in map units.} An adaptive per-focal
-#' bandwidth makes the spatial extent of a "landscape" vary with catchment
+#' bandwidth makes the spatial extent of a "landscape" vary with unit
 #' density, so two signatures can differ because the drainage network is denser
 #' in one place, not because the configuration of types differs. That confounds
 #' the very thing the mosaic level is supposed to measure. A fixed radius (the
@@ -205,7 +203,7 @@ get_reachability <- function(graph, k) {
 #' @return Sparse \code{CsparseMatrix}, same pattern as \code{Rk}.
 #' @importFrom Matrix sparseMatrix
 #' @export
-neighbourhood_weights <- function(Rk, coords,
+compute_neighbourhood_weights <- function(Rk, coords,
                                   kernel = c("none", "gaussian", "exponential", "linear"),
                                   sigma  = "global") {
         kernel <- match.arg(kernel)
@@ -267,22 +265,22 @@ neighbourhood_weights <- function(Rk, coords,
 #' whole matrix is then one sparse product, which is orders of magnitude faster
 #' than the per-focal implementation at continental \eqn{N}.
 #'
-#' @param P Numeric \eqn{n \times c} membership matrix, rows in graph vertex
-#'   order, or the list returned by \code{\link{as_mosaic_P}}.
+#' @param mosaic_input Numeric \eqn{n \times c} membership matrix, rows in graph vertex
+#'   order, or the list returned by \code{\link{as_mosaic_input}}.
 #' @param graph An \code{igraph} adjacency graph.
-#' @param k Neighbourhood order.
+#' @param k_order Neighbourhood order.
 #' @param coords Centroid matrix; required when \code{kernel != "none"}.
-#' @param kernel,sigma See \code{\link{neighbourhood_weights}}.
+#' @param kernel,sigma See \code{\link{compute_neighbourhood_weights}}.
 #' @param drop_zero_cols Drop class pairs that never occur. Default \code{TRUE}.
 #'   Note this makes signature dimension depend on the data, so matrices from
-#'   two different \code{k} are not column-aligned; \code{\link{sweep_k_order}}
+#'   two different \code{k_order} are not column-aligned; \code{\link{check_k_order}}
 #'   handles that by clustering each \code{k} separately.
 #' @param block Class-pair columns processed per sparse product. Lower it if
 #'   memory is tight. Default 64.
 #' @param digits Rounding, or \code{NULL} (default) for none. Rounding is lossy
 #'   and was only ever cosmetic.
 #' @param exclude_bridges Drop edges flagged \code{bridge == TRUE} (set by
-#'   \code{\link{polygon_to_network}}) before building neighbourhoods, so
+#'   \code{\link{build_network}}) before building neighbourhoods, so
 #'   neighbourhoods never cross a bridge. Default \code{TRUE}. A graph without
 #'   a \code{bridge} edge attribute is used unchanged.
 #' @param verbose Logical.
@@ -293,7 +291,7 @@ neighbourhood_weights <- function(Rk, coords,
 #' @importFrom igraph as_adjacency_matrix ends E is_igraph vcount
 #' @importFrom Matrix crossprod
 #' @export
-compute_all_signatures <- function(P, graph, k,
+compute_all_signatures <- function(mosaic_input, graph, k_order,
                                    coords = NULL,
                                    kernel = c("none", "gaussian", "exponential", "linear"),
                                    sigma  = "global",
@@ -303,28 +301,30 @@ compute_all_signatures <- function(P, graph, k,
                                    exclude_bridges = TRUE,
                                    verbose = TRUE) {
         kernel <- match.arg(kernel)
+        P <- mosaic_input
+        k <- k_order
         if (!is.logical(exclude_bridges) || length(exclude_bridges) != 1L || is.na(exclude_bridges))
                 stop("`exclude_bridges` must be TRUE or FALSE.", call. = FALSE)
         
         lab <- NULL
         if (is.list(P) && !is.null(P$P)) { lab <- P$labels; P <- P$P }
         P <- as.matrix(P)
-        if (!is.numeric(P)) stop("`P` must be numeric.", call. = FALSE)
+        if (!is.numeric(P)) stop("`mosaic_input` must be numeric.", call. = FALSE)
         if (!igraph::is_igraph(graph)) stop("`graph` must be an igraph object.", call. = FALSE)
         n <- nrow(P)
         nc <- ncol(P)
-        if (nc < 2L) stop("`P` must have at least two class columns.", call. = FALSE)
+        if (nc < 2L) stop("`mosaic_input` must have at least two class columns.", call. = FALSE)
         if (n != igraph::vcount(graph))
-                stop(sprintf("`P` has %d rows but the graph has %d vertices.",
+                stop(sprintf("`mosaic_input` has %d rows but the graph has %d vertices.",
                              n, igraph::vcount(graph)), call. = FALSE)
-        if (anyNA(P)) stop("`P` contains NA.", call. = FALSE)
+        if (anyNA(P)) stop("`mosaic_input` contains NA.", call. = FALSE)
         if (is.null(lab)) lab <- colnames(P)
         if (is.null(lab)) lab <- paste0("c", seq_len(nc))
         
         if (exclude_bridges) graph <- .drop_bridges(graph, verbose)
         if (verbose) message(sprintf("Reachability (k = %d) for %d polygons ...", k, n))
         Rk <- get_reachability(graph, k)
-        W  <- neighbourhood_weights(Rk, coords, kernel, sigma)
+        W  <- compute_neighbourhood_weights(Rk, coords, kernel, sigma)
         
         ep <- igraph::ends(graph, igraph::E(graph), names = FALSE)
         ep <- ep[ep[, 1] != ep[, 2], , drop = FALSE]      # self-loops carry no pair signal
@@ -345,7 +345,7 @@ compute_all_signatures <- function(P, graph, k,
         
         if (verbose) message(sprintf("Accumulating %d class pairs over %d edges ...",
                                      sig_len, ne))
-        sigs <- matrix(0, n, sig_len, dimnames = list(NULL, pair_names))
+        signatures <- matrix(0, n, sig_len, dimnames = list(NULL, pair_names))
         for (start in seq(1L, sig_len, by = block)) {
                 cols <- start:min(sig_len, start + block - 1L)
                 a <- pairs[cols, 1]; b <- pairs[cols, 2]
@@ -357,29 +357,29 @@ compute_all_signatures <- function(P, graph, k,
                 off <- a != b
                 if (any(off))
                         M[, off] <- M[, off] + P[u, b[off], drop = FALSE] * P[v, a[off], drop = FALSE]
-                sigs[, cols] <- as.matrix(Matrix::crossprod(B, M))
+                signatures[, cols] <- as.matrix(Matrix::crossprod(B, M))
         }
         
-        rs <- rowSums(sigs)
+        rs <- rowSums(signatures)
         empty <- !is.finite(rs) | rs <= 0
-        sigs <- sigs / rs
-        sigs[empty, ] <- NA_real_
-        if (!is.null(digits)) sigs <- round(sigs, digits)
+        signatures <- signatures / rs
+        signatures[empty, ] <- NA_real_
+        if (!is.null(digits)) signatures <- round(signatures, digits)
         
         if (verbose)
                 message(sprintf("Done. %d polygon(s) with NA signatures (no edge in neighbourhood).",
                                 sum(empty)))
         
         if (drop_zero_cols) {
-                keep <- colSums(sigs, na.rm = TRUE) > 0
+                keep <- colSums(signatures, na.rm = TRUE) > 0
                 if (any(!keep)) {
                         if (verbose) message(sprintf("Dropping %d never-occurring class pair(s).",
                                                      sum(!keep)))
-                        sigs <- sigs[, keep, drop = FALSE]
+                        signatures <- signatures[, keep, drop = FALSE]
                 }
         }
         rs[empty] <- NA_real_
-        structure(sigs, class = c("mosaic_signatures", "matrix", "array"),
+        structure(signatures, class = c("pulse_signatures", "matrix", "array"),
                   n_classes = nc, class_labels = lab, k_order = k,
                   kernel = kernel, sigma = sigma, exclude_bridges = exclude_bridges,
                   totals = rs)    # summed edge weight per neighbourhood: DMM pseudo-counts
@@ -392,11 +392,11 @@ compute_all_signatures <- function(P, graph, k,
 #' @param focal Integer vertex index.
 #' @param P Membership matrix.
 #' @param A Sparse adjacency matrix.
-#' @param W Weight matrix from \code{\link{neighbourhood_weights}}.
+#' @param W Weight matrix from \code{\link{compute_neighbourhood_weights}}.
 #' @return Numeric signature vector, or all \code{NA}.
 #' @keywords internal
-#' @export
-compute_signature <- function(focal, P, A, W) {
+#' @noRd
+.compute_signature <- function(focal, P, A, W) {
         nb <- which(W[, focal] != 0)
         nc <- ncol(P); sig_len <- nc * (nc + 1) / 2
         if (length(nb) < 2L) return(rep(NA_real_, sig_len))
@@ -420,28 +420,28 @@ compute_signature <- function(focal, P, A, W) {
 #' 40" are equally different from "type 3 beside type 3". Once the class count
 #' grows, neighbourhood signatures have almost disjoint support and every
 #' distance sits at the metric's ceiling — the partition is then noise. See
-#' \code{\link{signature_saturation}}.
+#' \code{\link{check_signature_saturation}}.
 #'
 #' Smoothing the signature over a similarity kernel on class pairs fixes this at
 #' the source and costs one matrix product. It is a linearised stand-in for an
 #' optimal-transport distance with the same ground cost, without the dependency
 #' or the per-pair Sinkhorn iterations.
 #'
-#' @param sigs Signature matrix.
+#' @param signatures Signature matrix.
 #' @param class_similarity \eqn{c \times c} similarity in \eqn{[0,1]} with unit
 #'   diagonal. If \code{NULL}, built from \code{region_of}.
 #' @param region_of Integer parent region per class (from
-#'   \code{\link{as_mosaic_P}}). Classes in the same region get similarity
+#'   \code{\link{as_mosaic_input}}). Classes in the same region get similarity
 #'   \code{within_region}.
 #' @param within_region Similarity between two local types of the same region.
 #'   Default 0.5.
 #' @param renormalise Renormalise rows to sum to one. Default \code{TRUE}.
 #' @return Smoothed signature matrix, same dimensions.
 #' @export
-smooth_signatures <- function(sigs, class_similarity = NULL, region_of = NULL,
+smooth_signatures <- function(signatures, class_similarity = NULL, region_of = NULL,
                               within_region = 0.5, renormalise = TRUE) {
-        lab <- attr(sigs, "class_labels")
-        pr  <- .parse_pair_names(colnames(sigs), lab)
+        lab <- attr(signatures, "class_labels")
+        pr  <- .parse_pair_names(colnames(signatures), lab)
         
         if (is.null(class_similarity)) {
                 if (is.null(region_of))
@@ -456,11 +456,11 @@ smooth_signatures <- function(sigs, class_similarity = NULL, region_of = NULL,
         ## K[(a,b),(a',b')] = mean of the two ways of matching the unordered pairs.
         K <- (Sc[a, a, drop = FALSE] * Sc[b, b, drop = FALSE] +
                       Sc[a, b, drop = FALSE] * Sc[b, a, drop = FALSE]) / 2
-        out <- sigs %*% K
+        out <- signatures %*% K
         if (renormalise) out <- out / rowSums(out)
-        dimnames(out) <- dimnames(sigs)
-        attributes(out) <- c(attributes(out), attributes(sigs)[
-                setdiff(names(attributes(sigs)), names(attributes(out)))])
+        dimnames(out) <- dimnames(signatures)
+        attributes(out) <- c(attributes(out), attributes(signatures)[
+                setdiff(names(attributes(signatures)), names(attributes(out)))])
         out
 }
 
@@ -481,11 +481,11 @@ smooth_signatures <- function(sigs, class_similarity = NULL, region_of = NULL,
 #'
 #' @param d A \code{dist} object.
 #' @param method The metric used, for the ceiling. See
-#'   \code{\link{signature_distance}}.
+#'   \code{\link{compute_signature_distance}}.
 #' @param thresh Fraction of the ceiling counted as saturated. Default 0.95.
 #' @return Numeric scalar in \eqn{[0,1]}, or \code{NA} for unbounded metrics.
 #' @export
-signature_saturation <- function(d, method = "js", thresh = 0.95) {
+check_signature_saturation <- function(d, method = "js", thresh = 0.95) {
         ceil <- switch(method,
                        js        = sqrt(log(2)),
                        hellinger = 1,
@@ -503,7 +503,7 @@ signature_saturation <- function(d, method = "js", thresh = 0.95) {
 
 #' Pairwise distance between signatures
 #'
-#' @param sigs Signature matrix; complete cases only are used.
+#' @param signatures Signature matrix; complete cases only are used.
 #' @param method One of
 #'   \describe{
 #'     \item{\code{"js"}}{Square root of the Jensen-Shannon divergence (nats).
@@ -512,7 +512,7 @@ signature_saturation <- function(d, method = "js", thresh = 0.95) {
 #'     \item{\code{"hellinger"}}{\eqn{\|\sqrt p - \sqrt q\|_2/\sqrt 2}. A proper
 #'       metric with ceiling 1, behaving almost identically to \code{"js"} —
 #'       its real advantage is that it is Euclidean distance on
-#'       \code{\link{hellinger_embed}(sigs)}, so k-means, CLARA, PCA and every
+#'       \code{\link{embed_hellinger}(signatures)}, so k-means, CLARA, PCA and every
 #'       other Euclidean tool applies without an \eqn{N \times N} matrix.}
 #'     \item{\code{"tv"}}{Total variation, \eqn{\tfrac12\|p-q\|_1}.}
 #'     \item{\code{"bray"}}{Bray-Curtis. On row-normalised signatures this
@@ -520,40 +520,40 @@ signature_saturation <- function(d, method = "js", thresh = 0.95) {
 #'     \item{\code{"euclidean"}}{Plain \eqn{L_2}. Not a divergence; useful only
 #'       as a null comparison.}
 #'   }
-#' @param sigs_ref Optional reference matrix. When supplied, returns the
+#' @param signatures_ref Optional reference matrix. When supplied, returns the
 #'   \eqn{N \times R} matrix of distances to those references instead of a full
 #'   \code{dist} — this is what makes out-of-sample assignment cheap.
-#' @return A \code{dist}, or a numeric matrix when \code{sigs_ref} is given.
+#' @return A \code{dist}, or a numeric matrix when \code{signatures_ref} is given.
 #' @importFrom stats complete.cases dist
 #' @export
-signature_distance <- function(sigs, method = c("js", "hellinger", "tv", "bray", "euclidean"),
-                               sigs_ref = NULL) {
+compute_signature_distance <- function(signatures, method = c("js", "hellinger", "tv", "bray", "euclidean"),
+                               signatures_ref = NULL) {
         method <- match.arg(method)
-        S <- as.matrix(sigs)
+        S <- as.matrix(signatures)
         eps <- .Machine$double.eps
         
         if (method %in% c("hellinger", "euclidean")) {
-                X <- if (method == "hellinger") hellinger_embed(S) else S
-                if (is.null(sigs_ref)) return(stats::dist(X))
-                R <- if (method == "hellinger") hellinger_embed(as.matrix(sigs_ref)) else as.matrix(sigs_ref)
+                X <- if (method == "hellinger") embed_hellinger(S) else S
+                if (is.null(signatures_ref)) return(stats::dist(X))
+                R <- if (method == "hellinger") embed_hellinger(as.matrix(signatures_ref)) else as.matrix(signatures_ref)
                 return(.cross_euclidean(X, R))
         }
         
         Sn <- (S + eps) / rowSums(S + eps)
         if (method %in% c("tv", "bray")) {
-                if (is.null(sigs_ref)) return(stats::dist(Sn, method = "manhattan") / 2)
-                Rn <- as.matrix(sigs_ref); Rn <- (Rn + eps) / rowSums(Rn + eps)
+                if (is.null(signatures_ref)) return(stats::dist(Sn, method = "manhattan") / 2)
+                Rn <- as.matrix(signatures_ref); Rn <- (Rn + eps) / rowSums(Rn + eps)
                 return(.cross_l1(Sn, Rn) / 2)
         }
         
         ## Jensen-Shannon, computed directly (no philentropy dependency, and the
         ## previous call rebuilt an N x N object twice over).
-        if (is.null(sigs_ref)) {
+        if (is.null(signatures_ref)) {
                 d <- stats::dist(Sn)                    # placeholder to inherit attributes
                 d[] <- .js_pairwise(Sn)
                 return(d)
         }
-        Rn <- as.matrix(sigs_ref); Rn <- (Rn + eps) / rowSums(Rn + eps)
+        Rn <- as.matrix(signatures_ref); Rn <- (Rn + eps) / rowSums(Rn + eps)
         .js_cross(Sn, Rn)
 }
 
@@ -562,11 +562,11 @@ signature_distance <- function(sigs, method = c("js", "hellinger", "tv", "bray",
 #' Euclidean distance on the returned matrix equals the Hellinger distance on
 #' the input, so any Euclidean clustering method becomes available at
 #' \eqn{O(N)} memory.
-#' @param sigs Signature matrix.
+#' @param signatures Signature matrix.
 #' @return Numeric matrix of the same shape.
 #' @export
-hellinger_embed <- function(sigs) {
-        S <- as.matrix(sigs)
+embed_hellinger <- function(signatures) {
+        S <- as.matrix(signatures)
         S <- S / rowSums(S)
         sqrt(S) / sqrt(2)
 }
@@ -619,16 +619,6 @@ hellinger_embed <- function(sigs) {
         out
 }
 
-#' Legacy wrapper
-#' @param sigs Signature matrix.
-#' @return A \code{dist} of square-root Jensen-Shannon divergences.
-#' @export
-js_distance_fast <- function(sigs) {
-        S <- as.matrix(sigs)
-        v <- stats::complete.cases(S)
-        if (sum(v) < 2L) stop("Fewer than two complete signature rows.", call. = FALSE)
-        signature_distance(S[v, , drop = FALSE], "js")
-}
 
 
 # -----------------------------------------------------------------------------*
@@ -668,8 +658,9 @@ js_distance_fast <- function(sigs) {
 #'   \code{medoid_dist}, \code{fuzziness}.
 #' @importFrom cluster pam
 #' @importFrom stats as.dist
-#' @export
-compute_fuzzy <- function(d, k, fuzziness = 2) {
+#' @keywords internal
+#' @noRd
+.pam_memberships <- function(d, k, fuzziness = 2) {
         if (!inherits(d, "dist")) d <- stats::as.dist(d)
         if (length(k) != 1L || is.na(k) || k < 2 || k != as.integer(k))
                 stop("`k` must be a single integer >= 2.", call. = FALSE)
@@ -695,16 +686,16 @@ compute_fuzzy <- function(d, k, fuzziness = 2) {
 #'
 #' Clusters polygons by their signatures and selects the number of mosaic types.
 #'
-#' @param sigs Signature matrix from \code{\link{compute_all_signatures}}. With
+#' @param signatures Signature matrix from \code{\link{compute_all_signatures}}. With
 #'   \code{method = "dmm"} it must carry the \code{"totals"} attribute, which
 #'   subsetting or \code{rbind()} drops.
-#' @param n_clusters Candidate counts, all \eqn{\ge 2}. Default 2:10.
+#' @param n_mosaic_types Candidate counts, all \eqn{\ge 2}. Default 2:10.
 #' @param method \code{"dmm"} (default): Dirichlet-multinomial mixture on the 
 #'   signatures converted back to edge pseudo-counts (Holmes et al. 2012). 
 #'   code{"pam"}: fuzzy PAM on a signature distance. Memberships are then
 #'   posterior type probabilities ("which type, and how confidently") rather
 #'   than distance-based fuzzy degrees.
-#' @param distance Metric; see \code{\link{signature_distance}}. With
+#' @param distance Metric; see \code{\link{compute_signature_distance}}. With
 #'   \code{method = "dmm"} it is used only for saturation (estimated on at most
 #'   2000 rows) and, when the metric needs them, silhouettes. The full
 #'   \eqn{N \times N} matrix is built only in that last case.
@@ -726,21 +717,21 @@ compute_fuzzy <- function(d, k, fuzziness = 2) {
 #'   \code{max_iter} (500), \code{tol} (1e-5, relative log-likelihood change, as in mclust), \code{A_init} (50),
 #'   \code{alpha_min} (1e-4), \code{A_max} (1e6, precision cap: the multinomial
 #'   limit), \code{n_scale} (1). \code{n_scale} multiplies the
-#'   pseudo-counts; rerun at 0.5 and 2 to check that \code{best_k} is not an
+#'   pseudo-counts; rerun at 0.5 and 2 to check that \code{k_sel} is not an
 #'   artefact of the count scale.
 #' @param seed Optional integer; the caller's RNG state is restored on exit.
 #' @param verbose Logical.
-#' @return A list of class \code{"mosaic_types"} with \code{clusters} (PAM fit
-#'   or \code{pulse_dmm} object), \code{memberships}, \code{hard_clusters},
+#' @return A list of class \code{"pulse_mosaic_types"} with \code{clusters} (PAM fit
+#'   or \code{pulse_dmm} object), \code{memberships}, \code{hard_labels},
 #'   \code{d_to_medoids}, \code{medoid_signatures} (DMM: component mean
-#'   signatures), \code{best_k}, \code{validity}, \code{saturation},
+#'   signatures), \code{k_sel}, \code{validity}, \code{saturation},
 #'   \code{distance}, \code{method}, \code{dmm_control}, \code{sampled} and
-#'   \code{valid} (map back to rows of \code{sigs}).
+#'   \code{valid} (map back to rows of \code{signatures}).
 #' @importFrom cluster pam
 #' @importFrom stats complete.cases
 #' @export
-get_mosaic_types <- function(sigs,
-                             n_clusters  = 2:10,
+get_mosaic_types <- function(signatures,
+                             n_mosaic_types  = 2:10,
                              method      = c("dmm","pam"),
                              distance    = c("js", "hellinger", "tv", "bray", "euclidean"),
                              crisp       = FALSE,
@@ -773,29 +764,29 @@ get_mosaic_types <- function(sigs,
                      ". Allowed: ", paste(names(ctl), collapse = ", "), ".", call. = FALSE)
         ctl[names(dmm_control)] <- dmm_control
         
-        totals <- attr(sigs, "totals")
+        totals <- attr(signatures, "totals")
         if (method == "dmm" && is.null(totals))
-                stop("`sigs` has no \"totals\" attribute, which method = 'dmm' needs. ",
+                stop("`signatures` has no \"totals\" attribute, which method = 'dmm' needs. ",
                      "Recompute with compute_all_signatures(); subsetting or rbind() drops it.",
                      call. = FALSE)
         
-        sigs  <- as.matrix(sigs)
-        valid <- stats::complete.cases(sigs)
+        signatures  <- as.matrix(signatures)
+        valid <- stats::complete.cases(signatures)
         if (sum(valid) < 2L) stop("Fewer than two complete signature rows.", call. = FALSE)
-        S <- sigs[valid, , drop = FALSE]
+        S <- signatures[valid, , drop = FALSE]
         N <- nrow(S)
         if (method == "dmm") tot <- totals[valid]
         
-        n_clusters <- sort(unique(as.integer(n_clusters)))
-        if (any(is.na(n_clusters)) || any(n_clusters < 2L))
-                stop("`n_clusters` must all be integers >= 2.", call. = FALSE)
+        n_mosaic_types <- sort(unique(as.integer(n_mosaic_types)))
+        if (any(is.na(n_mosaic_types)) || any(n_mosaic_types < 2L))
+                stop("`n_mosaic_types` must all be integers >= 2.", call. = FALSE)
         
         .local_seed(seed)
         
         sampled <- is.finite(sample_size) && N > sample_size
         idx <- if (sampled) sort(sample.int(N, sample_size)) else seq_len(N)
-        if (max(n_clusters) >= length(idx))
-                stop(sprintf("`n_clusters` must be < the number of clustered objects (%d).",
+        if (max(n_mosaic_types) >= length(idx))
+                stop(sprintf("`n_mosaic_types` must be < the number of clustered objects (%d).",
                              length(idx)), call. = FALSE)
         
         ## DMM needs no distances to fit. Build the N x N matrix only for the
@@ -805,12 +796,12 @@ get_mosaic_types <- function(sigs,
         if (need_D) {
                 if (verbose) message(sprintf("%s distances for %d of %d signatures ...",
                                              distance, length(idx), N))
-                d      <- signature_distance(S[idx, , drop = FALSE], distance)
+                d      <- compute_signature_distance(S[idx, , drop = FALSE], distance)
                 D_full <- as.matrix(d)
-                sat    <- signature_saturation(d, distance)
+                sat    <- check_signature_saturation(d, distance)
         } else {
                 isat <- if (length(idx) > 2000L) sort(sample(idx, 2000L)) else idx
-                sat  <- signature_saturation(signature_distance(S[isat, , drop = FALSE], distance),
+                sat  <- check_signature_saturation(compute_signature_distance(S[isat, , drop = FALSE], distance),
                                              distance)
         }
         if (is.finite(sat) && sat > 0.3)
@@ -828,19 +819,19 @@ get_mosaic_types <- function(sigs,
         if (method == "dmm") X <- .sig_to_counts(S[idx, , drop = FALSE], tot[idx], ctl$n_scale)
         
         if (verbose) message("Evaluating ", method, " solutions (metric = ", metric, ") ...")
-        rows <- vector("list", length(n_clusters))
-        fits <- vector("list", length(n_clusters))
-        for (i in seq_along(n_clusters)) {
-                nc <- n_clusters[i]
+        rows <- vector("list", length(n_mosaic_types))
+        fits <- vector("list", length(n_mosaic_types))
+        for (i in seq_along(n_mosaic_types)) {
+                nc <- n_mosaic_types[i]
                 if (method == "pam") {
-                        fz <- compute_fuzzy(d, nc, fuzziness)
+                        fz <- .pam_memberships(d, nc, fuzziness)
                         if (crisp) {
                                 U <- matrix(0, nrow(fz$memberships), nc)
                                 U[cbind(seq_len(nrow(U)), fz$pam_result$clustering)] <- 1
                                 fz$memberships <- U
                         }
                         fits[[i]] <- fz
-                        rows[[i]] <- .mosaic_cvis(fz, Sig = S[idx, , drop = FALSE], D_full = D_full,
+                        rows[[i]] <- .mosaic_cvis(fz, signatures = S[idx, , drop = FALSE], D_full = D_full,
                                                   stability_B = stability_B, seed = seed)
                         if (verbose)
                                 message(sprintf("  k=%2d | R2=%.3f CH=%8.1f GD5=%.3f STAB=%.3f SILF=%.3f",
@@ -855,7 +846,7 @@ get_mosaic_types <- function(sigs,
                                                 nc, ctl$max_iter),
                                         "raise dmm_control$max_iter.", call. = FALSE)
                         fits[[i]] <- fit
-                        rows[[i]] <- .mosaic_cvis_dmm(fit, Sig = S[idx, , drop = FALSE],
+                        rows[[i]] <- .mosaic_cvis_dmm(fit, signatures = S[idx, , drop = FALSE],
                                                       D_full = D_full)
                         if (verbose)
                                 message(sprintf("  k=%2d | ICL=%.1f BIC=%.1f R2=%.3f empty=%d%s",
@@ -871,15 +862,15 @@ get_mosaic_types <- function(sigs,
                 stop("Metric '", metric, "' produced only NA scores.", call. = FALSE)
         
         best_i <- which.max(validity$score)
-        best_k <- validity$k[best_i]
-        if (verbose) message("Selected ", best_k, " mosaic types (", metric,
+        k_sel <- validity$k[best_i]
+        if (verbose) message("Selected ", k_sel, " mosaic types (", metric,
                              " = ", round(validity$score[best_i], 4), ")")
         if (method == "dmm" && metric %in% c("ICL", "BIC") &&
-            length(n_clusters) > 1L && best_k == max(n_clusters))
+            length(n_mosaic_types) > 1L && k_sel == max(n_mosaic_types))
                 warning("Selected k is the largest candidate. Overlapping neighbourhoods count ",
                         "each edge many times, which inflates the DMM likelihood and pushes ",
-                        metric, " upward. Extend `n_clusters`, and rerun with ",
-                        "dmm_control = list(n_scale = 0.5) to see whether best_k moves.",
+                        metric, " upward. Extend `n_mosaic_types`, and rerun with ",
+                        "dmm_control = list(n_scale = 0.5) to see whether the selected count moves.",
                         call. = FALSE)
         
         final <- fits[[best_i]]
@@ -887,7 +878,7 @@ get_mosaic_types <- function(sigs,
                 med_sig <- S[idx, , drop = FALSE][final$pam_result$id.med, , drop = FALSE]
                 Dm <- if (sampled) {
                         if (verbose) message("Assigning the remaining ", N - length(idx), " polygons ...")
-                        signature_distance(S, distance, sigs_ref = med_sig)
+                        compute_signature_distance(S, distance, signatures_ref = med_sig)
                 } else final$d_to_medoids
                 U    <- .memberships_from_medoids(Dm, fuzziness)
                 hard <- max.col(-Dm, ties.method = "first")
@@ -898,7 +889,7 @@ get_mosaic_types <- function(sigs,
                         U <- .score_dmm(final, .sig_to_counts(S, tot, ctl$n_scale))$U
                 } else U <- final$U
                 hard <- max.col(U, ties.method = "first")
-                Dm   <- signature_distance(S, distance, sigs_ref = med_sig)
+                Dm   <- compute_signature_distance(S, distance, signatures_ref = med_sig)
         }
         if (crisp) {
                 U <- matrix(0, nrow(U), ncol(U))
@@ -907,11 +898,10 @@ get_mosaic_types <- function(sigs,
         
         structure(list(clusters      = final,
                        memberships   = U,
-                       hard_clusters = hard,
+                       hard_labels = hard,
                        d_to_medoids  = Dm,
                        medoid_signatures = med_sig,
-                       best_k        = best_k,
-                       best          = best_k,
+                       n_mosaic_types = k_sel,
                        validity      = validity,
                        saturation    = sat,
                        distance      = distance,
@@ -919,17 +909,17 @@ get_mosaic_types <- function(sigs,
                        dmm_control   = if (method == "dmm") ctl else NULL,
                        sampled       = sampled,
                        valid         = valid),
-                  class = "mosaic_types")
+                  class = "pulse_mosaic_types")
 }
 
 #' @export
-print.mosaic_types <- function(x, ...) {
-        cat(sprintf("<mosaic_types>  %d units x %d mosaic types | %s | distance = %s%s\n",
-                    nrow(x$memberships), x$best_k, if (is.null(x$method)) "pam" else x$method,
+print.pulse_mosaic_types <- function(x, ...) {
+        cat(sprintf("<pulse_mosaic_types>  %d units x %d mosaic types | %s | distance = %s%s\n",
+                    nrow(x$memberships), x$n_mosaic_types, if (is.null(x$method)) "pam" else x$method,
                     x$distance, if (x$sampled) " (sampled)" else ""))
         cat(sprintf("  saturation = %.2f | mean certainty = %.3f\n",
                     x$saturation,
-                    mean(x$memberships[cbind(seq_len(nrow(x$memberships)), x$hard_clusters)])))
+                    mean(x$memberships[cbind(seq_len(nrow(x$memberships)), x$hard_labels)])))
         invisible(x)
 }
 
@@ -956,14 +946,14 @@ print.mosaic_types <- function(x, ...) {
 #' @return List with \code{R2_JS} and \code{CH_JS}.
 #' @keywords internal
 #' @noRd
-.js_decomp <- function(U, Sig) {
+.js_decomp <- function(U, signatures) {
         N <- nrow(U); n_i <- colSums(U); keep <- n_i > 0
         U <- U[, keep, drop = FALSE]; n_i <- n_i[keep]; k <- ncol(U)
-        Sbar <- crossprod(U, Sig) / n_i
-        sbar <- colMeans(Sig)
+        Sbar <- crossprod(U, signatures) / n_i
+        sbar <- colMeans(signatures)
         P_i  <- n_i / N
         Hc <- .ent_rows(Sbar); Hg <- .ent_rows(matrix(sbar, nrow = 1L))
-        Ho <- mean(.ent_rows(Sig))
+        Ho <- mean(.ent_rows(signatures))
         Btw <- Hg - sum(P_i * Hc); Wth <- sum(P_i * Hc) - Ho
         if (Btw < -1e-8 || Wth < -1e-8) {
                 warning(sprintf("Negative JS component at k = %d (Btw = %.3g, Wth = %.3g); ",
@@ -978,16 +968,16 @@ print.mosaic_types <- function(x, ...) {
 #' Validity row for one DMM solution
 #'
 #' Same columns as \code{.mosaic_cvis()} so the two engines rbind and feed
-#' \code{sweep_k_order()} unchanged. Medoid-based indices are \code{NA}, and
+#' \code{check_k_order()} unchanged. Medoid-based indices are \code{NA}, and
 #' silhouettes are \code{NA} when \code{D_full} is \code{NULL}.
 #' @keywords internal
 #' @noRd
-.mosaic_cvis_dmm <- function(fit, Sig, D_full = NULL) {
+.mosaic_cvis_dmm <- function(fit, signatures, D_full = NULL) {
         U <- fit$U; k <- ncol(U)
-        if (nrow(Sig) != nrow(U))
-                stop(sprintf("`Sig` has %d rows but the fit has %d.", nrow(Sig), nrow(U)),
+        if (nrow(signatures) != nrow(U))
+                stop(sprintf("`signatures` has %d rows but the fit has %d.", nrow(signatures), nrow(U)),
                      call. = FALSE)
-        js  <- .js_decomp(U, Sig)
+        js  <- .js_decomp(U, signatures)
         lab <- max.col(U, ties.method = "first")
         has_D <- !is.null(D_full)
         data.frame(k = k, R2_JS = js$R2_JS, CH_JS = js$CH_JS, FS = NA_real_, GD5 = NA_real_,
@@ -1001,33 +991,33 @@ print.mosaic_types <- function(x, ...) {
 
 #' Validity indices for one mosaic solution
 #'
-#' @param fz Output of \code{\link{compute_fuzzy}}.
-#' @param Sig Signature matrix on the SAME rows as \code{fz$memberships}.
+#' @param fz Output of \code{.pam_memberships()}.
+#' @param signatures Signature matrix on the SAME rows as \code{fz$memberships}.
 #' @param D_full Full dissimilarity matrix PAM was run on.
 #' @param stability_B Bootstrap replicates.
 #' @param seed Optional seed.
 #' @return One-row data frame.
 #' @keywords internal
 #' @noRd
-.mosaic_cvis <- function(fz, Sig, D_full, stability_B = 25L, seed = NULL) {
+.mosaic_cvis <- function(fz, signatures, D_full, stability_B = 25L, seed = NULL) {
         U <- fz$memberships; N <- nrow(U); k <- ncol(U); m <- fz$fuzziness
         med <- fz$pam_result$id.med
         ## FIX: the call site used to pass the FULL signature matrix while U held
         ## complete cases only, so this assertion fired whenever any polygon had an
-        ## NA signature — i.e. whenever the coverage had an isolated catchment.
-        if (nrow(Sig) != N)
-                stop(sprintf("`Sig` has %d rows but the partition has %d; pass the ",
-                             "complete-case subset.", nrow(Sig), N), call. = FALSE)
+        ## NA signature — i.e. whenever the coverage had an isolated unit.
+        if (nrow(signatures) != N)
+                stop(sprintf("`signatures` has %d rows but the partition has %d; pass the ",
+                             "complete-case subset.", nrow(signatures), N), call. = FALSE)
         
         D  <- fz$d_to_medoids
         n_i <- colSums(U); s_w <- colSums(U^m)
         J_m <- sum(U^m * D^2)
         
-        js <- .js_decomp(U, Sig)
+        js <- .js_decomp(U, signatures)
         R2_JS <- js$R2_JS; CH_JS <- js$CH_JS
-        sbar  <- colMeans(Sig)
+        sbar  <- colMeans(signatures)
         
-        b_i <- .jsd_to_ref(Sig[med, , drop = FALSE], sbar)
+        b_i <- .jsd_to_ref(signatures[med, , drop = FALSE], sbar)
         FS  <- J_m - sum(s_w * b_i)
         
         M <- crossprod(U, D)
@@ -1049,7 +1039,7 @@ print.mosaic_types <- function(x, ...) {
 
 #' @keywords internal
 #' @noRd
-.stability_pam_diss <- function(D_full, hard_clusters, k, B = 10,
+.stability_pam_diss <- function(D_full, hard_labels, k, B = 10,
                                 subsample_frac = 0.8, seed = NULL) {
         if (B <= 0L) return(NA_real_)
         N <- nrow(D_full); n_sub <- floor(N * subsample_frac)
@@ -1058,7 +1048,7 @@ print.mosaic_types <- function(x, ...) {
         aris <- vapply(seq_len(B), function(b) {
                 idx <- sort(sample.int(N, n_sub, replace = FALSE))
                 lab <- cluster::pam(stats::as.dist(D_full[idx, idx]), k = k, diss = TRUE)$clustering
-                .adjusted_rand_index(lab, hard_clusters[idx])
+                .adjusted_rand_index(lab, hard_labels[idx])
         }, numeric(1))
         mean(aris, na.rm = TRUE)
 }
@@ -1110,11 +1100,11 @@ print.mosaic_types <- function(x, ...) {
 
 #' Sweep neighbourhood order and mosaic-type count
 #'
-#' @param P Membership matrix or \code{\link{as_mosaic_P}} output.
+#' @param mosaic_input Membership matrix or \code{\link{as_mosaic_input}} output.
 #' @param graph An \code{igraph} adjacency graph.
 #' @param coords Centroid matrix.
-#' @param k_range Neighbourhood orders. Default 1:5.
-#' @param n_clusters Candidate mosaic-type counts. Default 2:10.
+#' @param k_order Neighbourhood orders. Default 1:5.
+#' @param n_mosaic_types Candidate mosaic-type counts. Default 2:10.
 #' @param kernel,sigma,exclude_bridges Passed to
 #'   \code{\link{compute_all_signatures}}. \code{exclude_bridges} defaults to
 #'   \code{TRUE}.
@@ -1126,56 +1116,56 @@ print.mosaic_types <- function(x, ...) {
 #'   a few huge blobs. The returned \code{SAT} and \code{contrast} columns
 #'   diagnose the two ends.
 #'
-#'   \code{score} is a Borda rank among the \code{n_clusters} candidates of one
-#'   \code{k_order}, so it selects \code{best_k} within an order and must not be
+#'   \code{score} is a Borda rank among the \code{n_mosaic_types} candidates of one
+#'   \code{k_order}, so it selects \code{n_mosaic_types} within an order and must not be
 #'   compared across orders. The function therefore does not pick an order.
 #'   To compare orders, use the bounded columns at a fixed type count, e.g.
-#'   \code{subset(res, n_clusters == 6)[, c("k_order", "R2_JS", "SAT", "contrast")]}.
-#'   \code{R2_JS} rises with \code{n_clusters} and may rise with \code{k_order}
+#'   \code{subset(res, n_mosaic_types == 6)[, c("k_order", "R2_JS", "SAT", "contrast")]}.
+#'   \code{R2_JS} rises with \code{n_mosaic_types} and may rise with \code{k_order}
 #'   as signatures smooth, so read it together with \code{SAT} and
 #'   \code{contrast}, not alone.
-#' @return A data frame with one row per (\code{k_order}, \code{n_clusters}),
+#' @return A data frame with one row per (\code{k_order}, \code{n_mosaic_types}),
 #'   with attribute \code{"by_order"}: one row per order at its own
-#'   \code{best_k}.
+#'   \code{n_mosaic_types}.
 #' @export
-sweep_k_order <- function(P, graph, coords = NULL, k_range = 1:5, n_clusters = 2:10,
+check_k_order <- function(mosaic_input, graph, coords = NULL, k_order = 1:5, n_mosaic_types = 2:10,
                           kernel = "none", sigma = "global", exclude_bridges = TRUE, ...) {
         if (!igraph::is_igraph(graph)) stop("`graph` must be an igraph object.", call. = FALSE)
-        k_range <- sort(unique(as.integer(k_range)))
+        k_order <- sort(unique(as.integer(k_order)))
         
-        out <- vector("list", length(k_range))
-        for (i in seq_along(k_range)) {
-                k <- k_range[i]
+        out <- vector("list", length(k_order))
+        for (i in seq_along(k_order)) {
+                k <- k_order[i]
                 message("\n=== Neighbourhood order k = ", k, " ===")
-                sigs <- compute_all_signatures(P, graph, k, coords = coords,
+                signatures <- compute_all_signatures(mosaic_input, graph, k, coords = coords,
                                                kernel = kernel, sigma = sigma,
                                                exclude_bridges = exclude_bridges, verbose = TRUE)
-                cl <- get_mosaic_types(sigs, n_clusters = n_clusters, ...)
+                cl <- get_mosaic_types(signatures, n_mosaic_types = n_mosaic_types, ...)
                 ## FIX: the old version built a frame with no `silhouette` column and
                 ## then selected on it, and it indexed cl$validity by column position.
                 out[[i]] <- data.frame(k_order    = k,
-                                       n_clusters = cl$validity$k,
+                                       n_mosaic_types = cl$validity$k,
                                        R2_JS      = cl$validity$R2_JS,
                                        CH_JS      = cl$validity$CH_JS,
                                        STAB       = cl$validity$STAB,
                                        SILH_fuzzy = cl$validity$SILH_fuzzy,
                                        SAT        = cl$validity$SAT,
                                        score      = cl$validity$score,
-                                       best_k     = cl$best_k,
-                                       contrast   = mean(mosaic_contrast(sigs, graph),
+                                       n_selected = cl$n_mosaic_types,
+                                       contrast   = mean(compute_mosaic_contrast(signatures, graph),
                                                          na.rm = TRUE))
         }
         results <- do.call(rbind, out)
         
         # `score` is a Borda rank within one k_order and is not comparable across
-        # orders. Summarise each order at its own best_k; no cross-order pick.
-        by_order <- results[results$n_clusters == results$best_k,
-                            c("k_order", "best_k", "R2_JS", "SAT", "contrast"), drop = FALSE]
+        # orders. Summarise each order at its own n_mosaic_types; no cross-order pick.
+        by_order <- results[results$n_mosaic_types == results$n_selected,
+                            c("k_order", "n_selected", "R2_JS", "SAT", "contrast"), drop = FALSE]
         rownames(by_order) <- NULL
-        message("\n=== Per order at its own best_k (score is within-order only; ",
+        message("\n=== Per order at its own n_mosaic_types (score is within-order only; ",
                 "orders are not ranked) ===\n",
-                paste(sprintf("  k_order %d: best_k = %d, R2_JS = %.3f, SAT = %.2f, contrast = %.3f",
-                              by_order$k_order, by_order$best_k, by_order$R2_JS,
+                paste(sprintf("  k_order %d: n_selected = %d, R2_JS = %.3f, SAT = %.2f, contrast = %.3f",
+                              by_order$k_order, by_order$n_selected, by_order$R2_JS,
                               by_order$SAT, by_order$contrast), collapse = "\n"))
         hi <- by_order$k_order[is.finite(by_order$SAT) & by_order$SAT > 0.3]
         if (length(hi))
@@ -1194,15 +1184,15 @@ sweep_k_order <- function(P, graph, coords = NULL, k_range = 1:5, n_clusters = 2
 #' structure away, and the kernel bandwidth should be tightened or the
 #' neighbourhood order reduced.
 #'
-#' @param sigs Signature matrix.
+#' @param signatures Signature matrix.
 #' @param graph The adjacency graph.
 #' @return Numeric vector of length \eqn{n}.
 #' @importFrom igraph as_adjacency_matrix
 #' @export
-mosaic_contrast <- function(sigs, graph) {
+compute_mosaic_contrast <- function(signatures, graph) {
         ## unclass(): Matrix's S4 %*% recurses without end on the S3
-        ## "mosaic_signatures" class (C stack overflow in sweep_k_order()).
-        S <- unclass(as.matrix(sigs))
+        ## "pulse_signatures" class (C stack overflow in check_k_order()).
+        S <- unclass(as.matrix(signatures))
         A <- igraph::as_adjacency_matrix(graph, sparse = TRUE, attr = NULL)
         ok <- stats::complete.cases(S)
         S0 <- S; S0[!ok, ] <- 0
@@ -1217,7 +1207,7 @@ mosaic_contrast <- function(sigs, graph) {
 #' Validate and package a mosaic input matrix
 #' @keywords internal
 #' @noRd
-.new_mosaic_P <- function(P, labels, region_of, level, normalise, drop_empty) {
+.new_mosaic_input <- function(P, labels, region_of, level, normalise, drop_empty) {
         P <- as.matrix(P)
         if (!is.numeric(P))  stop("Membership matrix must be numeric.", call. = FALSE)
         if (anyNA(P))        stop("Membership matrix contains NA.", call. = FALSE)
@@ -1262,12 +1252,12 @@ mosaic_contrast <- function(sigs, graph) {
         structure(list(P = P, labels = labels,
                        region_of = as.integer(region_of), level = level,
                        row_sums = range(rs)),
-                  class = "mosaic_P")
+                  class = "pulse_mosaic_input")
 }
 
 #' @export
-print.mosaic_P <- function(x, ...) {
-        cat(sprintf("<mosaic_P>  %d units x %d classes | level = %s\n",
+print.pulse_mosaic_input <- function(x, ...) {
+        cat(sprintf("<pulse_mosaic_input>  %d units x %d classes | level = %s\n",
                     nrow(x$P), ncol(x$P), x$level))
         cat(sprintf("  signature bins: %d | row sums in [%.3f, %.3f]\n",
                     ncol(x$P) * (ncol(x$P) + 1L) / 2L, x$row_sums[1], x$row_sums[2]))

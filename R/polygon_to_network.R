@@ -1,5 +1,5 @@
 # ===========================================================================*
-# polygon_to_network()  --  build a spatial contiguity network from polygons
+# build_network()  --  build a spatial contiguity network from polygons
 #
 # Public API (unchanged return shape) plus four new, fully-defaulted arguments
 # (verbose, snap, queen, bbox_buffer). Hardened against the silent-corruption
@@ -159,23 +159,23 @@
 #'
 #' # --- In-memory mode ---
 #' polys   <- st_read("my_polygons.shp")
-#' network <- polygon_to_network(polys)
+#' network <- build_network(polys)
 #' plot(network$graph)
 #'
 #' # Queen contiguity, no auto-connection of islands
-#' network <- polygon_to_network(polys, queen = TRUE, connect_islands = FALSE)
+#' network <- build_network(polys, queen = TRUE, connect_islands = FALSE)
 #'
 #' # Only count neighbours sharing at least 50 m of boundary (projected CRS)
-#' network <- polygon_to_network(polys, min_shared_length = 50)
+#' network <- build_network(polys, min_shared_length = 50)
 #'
 #' # --- Chunked mode across multiple GeoParquet files ---
 #' files   <- list.files("data/chunks", pattern = "\\.parquet$", full.names = TRUE)
-#' network <- polygon_to_network(files, chunked = TRUE,
+#' network <- build_network(files, chunked = TRUE,
 #'                               return_combined_polygons = TRUE)
 #'
 #' # Chunked mode with paired environmental control files
 #' env_files <- list.files("data/env", pattern = "\\.parquet$", full.names = TRUE)
-#' network   <- polygon_to_network(files, chunked = TRUE, control_paths = env_files)
+#' network   <- build_network(files, chunked = TRUE, control_paths = env_files)
 #' }
 #'
 #' @seealso \code{\link[spdep]{poly2nb}} for neighbour detection,
@@ -186,7 +186,7 @@
 #' @importFrom igraph make_empty_graph add_edges set_vertex_attr vcount ecount components simplify ends set_graph_attr E
 #'
 #' @export
-polygon_to_network <- function(polygons,
+build_network <- function(polygons,
                                chunked                  = FALSE,
                                min_shared_length        = 0,
                                connect_islands          = TRUE,

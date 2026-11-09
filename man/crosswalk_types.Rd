@@ -24,8 +24,8 @@ crosswalk_types(
 \method{print}{pulse_crosswalk_set}(x, ...)
 }
 \arguments{
-\item{x}{A \code{pulse_regions}, \code{regions_tuning},
-\code{pulse_local_types}, \code{pulse_meta_types} or \code{mosaic_types}
+\item{x}{A \code{pulse_regions}, \code{pulse_regions_tuning},
+\code{pulse_local_types}, \code{pulse_meta_types} or \code{pulse_mosaic_types}
 object, or a named list of such objects (for example
 \code{list(regions = reg, local = loc, mosaic = mos)}) to crosswalk every
 level in one call.}
@@ -39,7 +39,7 @@ Fuzzy rows are renormalised to sum to one, with a warning if needed.}
 
 \item{units}{Unit identifiers of \code{x} in graph vertex order: either a
 vector, or the \pkg{igraph} object returned by
-\code{polygon_to_network()}, whose \code{polygon_id} vertex attribute is
+\code{build_network()}, whose \code{polygon_id} vertex attribute is
 used. Rows are never matched by position.}
 
 \item{id}{Name of the identifier column in \code{external}. \code{NULL}

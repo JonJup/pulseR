@@ -9,7 +9,7 @@ make_island_sf <- function() {
 }
 
 test_that("in-memory network flags one bridge with boundary length", {
-        net <- polygon_to_network(make_island_sf(), verbose = FALSE)
+        net <- build_network(make_island_sf(), verbose = FALSE)
         g   <- net$graph
         expect_true(igraph::is_connected(g))
         expect_identical(sum(igraph::E(g)$bridge), 1L)
@@ -40,13 +40,13 @@ test_that("centroid-only bridging records centroid length", {
 })
 
 test_that("a connected graph gets bridge attributes but no bridges", {
-        net <- polygon_to_network(make_grid_sf(3L, 3L), verbose = FALSE)
+        net <- build_network(make_grid_sf(3L, 3L), verbose = FALSE)
         expect_false(any(igraph::E(net$graph)$bridge))
         expect_true("bridge" %in% names(net$edge_data))
 })
 
 test_that("add_edge_weight() carries the flag and applies the penalty", {
-        net <- polygon_to_network(make_island_sf(), verbose = FALSE)
+        net <- build_network(make_island_sf(), verbose = FALSE)
         g   <- add_edge_weight(net, id_col = "ID", verbose = FALSE)
         br  <- igraph::E(g)$bridge
         expect_identical(sum(br), 1L)
@@ -60,7 +60,7 @@ test_that("add_edge_weight() carries the flag and applies the penalty", {
 })
 
 test_that("bridge_scale = Inf leaves weights unpenalised; bad values stop", {
-        net <- polygon_to_network(make_island_sf(), verbose = FALSE)
+        net <- build_network(make_island_sf(), verbose = FALSE)
         g   <- add_edge_weight(net, id_col = "ID", bridge_scale = Inf, verbose = FALSE)
         expect_equal(igraph::E(g)$weight, igraph::E(g)$weight_env)
         expect_error(add_edge_weight(net, id_col = "ID", bridge_scale = 0, verbose = FALSE),
@@ -70,7 +70,7 @@ test_that("bridge_scale = Inf leaves weights unpenalised; bad values stop", {
 })
 
 test_that("a user-supplied bridge_scale overrides the default", {
-        net <- polygon_to_network(make_island_sf(), verbose = FALSE)
+        net <- build_network(make_island_sf(), verbose = FALSE)
         g1  <- add_edge_weight(net, id_col = "ID", verbose = FALSE)
         g4  <- add_edge_weight(net, id_col = "ID", bridge_scale = 4, verbose = FALSE)
         br  <- igraph::E(g4)$bridge
@@ -79,14 +79,14 @@ test_that("a user-supplied bridge_scale overrides the default", {
 })
 
 test_that("the null weight function reproduces the penalised weights", {
-        net <- polygon_to_network(make_island_sf(), verbose = FALSE)
+        net <- build_network(make_island_sf(), verbose = FALSE)
         g   <- add_edge_weight(net, id_col = "ID", verbose = FALSE)
         X   <- igraph::graph_attr(g, "env")
         expect_equal(.edge_weights_from_env(g, X), igraph::E(g)$weight)
 })
 
 test_that("graphs without a bridge flag keep their old behaviour", {
-        net <- polygon_to_network(make_grid_sf(3L, 3L), verbose = FALSE)
+        net <- build_network(make_grid_sf(3L, 3L), verbose = FALSE)
         net$graph <- igraph::delete_edge_attr(net$graph, "bridge")
         expect_warning(add_edge_weight(net, id_col = "ID", bridge_scale = 5, verbose = FALSE),
                        "no `bridge` edge attribute")
@@ -95,7 +95,7 @@ test_that("graphs without a bridge flag keep their old behaviour", {
 })
 
 test_that("Level 3 excludes bridges from reachability and edges", {
-        net <- polygon_to_network(make_island_sf(), verbose = FALSE)
+        net <- build_network(make_island_sf(), verbose = FALSE)
         g   <- add_edge_weight(net, id_col = "ID", verbose = FALSE)
         n   <- igraph::vcount(g)
         P   <- cbind(a = rep(c(0.8, 0.2), length.out = n),
@@ -114,12 +114,12 @@ test_that("Level 3 excludes bridges from reachability and edges", {
 })
 
 test_that("the permutation null accepts a penalised graph", {
-        net <- polygon_to_network(make_island_sf(), verbose = FALSE)
+        net <- build_network(make_island_sf(), verbose = FALSE)
         g   <- add_edge_weight(net, id_col = "ID", verbose = FALSE)
         nb  <- compute_null_baseline(g, final_regions = 2, regions_per_partition = 4,
                                      N_tree = 4, B = 1, stability_B = 0, seed = 1,
                                      verbose = FALSE)
-        expect_s3_class(nb, "null_baseline")
+        expect_s3_class(nb, "pulse_null")
 })
 
 

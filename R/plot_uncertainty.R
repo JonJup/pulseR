@@ -28,7 +28,7 @@
 #'
 #' @param regions,local,meta,mosaic Fitted objects (\code{"pulse_regions"},
 #'   \code{"pulse_local_types"}, \code{"pulse_meta_types"},
-#'   \code{"mosaic_types"}); any may be \code{NULL}, at least one is required.
+#'   \code{"pulse_mosaic_types"}); any may be \code{NULL}, at least one is required.
 #' @param rescale Logical. Map certainty from \eqn{[1/k, 1]} onto \eqn{[0, 1]}.
 #'   Default \code{FALSE}.
 #' @param drop_trivial Logical. Drop units whose type had no competitor
@@ -168,7 +168,7 @@ plot_margin <- function(regions = NULL, local = NULL, meta = NULL, mosaic = NULL
 #' @noRd
 .level_uncertainty <- function(x, slot) {
         expect <- c(regions = "pulse_regions", local = "pulse_local_types",
-                    meta = "pulse_meta_types", mosaic = "mosaic_types")[[slot]]
+                    meta = "pulse_meta_types", mosaic = "pulse_mosaic_types")[[slot]]
         if (!inherits(x, expect))
                 stop(sprintf("`%s` must be a \"%s\" object, not \"%s\".",
                              slot, expect, class(x)[1]), call. = FALSE)
@@ -183,14 +183,14 @@ plot_margin <- function(regions = NULL, local = NULL, meta = NULL, mosaic = NULL
                local = {
                        cert <- t2$first
                        G    <- tabulate(match(x$key$region, unique(x$key$region)))
-                       k    <- G[match(x$key$region[x$hard_classes], unique(x$key$region))]
+                       k    <- G[match(x$key$region[x$hard_labels], unique(x$key$region))]
                },
                meta = {
                        cert <- x$certainty
                        k    <- rep(ncol(U), N)
                },
                mosaic = {
-                       cert <- U[cbind(seq_len(N), x$hard_clusters)]
+                       cert <- U[cbind(seq_len(N), x$hard_labels)]
                        k    <- rep(ncol(U), N)
                })
         data.frame(level     = .UNCERTAINTY_LEVELS[[slot]],

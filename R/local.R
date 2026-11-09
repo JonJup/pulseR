@@ -12,14 +12,14 @@
 
 #' Extract the N x k region weight matrix from whatever the caller passed.
 #'
-#' Accepts a "pulse_regions" object, a "regions_tuning" object (whose fit lives
-#' in $best_result), or a bare numeric matrix. `which = "typicality"` looks for
-#' the possibilistic matrix under any of the names the contract has used.
+#' Accepts a "pulse_regions" object, a "pulse_regions_tuning" object (whose fit lives
+#' in $best_result), or a bare numeric matrix. `which = "cohesion"` reads
+#' the fit's cohesion matrix.
 #' The same checks (numeric, no NA, non-negative) run for every input type.
 #'
 #' @keywords internal
 #' @noRd
-.region_weights <- function(regions, which = c("memberships", "typicality")) {
+.region_weights <- function(regions, which = c("memberships", "cohesion")) {
         which <- match.arg(which)
         
         bare <- is.matrix(regions) || is.data.frame(regions)
@@ -45,36 +45,21 @@
         W
 }
 
-#' Pull the region weight matrix out of a "pulse_regions" or "regions_tuning".
+#' Pull the region weight matrix out of a "pulse_regions" or "pulse_regions_tuning".
 #' @keywords internal
 #' @noRd
 .region_weights_from_object <- function(regions, which) {
         if (!is.list(regions))
-                stop("`regions` must be a 'pulse_regions' / 'regions_tuning' object or a matrix.",
+                stop("`regions` must be a 'pulse_regions' / 'pulse_regions_tuning' object or a matrix.",
                      call. = FALSE)
-        
-        ## FIX: tune_regions() returns the fit under $best_result, not at top level.
-        src <- if (inherits(regions, "regions_tuning")) regions$best_result else regions
+        src <- if (inherits(regions, "pulse_regions_tuning")) regions$best_result else regions
         if (is.null(src))
                 stop("`regions` looks like a tuning object but carries no `$best_result`.",
                      call. = FALSE)
-        
-        W <- if (which == "memberships") {
-                ## FIX: the old code read `$memberships_normalized`, which is not part of
-                ## the pulse_regions contract. `$memberships` is already row-normalised.
-                .first_non_null(src$memberships, src$fit$memberships)
-        } else {
-                ## The possibilistic matrix lives in $fit and is now called `cohesion`;
-                ## accept every name it has had (typicality, affinity).
-                .first_non_null(src$cohesion, src$typicality, src$affinity,
-                                src$fit$cohesion, src$fit$typicality, src$fit$affinity)
-        }
-        
+        W <- if (which == "memberships") .first_non_null(src$memberships, src$fit$memberships) else
+                .first_non_null(src$cohesion, src$fit$cohesion)
         if (is.null(W))
-                stop(sprintf("Could not find a `%s` matrix on `regions`.%s", which,
-                             if (which == "typicality")
-                                     " Refit with a version of cluster_consensus() that returns `cohesion`."
-                             else ""), call. = FALSE)
+                stop(sprintf("Could not find a `%s` matrix on `regions`.", which), call. = FALSE)
         as.matrix(W)
 }
 
@@ -166,7 +151,7 @@
 #'
 #' @details
 #' For region \eqn{r}, every unit carries a weight \eqn{w_{ir}} — its membership
-#' in (or typicality for) that region. Units with \eqn{w_{ir} \ge}
+#' in (or cohesion for) that region. Units with \eqn{w_{ir} \ge}
 #' \code{cutoff} form the region's \emph{core} and provide the model-based
 #' hierarchical initialisation (\code{\link[mclust]{hc}} +
 #' \code{\link[mclust]{hclass}}); every other unit starts from a flat
@@ -193,7 +178,7 @@
 #' memberships return \eqn{w_{ir}}. Because each \eqn{z_i} row sums to one, the raw row
 #' sums of the combined matrix equal \eqn{\sum_r w_{ir}} — exactly 1 when
 #' \code{weights = "memberships"}, and something else when
-#' \code{weights = "typicality"}, which is why \code{memberships} is returned
+#' \code{weights = "cohesion"}, which is why \code{memberships} is returned
 #' row-normalized and the normalized version is kept as \code{weighted}.
 #'
 #' Units with \eqn{w_{ir} \le} \code{weight_eps} are excluded from region
@@ -206,7 +191,7 @@
 #'   the same order as the rows of the region weight matrix. Geometry is
 #'   dropped automatically.
 #' @param regions A \code{"pulse_regions"} object from \code{\link{get_regions}},
-#'   a \code{"regions_tuning"} object from \code{\link{tune_regions}}, or a bare
+#'   a \code{"pulse_regions_tuning"} object from \code{\link{tune_regions}}, or a bare
 #'   N x k numeric weight matrix.
 #' @param variables Character vector of predictor columns to use. \code{NULL}
 #'   (default) uses every numeric column of \code{env} that is not listed in
@@ -227,7 +212,7 @@
 #'   as \eqn{k} grows (a mean membership at \eqn{k = 20} is 0.05), whereas
 #'   cohesion does not depend on \eqn{k}.
 #' @param weights One of \code{"memberships"} (default; composition memberships
-#'   \eqn{\Pi}, rows sum to 1) or \code{"typicality"} (the fit's
+#'   \eqn{\Pi}, rows sum to 1) or \code{"cohesion"} (the fit's
 #'   \code{cohesion}: mean co-association with the members of each region,
 #'   rows do not sum to 1). Cohesion shrinks as a region grows, so large
 #'   homogeneous regions get low weights and small cores; prefer
@@ -268,7 +253,7 @@
 #'   \describe{
 #'     \item{\code{memberships}}{N x sum(G_r) matrix, rows sum to 1.}
 #'     \item{\code{weighted}}{The same matrix before row-normalisation.}
-#'     \item{\code{hard_classes}}{Integer vector, column index of the row maximum.}
+#'     \item{\code{hard_labels}}{Integer vector, column index of the row maximum.}
 #'     \item{\code{certainty}}{Row maximum of \code{memberships}.}
 #'     \item{\code{certainty_raw}}{Row maximum of \code{weighted}.}
 #'     \item{\code{entropy}}{Normalised row entropy of \code{memberships}.}
@@ -315,7 +300,7 @@ get_local_types <- function(env,
                             non_value_cols = NULL,
                             n_local_types  = 2:9,
                             cutoff         = 0.1,
-                            weights        = c("memberships", "typicality"),
+                            weights        = c("memberships", "cohesion"),
                             model_name     = c("VVV", "EEE", "VVI", "VII"),
                             scale          = TRUE,
                             hc_use         = "VARS",
@@ -678,7 +663,7 @@ get_local_types <- function(env,
         out <- list(
                 memberships   = U,
                 weighted      = Zw,
-                hard_classes  = as.integer(hard),
+                hard_labels  = as.integer(hard),
                 certainty     = U[idx],
                 certainty_raw = Zw[idx],
                 entropy       = .row_entropy(U),

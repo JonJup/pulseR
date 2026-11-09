@@ -6,8 +6,7 @@
 \usage{
 get_meta_types(
   local,
-  n_meta = "auto",
-  candidates = 2:12,
+  n_meta_types = 2:12,
   max_confined = 0.2,
   method = c("bhattacharyya", "wasserstein", "empirical"),
   env = NULL,
@@ -20,23 +19,18 @@ get_meta_types(
 \arguments{
 \item{local}{A \code{"pulse_local_types"} object.}
 
-\item{n_meta}{Integer, or \code{"auto"} (default): the largest candidate
-whose confined mass is at most \code{max_confined}. Confined mass is the
-share of catchment membership held by meta-types that occur in one region
-only. Coarse cuts always cross regions, so the rule takes the finest cut
-that still does. Warns if no candidate passes or the largest one does.}
+\item{n_meta_types}{Integer vector. One value fixes the number of
+meta-types. Several values (default \code{2:12}) are candidates: the
+largest one whose confined mass is at most \code{max_confined} is chosen.
+Confined mass is the share of unit membership held by meta-types that
+occur in one region only. Coarse cuts always cross regions, so the rule
+takes the finest cut that still does. Warns if no candidate passes or the
+largest one does.}
 
-\item{candidates}{Candidate counts for \code{n_meta = "auto"}. Default
-\code{2:12}.}
+\item{max_confined}{Threshold for candidate selection, in \eqn{[0, 1]}.
+Default 0.2. Some confinement is real, so 0 is usually too strict.}
 
-\item{max_confined}{Threshold for \code{"auto"}, in \[0,1\]. Default 0.2.
-Some confinement is real, so 0 is usually too strict.
-\code{selection}. Per candidate: confined mass, share of
-single-region meta-types, regions per meta-type, ARI with region,
-silhouette, and whether it passes.
-\code{rule}How \code{n_meta} was chosen.}
-
-\item{method, env, n_sample}{Passed to \code{\link{local_type_distance}}.}
+\item{method, env, n_sample}{Passed to \code{\link{compute_local_type_distance}}.}
 
 \item{linkage}{Passed to \code{\link[stats]{hclust}}. Default
 \code{"average"}, which merges on mean overlap and does not chain the way
@@ -48,14 +42,19 @@ recomputing one.}
 \value{
 An object of class \code{"pulse_meta_types"}:
 \describe{
-\item{\code{memberships}}{N x n_meta matrix. Rows sum to one, exactly, by
+\item{\code{memberships}}{N x n_meta_types matrix. Rows sum to one, exactly, by
 summing local-type columns.}
-\item{\code{hard_classes}, \code{certainty}}{Row argmax and its value.}
+\item{\code{hard_labels}, \code{certainty}}{Row argmax and its value.}
 \item{\code{key}}{Local type, its region, and its meta-type.}
 \item{\code{crossing}}{Regions represented in each meta-type, and the ARI
 between the meta-type and region labellings OF THE LOCAL TYPES. Low ARI
 is the goal: it means meta-types are not region proxies.}
-\item{\code{selection}}{Silhouette and region-crossing per candidate.}
+\item{\code{n_meta_types}}{Number of meta-types.}
+\item{\code{selection}}{Per candidate: confined mass, share of
+single-region meta-types, regions per meta-type, ARI with region,
+silhouette, and whether it passes. \code{NULL} for a single value
+outside 2 to (number of local types - 1).}
+\item{\code{rule}}{How \code{n_meta_types} was chosen.}
 \item{\code{hclust}, \code{distance}}{The tree and the distance used.}
 }
 }

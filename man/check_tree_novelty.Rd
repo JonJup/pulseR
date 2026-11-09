@@ -2,15 +2,15 @@
 % Please edit documentation in R/ensemble_diagnostics.R
 \name{check_tree_novelty}
 \alias{check_tree_novelty}
-\alias{plot.tree_novelty}
+\alias{plot.pulse_tree_novelty}
 \title{Check how much each new tree adds to the ensemble}
 \usage{
 check_tree_novelty(ensemble, graph)
 
-\method{plot}{tree_novelty}(x, log_x = FALSE, ...)
+\method{plot}{pulse_tree_novelty}(x, log_x = FALSE, ...)
 }
 \arguments{
-\item{ensemble}{An \code{"ensemble_memberships"} object or an integer label
+\item{ensemble}{An \code{"pulse_ensemble"} object or an integer label
 matrix (units x partitions), rows in vertex order of \code{graph}.}
 
 \item{graph}{The \code{igraph} the ensemble was built on.}
@@ -18,7 +18,7 @@ matrix (units x partitions), rows in vertex order of \code{graph}.}
 \item{log_x}{Logical. Log-scale the tree axis. Default \code{FALSE}.}
 }
 \value{
-Object of class \code{"tree_novelty"} with \code{per_tree} (one
+Object of class \code{"pulse_tree_novelty"} with \code{per_tree} (one
 row per tree: \code{n_boundary}, \code{new_edges}, \code{share_new},
 \code{nn_jaccard}), \code{curve} (expected distinct edges and expected
 share new, by number of trees), \code{summary} (\code{S_obs},
@@ -54,7 +54,7 @@ data. \code{1 - coverage} estimates the share of the boundary edges of the
 worth it". \code{S_chao2} is the Chao2 lower bound on the number of
 boundary edges the sampler can reach.
 
-Edge counts ignore distance: a boundary moved by one catchment counts as
+Edge counts ignore distance: a boundary moved by one unit counts as
 new edges. A slowly saturating curve with a small Jaccard distance means
 the trees keep jittering boundaries locally; a large Jaccard distance means
 they keep proposing different regionalisations.

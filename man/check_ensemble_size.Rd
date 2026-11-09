@@ -20,13 +20,13 @@ check_ensemble_size(
 )
 }
 \arguments{
-\item{ensemble}{An \code{"ensemble_memberships"} object or an integer
+\item{ensemble}{An \code{"pulse_ensemble"} object or an integer
 label matrix (units x partitions).}
 
 \item{k}{Integer. Number of consensus regions.}
 
 \item{graph}{Optional \code{igraph}; if given, contiguity is repaired as in
-\code{cluster_consensus()} (consensus partition only).}
+\code{compute_consensus()} (consensus partition only).}
 
 \item{sizes}{Integer vector of half-ensemble sizes. Default: \eqn{M/16},
 \eqn{M/8}, \eqn{M/4}, \eqn{M/2}, keeping sizes \eqn{\ge 10}.}
@@ -37,21 +37,21 @@ label matrix (units x partitions).}
 counts as flat. Default 0.01.}
 
 \item{large_n_threshold, sample_size, n_runs, n_cores}{Passed to
-\code{\link{cluster_consensus}}.}
+\code{\link{compute_consensus}}.}
 
 \item{seed}{Optional integer; the caller's RNG state is restored.}
 
 \item{verbose}{Logical.}
 }
 \value{
-Object of class \code{"ensemble_size_check"}: \code{replicates}
+Object of class \code{"pulse_ensemble_size"}: \code{replicates}
 (one row per size and replicate), \code{summary} (per size: mean, min
 and max ARI, gain over the previous size), \code{search_floor},
 \code{converged}, \code{k}, \code{n_members}.
 }
 \description{
 Draws two disjoint sets of \code{m} ensemble columns, builds a consensus
-from each with \code{\link{cluster_consensus}}, and compares the two hard
+from each with \code{\link{compute_consensus}}, and compares the two hard
 partitions by the adjusted Rand index (ARI). Repeated over a ladder of
 sizes \code{m} up to half the ensemble, this traces how reproducible the
 consensus is as the ensemble grows.

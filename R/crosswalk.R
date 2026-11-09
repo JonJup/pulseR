@@ -2,8 +2,8 @@
 # Crosswalk between a pulseR typology and an external typology
 # -----------------------------------------------------------------------------*
 
-.CW_CLASSES <- c("pulse_regions", "regions_tuning", "pulse_local_types",
-                 "pulse_meta_types", "mosaic_types")
+.CW_CLASSES <- c("pulse_regions", "pulse_regions_tuning", "pulse_local_types",
+                 "pulse_meta_types", "pulse_mosaic_types")
 
 .CW_INDICES <- c("ARI", "AMI", "NMI", "VI", "H_ext_given_pulse",
                  "H_pulse_given_ext", "purity", "inverse_purity", "cramers_v",
@@ -48,8 +48,8 @@
 #' \code{min_coverage = 0}, and compare the results with
 #' \code{plot_crosswalk(list(...), what = "plane")}.
 #'
-#' @param x A \code{pulse_regions}, \code{regions_tuning},
-#'   \code{pulse_local_types}, \code{pulse_meta_types} or \code{mosaic_types}
+#' @param x A \code{pulse_regions}, \code{pulse_regions_tuning},
+#'   \code{pulse_local_types}, \code{pulse_meta_types} or \code{pulse_mosaic_types}
 #'   object, or a named list of such objects (for example
 #'   \code{list(regions = reg, local = loc, mosaic = mos)}) to crosswalk every
 #'   level in one call.
@@ -60,7 +60,7 @@
 #'   Fuzzy rows are renormalised to sum to one, with a warning if needed.
 #' @param units Unit identifiers of \code{x} in graph vertex order: either a
 #'   vector, or the \pkg{igraph} object returned by
-#'   \code{polygon_to_network()}, whose \code{polygon_id} vertex attribute is
+#'   \code{build_network()}, whose \code{polygon_id} vertex attribute is
 #'   used. Rows are never matched by position.
 #' @param id Name of the identifier column in \code{external}. \code{NULL}
 #'   (default) uses \code{"ID"} or \code{"id"}. Identifiers are compared as
@@ -272,30 +272,30 @@ crosswalk_types <- function(x, external, label, units, id = NULL, weights = NULL
 #' @keywords internal
 #' @noRd
 .cw_pulse_side <- function(x) {
-        if (inherits(x, "regions_tuning")) {
+        if (inherits(x, "pulse_regions_tuning")) {
                 x <- x$best_result
-                if (is.null(x)) stop("`regions_tuning` object carries no `$best_result`.",
+                if (is.null(x)) stop("`pulse_regions_tuning` object carries no `$best_result`.",
                                      call. = FALSE)
         }
         region_of_type <- NULL
         if (inherits(x, "pulse_regions")) {
                 U     <- .first_non_null(x$memberships, x$fit$memberships)
-                hard  <- .first_non_null(x$hard_clusters, x$fit$hard_clusters)
+                hard  <- .first_non_null(x$hard_labels, x$fit$hard_labels)
                 level <- "regions"
                 pref  <- "R"
         } else if (inherits(x, "pulse_local_types")) {
                 U     <- x$memberships
-                hard  <- x$hard_classes
+                hard  <- x$hard_labels
                 level <- "local"
                 region_of_type <- as.integer(x$key$region)
         } else if (inherits(x, "pulse_meta_types")) {
                 U     <- x$memberships
-                hard  <- x$hard_classes
+                hard  <- x$hard_labels
                 level <- "meta"
                 pref  <- "meta"
-        } else if (inherits(x, "mosaic_types")) {
+        } else if (inherits(x, "pulse_mosaic_types")) {
                 U     <- x$memberships
-                hard  <- x$hard_clusters
+                hard  <- x$hard_labels
                 level <- "mosaic"
                 pref  <- "M"
         } else {
@@ -318,7 +318,7 @@ crosswalk_types <- function(x, external, label, units, id = NULL, weights = NULL
         if (level == "mosaic") {
                 valid <- x$valid
                 if (is.null(valid) || sum(valid) != nrow(U))
-                        stop("`mosaic_types` object has no `valid` vector matching its ",
+                        stop("`pulse_mosaic_types` object has no `valid` vector matching its ",
                              "membership rows.", call. = FALSE)
                 row_of_unit <- rep(NA_integer_, length(valid))
                 row_of_unit[valid] <- seq_len(nrow(U))
@@ -335,7 +335,7 @@ crosswalk_types <- function(x, external, label, units, id = NULL, weights = NULL
 .cw_unit_ids <- function(units, n) {
         if (missing(units) || is.null(units))
                 stop("`units` is required: the unit IDs of `x` in graph vertex order, ",
-                     "or the graph from polygon_to_network().", call. = FALSE)
+                     "or the graph from build_network().", call. = FALSE)
         if (inherits(units, "igraph")) {
                 ids <- igraph::vertex_attr(units, "polygon_id")
                 if (is.null(ids))

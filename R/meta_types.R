@@ -4,7 +4,7 @@
 # Why this exists
 # ---------------
 # A local type belongs to exactly one region by construction, so knowing a
-# catchment's local type tells you its region with certainty. Any signature
+# unit's local type tells you its region with certainty. Any signature
 # built on local types therefore encodes region identity, and the mosaic level
 # recovers the region map (ARI 0.79 in the test case) while its distance matrix
 # saturates, because two neighbourhoods in different regions share no classes at
@@ -104,7 +104,7 @@
 #'   describe the same conditions". \code{"wasserstein"} is unbounded and keeps
 #'   discriminating between types that barely overlap, which matters if you
 #'   later reuse this matrix as a ground metric. \code{"empirical"} weights the
-#'   comparison by where catchments actually are in predictor space, so two
+#'   comparison by where units actually are in predictor space, so two
 #'   types whose Gaussians overlap in a region of the space that is empty do not
 #'   count as similar; it needs \code{env}.
 #' @param env Predictor matrix for \code{method = "empirical"}, one row per unit,
@@ -112,7 +112,7 @@
 #' @param n_sample Rows sampled for the empirical comparison. Default 20000.
 #' @return A \code{dist} over the local types, with type names as labels.
 #' @export
-local_type_distance <- function(local,
+compute_local_type_distance <- function(local,
                                 method = c("bhattacharyya", "wasserstein", "empirical"),
                                 env = NULL, n_sample = 20000L) {
         method <- match.arg(method)
@@ -124,7 +124,7 @@ local_type_distance <- function(local,
                 X <- as.matrix(env[, local$variables, drop = FALSE])
                 if (!is.null(local$scaling))
                         X <- sweep(sweep(X, 2L, local$scaling$center, "-"), 2L, local$scaling$scale, "/")
-                ## Column c = the density of type c over the sampled catchments,
+                ## Column c = the density of type c over the sampled units,
                 ## normalised to a distribution. Bhattacharyya coefficient between
                 ## columns then measures overlap where the data actually live.
                 L <- vapply(seq_len(C), function(c)
@@ -171,20 +171,16 @@ local_type_distance <- function(local,
 #' overlap, producing a smaller set of classes that recur across regions.
 #'
 #' @param local A \code{"pulse_local_types"} object.
-#' @param n_meta Integer, or \code{"auto"} (default): the largest candidate
-#'   whose confined mass is at most \code{max_confined}. Confined mass is the
-#'   share of catchment membership held by meta-types that occur in one region
-#'   only. Coarse cuts always cross regions, so the rule takes the finest cut
-#'   that still does. Warns if no candidate passes or the largest one does.
-#' @param max_confined Threshold for \code{"auto"}, in \\[0,1\\]. Default 0.2.
-#'   Some confinement is real, so 0 is usually too strict.
-#'   \code{selection}. Per candidate: confined mass, share of
-#'   single-region meta-types, regions per meta-type, ARI with region,
-#'   silhouette, and whether it passes.
-#'   \code{rule}How \code{n_meta} was chosen.
-#' @param candidates Candidate counts for \code{n_meta = "auto"}. Default
-#'   \code{2:12}.
-#' @param method,env,n_sample Passed to \code{\link{local_type_distance}}.
+#' @param n_meta_types Integer vector. One value fixes the number of
+#'   meta-types. Several values (default \code{2:12}) are candidates: the
+#'   largest one whose confined mass is at most \code{max_confined} is chosen.
+#'   Confined mass is the share of unit membership held by meta-types that
+#'   occur in one region only. Coarse cuts always cross regions, so the rule
+#'   takes the finest cut that still does. Warns if no candidate passes or the
+#'   largest one does.
+#' @param max_confined Threshold for candidate selection, in \eqn{[0, 1]}.
+#'   Default 0.2. Some confinement is real, so 0 is usually too strict.
+#' @param method,env,n_sample Passed to \code{\link{compute_local_type_distance}}.
 #' @param linkage Passed to \code{\link[stats]{hclust}}. Default
 #'   \code{"average"}, which merges on mean overlap and does not chain the way
 #'   single linkage would.
@@ -192,22 +188,26 @@ local_type_distance <- function(local,
 #'   recomputing one.
 #' @return An object of class \code{"pulse_meta_types"}:
 #'   \describe{
-#'     \item{\code{memberships}}{N x n_meta matrix. Rows sum to one, exactly, by
+#'     \item{\code{memberships}}{N x n_meta_types matrix. Rows sum to one, exactly, by
 #'       summing local-type columns.}
-#'     \item{\code{hard_classes}, \code{certainty}}{Row argmax and its value.}
+#'     \item{\code{hard_labels}, \code{certainty}}{Row argmax and its value.}
 #'     \item{\code{key}}{Local type, its region, and its meta-type.}
 #'     \item{\code{crossing}}{Regions represented in each meta-type, and the ARI
 #'       between the meta-type and region labellings OF THE LOCAL TYPES. Low ARI
 #'       is the goal: it means meta-types are not region proxies.}
-#'     \item{\code{selection}}{Silhouette and region-crossing per candidate.}
+#'     \item{\code{n_meta_types}}{Number of meta-types.}
+#'     \item{\code{selection}}{Per candidate: confined mass, share of
+#'       single-region meta-types, regions per meta-type, ARI with region,
+#'       silhouette, and whether it passes. \code{NULL} for a single value
+#'       outside 2 to (number of local types - 1).}
+#'     \item{\code{rule}}{How \code{n_meta_types} was chosen.}
 #'     \item{\code{hclust}, \code{distance}}{The tree and the distance used.}
 #'   }
 #' @importFrom stats hclust cutree as.dist
 #' @importFrom cluster silhouette
 #' @export
 get_meta_types <- function(local,
-                           n_meta     = "auto",
-                           candidates = 2:12,
+                           n_meta_types     = 2:12,
                            max_confined = 0.2,
                            method     = c("bhattacharyya", "wasserstein", "empirical"),
                            env        = NULL,
@@ -220,21 +220,28 @@ get_meta_types <- function(local,
         method <- match.arg(method)
         linkage <- match.arg(linkage)
         
-        d <- if (is.null(distance)) local_type_distance(local, method, env, n_sample) else distance
+        d <- if (is.null(distance)) compute_local_type_distance(local, method, env, n_sample) else distance
         C <- attr(d, "Size")
         reg <- local$key$region
         hc  <- stats::hclust(d, method = linkage)
         
         
-        cand <- candidates[candidates >= 2 & candidates < C]
-        if (!length(cand)) stop("No usable candidate in `candidates`.", call. = FALSE)
-        ## Catchment mass of each local type: share of the N rows' membership.
+        if (!is.numeric(n_meta_types) || !length(n_meta_types) || anyNA(n_meta_types) ||
+            any(n_meta_types != round(n_meta_types)))
+                stop("`n_meta_types` must be one or more integers.", call. = FALSE)
+        n_meta_types <- sort(unique(as.integer(n_meta_types)))
+        auto   <- length(n_meta_types) > 1L
+        cand   <- n_meta_types[n_meta_types >= 2L & n_meta_types < C]
+        if (auto && !length(cand))
+                stop(sprintf("No candidate in `n_meta_types` lies in 2..%d (the number of local types minus one).",
+                             C - 1L), call. = FALSE)
+        ## Unit mass of each local type: share of the N rows' membership.
         w <- colSums(local$memberships) / nrow(local$memberships)
-        sel <- do.call(rbind, lapply(cand, function(M) {
+        sel <- if (!length(cand)) NULL else do.call(rbind, lapply(cand, function(M) {
                 cl <- stats::cutree(hc, k = M)
                 nr <- vapply(split(reg, cl), function(v) length(unique(v)), integer(1))
                 confined <- as.integer(names(nr)[nr == 1L])
-                data.frame(n_meta = M,
+                data.frame(n_meta_types = M,
                            mass_confined = sum(w[cl %in% confined]),
                            frac_single_region = mean(nr == 1L),
                            mean_regions_per_meta = mean(nr),
@@ -242,33 +249,33 @@ get_meta_types <- function(local,
                            ari_with_region = .adjusted_rand_index(cl, reg),
                            silhouette = mean(cluster::silhouette(cl, d)[, 3]))
         }))
-        sel$passes <- sel$mass_confined <= max_confined + 1e-9
+        if (!is.null(sel)) sel$passes <- sel$mass_confined <= max_confined + 1e-9
         
-        if (identical(n_meta, "auto")) {
+        if (auto) {
                 if (length(unique(reg)) < 2L)
-                        stop("Crossing is undefined with one region; set `n_meta`.",
+                        stop("Crossing is undefined with one region; give one value in `n_meta_types`.",
                              call. = FALSE)
                 if (any(sel$passes)) {
                         ## Finest cut that still crosses regions.
-                        M <- max(sel$n_meta[sel$passes])
+                        M <- max(sel$n_meta_types[sel$passes])
                         if (M == max(cand))
                                 warning(sprintf(paste0(
-                                        "n_meta = %d is the largest candidate and passes; a finer ",
-                                        "cut may also pass. Extend `candidates`."), M), call. = FALSE)
+                                        "n_meta_types = %d is the largest candidate and passes; a finer ",
+                                        "cut may also pass. Extend `n_meta_types`."), M), call. = FALSE)
                 } else {
                         best <- min(sel$mass_confined)
-                        M <- max(sel$n_meta[sel$mass_confined <= best + 1e-12])
+                        M <- max(sel$n_meta_types[sel$mass_confined <= best + 1e-12])
                         warning(sprintf(paste0(
-                                "No candidate keeps confined mass <= %.2f (best %.2f at n_meta = %d). ",
+                                "No candidate keeps confined mass <= %.2f (best %.2f at n_meta_types = %d). ",
                                 "Meta-types will track regions; check `selection`."),
                                 max_confined, best, M), call. = FALSE)
                 }
-                rule <- sprintf("crossing: largest n_meta with mass_confined <= %.2f",
+                rule <- sprintf("crossing: largest n_meta_types with mass_confined <= %.2f",
                                 max_confined)
         } else {
-                M <- suppressWarnings(as.integer(n_meta))
-                if (is.na(M) || M < 1L || M > C)
-                        stop("`n_meta` must be \"auto\" or an integer in 1..", C, ".", call. = FALSE)
+                M <- n_meta_types
+                if (M < 1L || M > C)
+                        stop("`n_meta_types` must lie in 1..", C, " (the number of local types).", call. = FALSE)
                 rule <- "user"
         }
         cl <- stats::cutree(hc, k = M)
@@ -291,16 +298,16 @@ get_meta_types <- function(local,
         hard <- max.col(Um, ties.method = "first")
         out <- list(
                 memberships  = Um,
-                hard_classes = as.integer(hard),
+                hard_labels = as.integer(hard),
                 certainty    = Um[cbind(seq_len(nrow(Um)), hard)],
                 entropy      = .row_entropy(Um),
                 key          = key,
-                n_meta       = M,
+                n_meta_types       = M,
                 crossing     = list(regions_per_meta = nr,
                                     ari_with_region  = .adjusted_rand_index(cl, reg),
                                     frac_single_region = mean(nr == 1)),
                 selection    = sel,
-                ule          = rule,
+                rule         = rule,
                 hclust       = hc,
                 distance     = d,
                 method       = method,
@@ -311,7 +318,7 @@ get_meta_types <- function(local,
 #' @export
 print.pulse_meta_types <- function(x, ...) {
         cat(sprintf("<pulse_meta_types>  %d local types -> %d meta-types (%s, %s linkage)\n",
-                    nrow(x$key), x$n_meta, x$method, x$hclust$method))
+                    nrow(x$key), x$n_meta_types, x$method, x$hclust$method))
         cat(sprintf("  regions per meta-type: median %.0f, min %d | %.0f%% confined to one region\n",
                     stats::median(x$crossing$regions_per_meta),
                     min(x$crossing$regions_per_meta),
@@ -322,7 +329,7 @@ print.pulse_meta_types <- function(x, ...) {
                 cat("  WARNING: meta-types still track regions closely. Merging has not\n",
                     "  decoupled class from location; the mosaic level will keep\n",
                     "  reproducing the region map.\n")
-        cat(sprintf("  n_meta chosen by %s\n", x$rule))
+        cat(sprintf("  n_meta_types chosen by %s\n", x$rule))
         cat(sprintf("  mean certainty = %.3f\n", mean(x$certainty)))
         invisible(x)
 }
@@ -336,4 +343,4 @@ print.pulse_meta_types <- function(x, ...) {
 #' @param meta A \code{"pulse_meta_types"} object.
 #' @return A table of local-type counts, meta-types by region.
 #' @export
-meta_region_table <- function(meta) table(meta = meta$key$meta, region = meta$key$region)
+tabulate_meta_regions <- function(meta) table(meta = meta$key$meta, region = meta$key$region)

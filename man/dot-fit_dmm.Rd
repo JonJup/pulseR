@@ -28,7 +28,7 @@
 \item{A_init}{Starting precision sum(alpha) for the DMM EM.}
 
 \item{alpha_min}{Floor on alpha. A pair absent from a type would otherwise get
-alpha -> 0, which forbids any catchment containing that pair from joining it.}
+alpha -> 0, which forbids any unit containing that pair from joining it.}
 
 \item{A_max}{Cap on the precision. At the cap the DMM equals a multinomial
 mixture to numerical precision for any realistic count total.}

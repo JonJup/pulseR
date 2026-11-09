@@ -2,7 +2,7 @@
 % Please edit documentation in R/dmm.r
 \name{.score_dmm}
 \alias{.score_dmm}
-\title{Memberships and log predictive density for new rows (held-out blocks, unsampled catchments)}
+\title{Memberships and log predictive density for new rows (held-out blocks, unsampled units)}
 \usage{
 .score_dmm(fit, X_new)
 }
@@ -15,6 +15,6 @@
 List with \code{U}, \code{cluster}, per-row \code{logpred} and its sum \code{loglik}.
 }
 \description{
-Memberships and log predictive density for new rows (held-out blocks, unsampled catchments)
+Memberships and log predictive density for new rows (held-out blocks, unsampled units)
 }
 \keyword{internal}

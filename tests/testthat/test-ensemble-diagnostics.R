@@ -32,14 +32,14 @@ test_that("zero weight spread falls back to halvings, with one warning", {
         expect_equal(r$unit, log(2))
         x  <- .toy_trees(5, 15, prior = rep(1:3, each = 75))
         for (j in 1:5) igraph::E(x$tr$trees[[j]])$weight <- 1
-        expect_warning(.compute_ensemble_memberships_internal(x$g, x$tr, 5, 4, prior_strength = 1),
+        expect_warning(.compute_ensemble_internal(x$g, x$tr, 5, 4, prior_strength = 1),
                        "halvings")
 })
 
 test_that("lambda = 0 leaves cut selection unchanged", {
         x <- .toy_trees(10)
-        set.seed(5); a <- .compute_ensemble_memberships_internal(x$g, x$tr, 10, 8)
-        set.seed(5); b <- .compute_ensemble_memberships_internal(x$g, x$tr, 10, 8,
+        set.seed(5); a <- .compute_ensemble_internal(x$g, x$tr, 10, 8)
+        set.seed(5); b <- .compute_ensemble_internal(x$g, x$tr, 10, 8,
                                                                   prior_strength = 0)
         expect_identical(a, b)
 })
@@ -49,21 +49,21 @@ test_that("check_cut_placement anchors random at ~0 and size_influence = 0 at 1"
         cp <- check_cut_placement(x$tr, regions_per_partition = 10,
                                   size_influence = c(1, 2), seed = 2)
         s  <- cp$summary
-        expect_s3_class(cp, "cut_placement")
+        expect_s3_class(cp, "pulse_cut_placement")
         expect_equal(s$setting, c("random", "0", "1", "2"))
         expect_equal(s$env_retained[s$setting == "random"], 0)
         expect_equal(s$env_retained[s$setting == "0"], 1)
         expect_gt(s$above_median[s$setting == "0"], s$above_median[s$setting == "random"])
-        # More size weight -> fewer one-catchment cuts.
+        # More size weight -> fewer one-unit cuts.
         expect_lt(s$singleton_share[s$setting == "2"], s$singleton_share[s$setting == "0"])
 })
 
 test_that("check_ensemble_size returns a curve and a search floor", {
         skip_if_not_installed("salso")
         x   <- .toy_trees(80)
-        ens <- compute_ensemble_memberships(x$tr, 80, x$g, 10, verbose = FALSE)
+        ens <- compute_ensemble(x$tr, 80, x$g, 10, verbose = FALSE)
         chk <- check_ensemble_size(ens, k = 3, B = 2, seed = 1, verbose = FALSE)
-        expect_s3_class(chk, "ensemble_size_check")
+        expect_s3_class(chk, "pulse_ensemble_size")
         expect_equal(chk$summary$N_tree, c(10L, 20L, 40L))
         expect_true(all(chk$replicates$ARI <= 1))
         expect_true(is.logical(chk$converged))

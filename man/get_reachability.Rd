@@ -4,12 +4,12 @@
 \alias{get_reachability}
 \title{k-order reachability matrix}
 \usage{
-get_reachability(graph, k)
+get_reachability(graph, k_order)
 }
 \arguments{
 \item{graph}{An \code{igraph} object.}
 
-\item{k}{Integer \eqn{\ge 1}, neighbourhood order.}
+\item{k_order}{Integer \eqn{\ge 1}, neighbourhood order.}
 }
 \value{
 Sparse binary symmetric \code{CsparseMatrix}: the non-zero pattern of

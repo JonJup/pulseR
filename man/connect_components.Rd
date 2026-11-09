@@ -75,10 +75,10 @@ The bridged pair is always chosen by nearest centroid. Its recorded length
 (\code{bridge_dist}) depends on what is supplied:
 \describe{
 \item{\code{"boundary"}}{\code{polygons} supplied (in-memory
-\code{polygon_to_network()}): shortest distance between the two
+\code{build_network()}): shortest distance between the two
 polygons. A topology gap or corner contact gets a length near 0.}
 \item{\code{"centroid"}}{only \code{centroids} supplied (chunked
-\code{polygon_to_network()}): centroid-to-centroid distance, which is
+\code{build_network()}): centroid-to-centroid distance, which is
 always at least the boundary distance, so the same bridge receives a
 larger penalty in \code{\link{add_edge_weight}}.}
 }

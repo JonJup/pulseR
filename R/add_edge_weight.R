@@ -38,7 +38,7 @@
 #' @param bridge_scale Length scale \eqn{\lambda} of the bridge penalty, in
 #'   metres (see \emph{Bridge penalty}). \code{NULL} (default) uses the graph
 #'   attribute \code{bridge_scale_default} set by
-#'   \code{\link{polygon_to_network}}. \code{Inf} switches the penalty off.
+#'   \code{\link{build_network}}. \code{Inf} switches the penalty off.
 #'   This is a fixed modelling choice, not a tuning parameter:
 #'   \code{\link{tune_regions}} does not vary it.
 #' @param verbose Logical. Report edge and vertex counts.
@@ -74,7 +74,7 @@
 #' (\eqn{d \approx 0}) gets almost no penalty; one much longer than
 #' \eqn{\lambda} is as dissimilar as the most dissimilar real neighbour pair,
 #' so spanning-tree cuts strongly prefer it. Note that the chunked path of
-#' \code{polygon_to_network()} measures \eqn{d} between centroids, the
+#' \code{build_network()} measures \eqn{d} between centroids, the
 #' in-memory path between boundaries.
 #'
 #' @section Node ordering:
@@ -424,7 +424,7 @@ add_edge_weight <- function(g,
         if (!length(idx)) {
                 if (is.null(flag) && !is.null(bridge_scale))
                         warning("`g$graph` has no `bridge` edge attribute, so `bridge_scale` ",
-                                "is ignored. Build the graph with polygon_to_network() to flag ",
+                                "is ignored. Build the graph with build_network() to flag ",
                                 "bridges.", call. = FALSE)
                 if (!is.null(bridge_scale)) out$scale <- bridge_scale
                 return(out)

@@ -12,7 +12,7 @@ get_local_types(
   non_value_cols = NULL,
   n_local_types = 2:9,
   cutoff = 0.1,
-  weights = c("memberships", "typicality"),
+  weights = c("memberships", "cohesion"),
   model_name = c("VVV", "EEE", "VVI", "VII"),
   scale = TRUE,
   hc_use = "VARS",
@@ -31,7 +31,7 @@ the same order as the rows of the region weight matrix. Geometry is
 dropped automatically.}
 
 \item{regions}{A \code{"pulse_regions"} object from \code{\link{get_regions}},
-a \code{"regions_tuning"} object from \code{\link{tune_regions}}, or a bare
+a \code{"pulse_regions_tuning"} object from \code{\link{tune_regions}}, or a bare
 N x k numeric weight matrix.}
 
 \item{variables}{Character vector of predictor columns to use. \code{NULL}
@@ -57,7 +57,7 @@ as \eqn{k} grows (a mean membership at \eqn{k = 20} is 0.05), whereas
 cohesion does not depend on \eqn{k}.}
 
 \item{weights}{One of \code{"memberships"} (default; composition memberships
-\eqn{\Pi}, rows sum to 1) or \code{"typicality"} (the fit's
+\eqn{\Pi}, rows sum to 1) or \code{"cohesion"} (the fit's
 \code{cohesion}: mean co-association with the members of each region,
 rows do not sum to 1). Cohesion shrinks as a region grows, so large
 homogeneous regions get low weights and small cores; prefer
@@ -111,7 +111,7 @@ An object of class \code{"pulse_local_types"}: a list with
 \describe{
 \item{\code{memberships}}{N x sum(G_r) matrix, rows sum to 1.}
 \item{\code{weighted}}{The same matrix before row-normalisation.}
-\item{\code{hard_classes}}{Integer vector, column index of the row maximum.}
+\item{\code{hard_labels}}{Integer vector, column index of the row maximum.}
 \item{\code{certainty}}{Row maximum of \code{memberships}.}
 \item{\code{certainty_raw}}{Row maximum of \code{weighted}.}
 \item{\code{entropy}}{Normalised row entropy of \code{memberships}.}
@@ -142,7 +142,7 @@ matrix.
 }
 \details{
 For region \eqn{r}, every unit carries a weight \eqn{w_{ir}} — its membership
-in (or typicality for) that region. Units with \eqn{w_{ir} \ge}
+in (or cohesion for) that region. Units with \eqn{w_{ir} \ge}
 \code{cutoff} form the region's \emph{core} and provide the model-based
 hierarchical initialisation (\code{\link[mclust]{hc}} +
 \code{\link[mclust]{hclass}}); every other unit starts from a flat
@@ -169,7 +169,7 @@ change region memberships: summed over the local types of region \eqn{r}, the
 memberships return \eqn{w_{ir}}. Because each \eqn{z_i} row sums to one, the raw row
 sums of the combined matrix equal \eqn{\sum_r w_{ir}} — exactly 1 when
 \code{weights = "memberships"}, and something else when
-\code{weights = "typicality"}, which is why \code{memberships} is returned
+\code{weights = "cohesion"}, which is why \code{memberships} is returned
 row-normalized and the normalized version is kept as \code{weighted}.
 
 Units with \eqn{w_{ir} \le} \code{weight_eps} are excluded from region

@@ -8,9 +8,9 @@
 #
 # Distance definition differs by path (recorded as graph attribute
 # `bridge_dist_method`):
-#   * in-memory polygon_to_network(): "boundary" -- shortest polygon-to-polygon
+#   * in-memory build_network(): "boundary" -- shortest polygon-to-polygon
 #     distance between the two bridged units;
-#   * chunked polygon_to_network():  "centroid" -- centroid-to-centroid
+#   * chunked build_network():  "centroid" -- centroid-to-centroid
 #     distance, because the polygons are no longer held in memory.
 # Centroid distance is always >= boundary distance for the same pair, so the
 # chunked path penalises the same bridge more.
@@ -136,7 +136,7 @@
         if (!any(bridge) || is.infinite(scale)) return(w)
         if (is.null(dist) || anyNA(dist[bridge]))
                 stop("Bridge edges lack `bridge_dist`. Rebuild the graph with ",
-                     "polygon_to_network() or connect_components().", call. = FALSE)
+                     "build_network() or connect_components().", call. = FALSE)
         ref <- w[!bridge & is.finite(w)]
         s   <- if (length(ref)) max(ref) else max(c(0, w[is.finite(w)]))
         w[bridge] <- w[bridge] + s * (1 - exp(-dist[bridge] / scale))
@@ -179,7 +179,7 @@
         br <- igraph::edge_attr(graph, "bridge")
         if (is.null(br)) {
                 .log(verbose, paste("`graph` has no `bridge` edge attribute, so no edges",
-                                    "are excluded. Rebuild it with polygon_to_network()",
+                                    "are excluded. Rebuild it with build_network()",
                                     "and add_edge_weight() to flag bridges."))
                 return(graph)
         }

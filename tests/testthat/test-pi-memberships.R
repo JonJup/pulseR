@@ -2,7 +2,7 @@
 #
 # Pi_ik = share of unit i's piece-mates that sit in consensus region k,
 # averaged over the partitions in which i has at least one piece-mate.
-# Cohesion (formerly `affinity`) is kept as the raw, non-normalised
+# Cohesion is kept as the raw, non-normalised
 # co-association and is NOT a probability.
 #
 # Run with: devtools::test(filter = "pi-memberships")
@@ -133,7 +133,7 @@ test_that("certainty, margin and entropy are read off Pi against the final label
 })
 
 # ---------------------------------------------------------------------------
-# 4. cluster_consensus(): Pi is recomputed AFTER contiguity repair
+# 4. compute_consensus(): Pi is recomputed AFTER contiguity repair
 # ---------------------------------------------------------------------------
 
 test_that("memberships and summaries come from the repaired labels", {
@@ -146,10 +146,10 @@ test_that("memberships and summaries come from the repaired labels", {
         bad   <- truth; bad[3] <- 2L
         local_mocked_bindings(.consensus_partition = mock_partition(bad))
         
-        fit <- cluster_consensus(memb, k = 2L, graph = g, verbose = FALSE)
+        fit <- compute_consensus(memb, final_regions = 2L, graph = g, verbose = FALSE)
         
         # Repair moved unit 3 back.
-        expect_equal(fit$hard_clusters, truth)
+        expect_equal(fit$hard_labels, truth)
         
         # Pi is the one for the repaired labels, not the mocked ones.
         pi_after  <- .ensemble_stats(memb, truth, 2L, pi = TRUE)$Pi
@@ -158,19 +158,17 @@ test_that("memberships and summaries come from the repaired labels", {
         expect_false(isTRUE(all.equal(fit$memberships, pi_before)))
         
         # Summaries agree with the returned memberships and labels.
-        sm <- .membership_summaries(fit$memberships, fit$hard_clusters)
+        sm <- .membership_summaries(fit$memberships, fit$hard_labels)
         expect_equal(fit$certainty, sm$certainty)
         expect_equal(fit$margin,    sm$margin)
         expect_equal(fit$entropy,   sm$entropy)
         
-        # Renamed field: cohesion present, affinity gone.
         expect_true(is.matrix(fit$cohesion))
-        expect_null(fit$affinity)
         
         shown <- data.frame(
                 unit             = 1:6,
                 label_mocked     = bad[1:6],
-                label_repaired   = fit$hard_clusters[1:6],
+                label_repaired   = fit$hard_labels[1:6],
                 Pi1_if_unrepaired = round(pi_before[1:6, 1], 3),
                 Pi1_returned     = round(fit$memberships[1:6, 1], 3),
                 certainty        = round(fit$certainty[1:6], 3)
@@ -181,11 +179,11 @@ test_that("memberships and summaries come from the repaired labels", {
 test_that("a unit without piece-mates is filled, one-hot without a graph", {
         memb <- cbind(c(1, 1, 2, 2, 3), c(1, 2, 2, 2, 3))
         local_mocked_bindings(.consensus_partition = mock_partition(c(1L, 1L, 2L, 2L, 2L)))
-        expect_warning(fit <- cluster_consensus(memb, k = 2L, verbose = FALSE), "pi_support")
+        expect_warning(fit <- compute_consensus(memb, final_regions = 2L, verbose = FALSE), "pi_support")
         expect_equal(fit$pi_support[5], 0L)
         expect_equal(fit$memberships[5, ], c(0, 1))
         g <- igraph::make_ring(5, circular = FALSE)
-        expect_warning(fit <- cluster_consensus(memb, k = 2L, graph = g, verbose = FALSE), "pi_support")
+        expect_warning(fit <- compute_consensus(memb, final_regions = 2L, graph = g, verbose = FALSE), "pi_support")
         expect_equal(fit$memberships[5, ], fit$memberships[4, ])
 })
 
@@ -204,7 +202,7 @@ test_that("pulse_regions and Level 2 accessors read the new fields", {
         memb <- chain_ensemble(N, M = 40, R = 4, seed = 7)
         truth <- c(rep(1L, 8), rep(2L, 4))
         local_mocked_bindings(.consensus_partition = mock_partition(truth))
-        fit <- cluster_consensus(memb, k = 2L, verbose = FALSE)
+        fit <- compute_consensus(memb, final_regions = 2L, verbose = FALSE)
         
         cfg <- list(final_regions = 2L, regions_per_partition = 4L, N_tree = 40L,
                     partitions_per_tree = 1L, weight_exponent = 1)
@@ -214,7 +212,7 @@ test_that("pulse_regions and Level 2 accessors read the new fields", {
         expect_equal(reg$memberships, fit$memberships)
         expect_equal(reg$entropy, fit$entropy)
         expect_equal(.region_weights(reg, "memberships"), fit$memberships)
-        expect_equal(.region_weights(reg, "typicality"),  fit$cohesion)
+        expect_equal(.region_weights(reg, "cohesion"),  fit$cohesion)
 })
 
 test_that("contiguity repair regrows freed units by Pi, not by cohesion", {
@@ -237,10 +235,10 @@ test_that("contiguity repair regrows freed units by Pi, not by cohesion", {
         expect_equal(.enforce_contiguity(g, bad, coh)[40],    2L)
         expect_equal(.enforce_contiguity(g, bad, st$Pi)[40],  1L)
         
-        # cluster_consensus() uses Pi.
+        # compute_consensus() uses Pi.
         local_mocked_bindings(.consensus_partition = mock_partition(bad))
-        fit <- cluster_consensus(memb, k = 3L, graph = g, verbose = FALSE)
-        expect_equal(fit$hard_clusters[40], 1L)
+        fit <- compute_consensus(memb, final_regions = 3L, graph = g, verbose = FALSE)
+        expect_equal(fit$hard_labels[40], 1L)
         
         shown <- data.frame(
                 score          = c("cohesion", "Pi"),

@@ -5,7 +5,7 @@
 \title{Smooth signatures over a class-similarity ground metric}
 \usage{
 smooth_signatures(
-  sigs,
+  signatures,
   class_similarity = NULL,
   region_of = NULL,
   within_region = 0.5,
@@ -13,13 +13,13 @@ smooth_signatures(
 )
 }
 \arguments{
-\item{sigs}{Signature matrix.}
+\item{signatures}{Signature matrix.}
 
 \item{class_similarity}{\eqn{c \times c} similarity in \eqn{[0,1]} with unit
 diagonal. If \code{NULL}, built from \code{region_of}.}
 
 \item{region_of}{Integer parent region per class (from
-\code{\link{as_mosaic_P}}). Classes in the same region get similarity
+\code{\link{as_mosaic_input}}). Classes in the same region get similarity
 \code{within_region}.}
 
 \item{within_region}{Similarity between two local types of the same region.
@@ -36,7 +36,7 @@ pairs as exchangeable labels: "type 3 beside type 4" and "type 3 beside type
 40" are equally different from "type 3 beside type 3". Once the class count
 grows, neighbourhood signatures have almost disjoint support and every
 distance sits at the metric's ceiling — the partition is then noise. See
-\code{\link{signature_saturation}}.
+\code{\link{check_signature_saturation}}.
 }
 \details{
 Smoothing the signature over a similarity kernel on class pairs fixes this at

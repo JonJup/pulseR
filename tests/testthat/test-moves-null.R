@@ -31,10 +31,10 @@ test_that("VI moves lower the loss monotonically and stop at a single-move optim
 test_that("sampled path ends with no improving single move", {
         tg <- toy_graph()
         tr <- sample_spanning_trees(tg$g, n = 30, seed = 1, verbose = FALSE)
-        en <- compute_ensemble_memberships(tr, N_tree = 30, graph = tg$g,
+        en <- compute_ensemble(tr, N_tree = 30, graph = tg$g,
                                            regions_per_partition = 8, verbose = FALSE)
         set.seed(4)
-        r <- suppressWarnings(cluster_consensus(en, 3, verbose = FALSE, report_native = FALSE,
+        r <- suppressWarnings(compute_consensus(en, 3, verbose = FALSE, report_native = FALSE,
                                                 large_n_threshold = 100, sample_size = 60,
                                                 refine_iter = 50L))
         expect_true(r$refine_info$converged)
@@ -59,7 +59,7 @@ test_that("null baseline returns one summary row per k and criterion", {
         nb <- compute_null_baseline(tg$g, tg$env, final_regions = 2:3, regions_per_partition = 8,
                                     N_tree = 20, B = 2, stability_B = 0, seed = 1,
                                     verbose = FALSE, target_edge_turnover = 0.1)
-        expect_s3_class(nb, "null_baseline")
+        expect_s3_class(nb, "pulse_null")
         expect_equal(nrow(nb$summary), 2L * length(.CVI_DIRECTION))
         expect_equal(nrow(nb$null), 4L)
         expect_true(all(is.na(nb$summary$observed)))

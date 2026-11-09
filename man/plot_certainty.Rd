@@ -18,7 +18,7 @@ plot_certainty(
 \arguments{
 \item{regions, local, meta, mosaic}{Fitted objects (\code{"pulse_regions"},
 \code{"pulse_local_types"}, \code{"pulse_meta_types"},
-\code{"mosaic_types"}); any may be \code{NULL}, at least one is required.}
+\code{"pulse_mosaic_types"}); any may be \code{NULL}, at least one is required.}
 
 \item{rescale}{Logical. Map certainty from \eqn{[1/k, 1]} onto \eqn{[0, 1]}.
 Default \code{FALSE}.}

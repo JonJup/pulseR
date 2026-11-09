@@ -61,9 +61,9 @@
 #'   tuning. 0 skips it. Default 10.
 #' @param large_n_threshold Integer. Above this number of vertices, salso
 #'   runs on a sample of units and the rest are assigned and refined. Default
-#'   20000. See \code{\link{cluster_consensus}}.
+#'   20000. See \code{\link{compute_consensus}}.
 #' @param n_cores Integer. Cores passed to \code{salso::salso()}. Default 1.
-#' @param trees Optional \code{"spanning_trees"} object from
+#' @param trees Optional \code{"pulse_trees"} object from
 #'   \code{\link{sample_spanning_trees}}. If supplied, no trees are sampled
 #'   and \code{prior_typology} and \code{target_edge_turnover} are ignored.
 #' @param max_iter Integer. Maximum passes for the \code{"iterative"}
@@ -75,11 +75,11 @@
 #' @return An object of class \code{"pulse_regions"}, a list with
 #'   \describe{
 #'     \item{\code{memberships}}{\eqn{N \times k} matrix \eqn{\Pi}. Rows sum
-#'       to 1; filled from graph neighbours (see cluster_consensus() Details);
+#'       to 1; filled from graph neighbours (see compute_consensus() Details);
 #'        all-zero for uncovered units when
 #'       \code{prior_strength = Inf}.}
 #'     \item{\code{entropy}}{Row entropy of \code{memberships}.}
-#'     \item{\code{hard_clusters}}{Integer vector of consensus labels.}
+#'     \item{\code{hard_labels}}{Integer vector of consensus labels.}
 #'     \item{\code{k}}{Number of regions.}
 #'     \item{\code{config}}{One-row data frame: \code{regions_per_partition},
 #'       \code{weight_exponent}, \code{N_tree}, \code{final_regions}.}
@@ -92,19 +92,19 @@
 #'     \item{\code{prior_strength}}{\eqn{\lambda} as applied.}
 #'     \item{\code{coverage}}{Logical per unit when
 #'       \code{prior_strength = Inf}, else \code{NULL}.}
-#'     \item{\code{fit}}{The \code{"fuzzy_clusters"} object from
-#'       \code{\link{cluster_consensus}}, with certainty, margin, cohesion,
+#'     \item{\code{fit}}{The \code{"pulse_consensus"} object from
+#'       \code{\link{compute_consensus}}, with certainty, margin, cohesion,
 #'       loss terms and diagnostics; \code{NULL} when
 #'       \code{prior_strength = Inf}.}
-#'     \item{\code{trees}}{The \code{"spanning_trees"} object used.}
+#'     \item{\code{trees}}{The \code{"pulse_trees"} object used.}
 #'     \item{\code{ensemble}}{The \eqn{N \times N_{tree}} label matrix.}
 #'     \item{\code{p0}, \code{n_eff}}{Mean chance co-association of the
 #'       ensemble and \eqn{1 / p_0}.}
 #'   }
 #'
 #' @seealso \code{\link{sample_spanning_trees}},
-#'   \code{\link{compute_ensemble_memberships}},
-#'   \code{\link{cluster_consensus}}, \code{\link{tune_regions}}.
+#'   \code{\link{compute_ensemble}},
+#'   \code{\link{compute_consensus}}, \code{\link{tune_regions}}.
 #'
 #' @examples
 #' \dontrun{
@@ -113,7 +113,7 @@
 #' E(g)$weight <- runif(ecount(g))
 #' res <- get_regions(g, regions_per_partition = c(10, 20), final_regions = c(3, 4),
 #'                    N_tree = 30, seed = 1)
-#' table(res$hard_clusters)
+#' table(res$hard_labels)
 #' }
 #'
 #' @importFrom igraph vcount
@@ -178,7 +178,7 @@ get_regions <- function(graph,
                 return(.new_pulse_regions(
                         fit           = NULL,
                         memberships   = pr$memberships,
-                        hard_clusters = pr$hard_clusters,
+                        hard_labels = pr$hard_labels,
                         coverage      = pr$coverage,
                         ensemble      = NULL,
                         config        = list(regions_per_partition = K,
@@ -209,7 +209,7 @@ get_regions <- function(graph,
         {
                 # Nothing random runs before this, so these trees are identical to
                 # sample_spanning_trees(..., seed = seed) called on its own.
-                trees <- sample_spanning_trees(weighted_graph  = graph, 
+                trees <- sample_spanning_trees(graph  = graph, 
                                                n               = max(N_tree_values),
                                                seed            = NULL, 
                                                verbose         = verbose,
@@ -240,8 +240,8 @@ get_regions <- function(graph,
                         N_tree = N_tree_values,
                         regions_per_partition = regions_per_partition,
                         final_regions = final_regions, 
-                        strategy = tuning_strategy,
-                        metric = tuning_metric, 
+                        tuning_strategy = tuning_strategy,
+                        tuning_metric = tuning_metric, 
                         stability_B = stability_B,
                         prior_strength = prior_strength,
                         weight_exponent = weight_exponent,
@@ -258,8 +258,8 @@ get_regions <- function(graph,
                         prior_strength    = prior_strength,
                         tuned             = TRUE,
                         score             = tr$best_score,
-                        metric            = tr$metric,
-                        strategy          = tr$strategy,
+                        tuning_metric     = tr$tuning_metric,
+                        tuning_strategy   = tr$tuning_strategy,
                         tuning_log        = tr$tuning_log,
                         candidates        = tr$candidates,
                         n_ensembles_built = tr$n_ensembles_built,
@@ -267,7 +267,7 @@ get_regions <- function(graph,
         } else {
                 if (verbose) message("Single configuration; no tuning.")
                 
-                ensemble <- compute_ensemble_memberships(
+                ensemble <- compute_ensemble(
                         trees                 = trees, 
                         N_tree                = N_tree_values, 
                         graph                 = graph,
@@ -276,9 +276,9 @@ get_regions <- function(graph,
                         prior_strength        = prior_strength,
                         size_influence        = size_influence, verbose = verbose)
                 
-                fit <- cluster_consensus(
+                fit <- compute_consensus(
                         ensemble, 
-                        k = final_regions, 
+                        final_regions = final_regions, 
                         graph = graph,
                         large_n_threshold = large_n_threshold,
                         n_cores = n_cores, 
@@ -309,9 +309,9 @@ get_regions <- function(graph,
 #' Draws \code{n} spanning trees from a weighted, connected \code{igraph}
 #' object; a disconnected graph is an error. The trees, together with the parent graph's edge
 #' weights/endpoints and any resolved prior-typology information, are bundled
-#' into a \code{"spanning_trees"} object that the rest of the pipeline consumes.
+#' into a \code{"pulse_trees"} object that the rest of the pipeline consumes.
 #'
-#' @param weighted_graph A connected \code{igraph} object. Edges must carry a
+#' @param graph A connected \code{igraph} object. Edges must carry a
 #'   numeric \code{weight} attribute (dissimilarity; finite and non-negative).
 #'   Any \code{eid} edge attribute is overwritten with the edge position.
 #'   Vertices may optionally carry a prior-typology attribute (see
@@ -328,7 +328,7 @@ get_regions <- function(graph,
 #'   that vertex. When supplied, edges connecting two vertices with the same
 #'   non-NA label are flagged as "within-prior"; their cut propensity is
 #'   lowered in the cutting step (see \code{prior_strength} in
-#'   \code{\link{compute_ensemble_memberships}} and
+#'   \code{\link{compute_ensemble}} and
 #'   \code{\link{get_regions}}). Default \code{NULL} (no prior). Tree shape
 #'   does not depend on the prior.
 #' @param target_edge_turnover Numeric in \eqn{[0, 1)}. Average share of the
@@ -336,9 +336,9 @@ get_regions <- function(graph,
 #'   The noise scale is calibrated to reach it. 0 gives \code{n} copies of
 #'   the minimum spanning tree. Default 0.1.
 #' @param prior_strength Numeric. Stored in the result for
-#'   \code{\link{compute_ensemble_memberships}}; not used for sampling.
+#'   \code{\link{compute_ensemble}}; not used for sampling.
 #'
-#' @return An object of class \code{"spanning_trees"} — a list with:
+#' @return An object of class \code{"pulse_trees"} — a list with:
 #'   \describe{
 #'     \item{\code{trees}}{List of sampled spanning trees (\code{igraph}
 #'       objects carrying the original \code{weight} and the parent-edge
@@ -371,23 +371,23 @@ get_regions <- function(graph,
 #' @importFrom igraph sample_spanning_tree E ends vcount vertex_attr vertex_attr_names edge_attr components
 #' @importFrom stats mad rnorm
 #' @export
-sample_spanning_trees <- function(weighted_graph, n, seed = NULL, verbose = TRUE,
+sample_spanning_trees <- function(graph, n, seed = NULL, verbose = TRUE,
                                   prior_typology = NULL, target_edge_turnover = .1, 
                                   prior_strength = 0) {
         
         # --- Argument validation ---- *--- *
         stopifnot(
-                inherits(weighted_graph, "igraph"),
+                inherits(graph, "igraph"),
                 is.numeric(n), length(n) == 1L, is.finite(n), n >= 1
         )
         
         
         # Edges must have usable weights; fail early with a clear message rather than
         # producing NA-laden cut probabilities deep inside the sampler.
-        if (is.null(igraph::edge_attr(weighted_graph, "weight"))) {
+        if (is.null(igraph::edge_attr(graph, "weight"))) {
                 stop("`graph` edges must carry a numeric `weight` attribute.", call. = FALSE)
         }
-        edge_w <- igraph::E(weighted_graph)$weight
+        edge_w <- igraph::E(graph)$weight
         if (anyNA(edge_w) || any(!is.finite(edge_w)) || any(edge_w < 0)) {
                 stop("Edge `weight`s must be finite and non-negative.", call. = FALSE)
         }
@@ -395,30 +395,30 @@ sample_spanning_trees <- function(weighted_graph, n, seed = NULL, verbose = TRUE
         # Trees are mapped back to parent edges through `eid`, which must be the
         # edge position. Set it here so any weighted igraph works, and so a
         # user-supplied, non-positional `eid` cannot mis-map edges.
-        igraph::E(weighted_graph)$eid <- seq_len(igraph::ecount(weighted_graph))
+        igraph::E(graph)$eid <- seq_len(igraph::ecount(graph))
         
         # Extract properties of weights later used for perturbation
         
         # A disconnected graph yields a spanning *forest* (n_v - n_components edges),
         # which breaks the "cut n_reg-1 edges of a tree" arithmetic downstream.
-        comp <- igraph::components(weighted_graph)
+        comp <- igraph::components(graph)
         if (comp$no > 1L) {
                 stop(sprintf(paste0(
-                        "`weighted_graph` has %d connected components (largest %d, smallest %d ",
+                        "`graph` has %d connected components (largest %d, smallest %d ",
                         "vertices). Each tree would be a forest, every partition would get ",
                         "%d extra pieces, and `regions_per_partition` would lose its meaning. ",
-                        "Connect the graph first, e.g. polygon_to_network(connect_islands = TRUE) ",
+                        "Connect the graph first, e.g. build_network(connect_islands = TRUE) ",
                         "or connect_components()."),
                         comp$no, max(comp$csize), min(comp$csize), comp$no - 1L), call. = FALSE)
         }
         
         # --- RNG handling: seed locally, restore the caller's state on exit ---- *-
         .local_seed(seed)
-        edge_endpoints    <- igraph::ends(weighted_graph, igraph::E(weighted_graph), names = FALSE)
+        edge_endpoints    <- igraph::ends(graph, igraph::E(graph), names = FALSE)
         # --- Resolve prior typology (if supplied) ---- *---- *---- *---- *---- *---- *--
         if (!is.null(prior_typology)){
                 #prior_typology    <- "prior"
-                prior_labels      <- .resolve_prior_typology(weighted_graph, 
+                prior_labels      <- .resolve_prior_typology(graph, 
                                                              prior_typology)
                 within_prior_edge <- .compute_within_prior_edge(prior_labels, 
                                                                 edge_endpoints)
@@ -439,22 +439,22 @@ sample_spanning_trees <- function(weighted_graph, n, seed = NULL, verbose = TRUE
         }
         
         # Prior weighting is applied at the cutting step only
-        # (compute_ensemble_memberships), never to tree shape.
+        # (compute_ensemble), never to tree shape.
         
         # --- Sample the trees ---- *---- *---- *---- *---- *---- *---- *---- *---- *---- *--
         if (verbose) message(sprintf("Sampling %d spanning trees ...", n))
         tick <- if (verbose) .make_progress(n, "Spanning trees") else function(i) NULL
-        egde_mad <- stats::mad(edge_w)
-        eta_emp <- .calibrate_eta_empirical(graph  = weighted_graph, 
+        edge_mad <- stats::mad(edge_w)
+        eta_emp <- .calibrate_eta_empirical(graph  = graph, 
                                             w      = edge_w, 
-                                            s      = egde_mad,
+                                            s      = edge_mad,
                                             target = target_edge_turnover)
         tree_list <- vector("list", n)
         
         for (j in seq_len(n)) {
                 # Perturb weights 
-                wp <- edge_w + eta_emp * egde_mad * rnorm(length(edge_w))
-                tree_list[[j]] <- igraph::mst(weighted_graph, weights = wp)
+                wp <- edge_w + eta_emp * edge_mad * rnorm(length(edge_w))
+                tree_list[[j]] <- igraph::mst(graph, weights = wp)
                 tick(j)
         }
         
@@ -462,7 +462,7 @@ sample_spanning_trees <- function(weighted_graph, n, seed = NULL, verbose = TRUE
                 list(
                         trees             = tree_list,
                         n_trees           = as.integer(n),
-                        n_vertices        = igraph::vcount(weighted_graph),
+                        n_vertices        = igraph::vcount(graph),
                         edge_weights      = edge_w,
                         edge_endpoints    = edge_endpoints,
                         seed              = seed,
@@ -470,7 +470,7 @@ sample_spanning_trees <- function(weighted_graph, n, seed = NULL, verbose = TRUE
                         within_prior_edge = within_prior_edge,
                         prior_strength    = prior_strength
                 ),
-                class = "spanning_trees"
+                class = "pulse_trees"
         )
 }
 
@@ -489,7 +489,7 @@ sample_spanning_trees <- function(weighted_graph, n, seed = NULL, verbose = TRUE
 #' \eqn{\gamma \log w_e + \alpha \log s_e - \lambda u 1[e \text{ within prior}]},
 #' where \eqn{s_e = n_c (N - n_c) / N} is the size balance of the cut.
 #'
-#' @param trees A \code{"spanning_trees"} object.
+#' @param trees A \code{"pulse_trees"} object.
 #' @param N_tree Integer scalar. Number of spanning trees to use
 #'   (must be \code{<= trees$n_trees}).
 #' @param graph The parent \code{igraph} object the trees were sampled from.
@@ -519,7 +519,7 @@ sample_spanning_trees <- function(weighted_graph, n, seed = NULL, verbose = TRUE
 #'   environmental term \eqn{\gamma \log w}, per tree. 0 ignores piece size;
 #'   the default 2 lets size dominate, so cuts rarely shave off single units.
 #'
-#' @return An object of class \code{"ensemble_memberships"} — a list with:
+#' @return An object of class \code{"pulse_ensemble"} — a list with:
 #'   \describe{
 #'     \item{\code{memberships}}{Integer matrix (\code{N x N_tree}). Each column
 #'       is a region assignment from one spanning tree.}
@@ -535,7 +535,7 @@ sample_spanning_trees <- function(weighted_graph, n, seed = NULL, verbose = TRUE
 #'   }
 #' @importFrom igraph E ends make_graph components
 #' @export
-compute_ensemble_memberships <- function(trees, 
+compute_ensemble <- function(trees, 
                                          N_tree, 
                                          graph, 
                                          regions_per_partition, 
@@ -544,7 +544,7 @@ compute_ensemble_memberships <- function(trees,
                                          verbose = TRUE,
                                          size_influence = 2) {
         
-        stopifnot(inherits(trees, "spanning_trees"))
+        stopifnot(inherits(trees, "pulse_trees"))
         stopifnot(length(N_tree) == 1L, N_tree >= 2, N_tree <= trees$n_trees)
         stopifnot(length(regions_per_partition) == 1L, regions_per_partition >= 2, regions_per_partition <= trees$n_vertices)
         stopifnot(is.numeric(prior_strength), length(prior_strength) == 1L, prior_strength >= 0)
@@ -564,7 +564,7 @@ compute_ensemble_memberships <- function(trees,
         }
         
         t0 <- proc.time()[["elapsed"]]
-        memb <- .compute_ensemble_memberships_internal(
+        memb <- .compute_ensemble_internal(
                 graph = graph, 
                 trees = trees, 
                 N_tree = N_tree,
@@ -586,7 +586,7 @@ compute_ensemble_memberships <- function(trees,
                         prior_strength      = prior_strength,
                         chance_coassoc      = .chance_coassoc_by_col(memb)
                 ),
-                class = "ensemble_memberships"
+                class = "pulse_ensemble"
         )
 }
 
@@ -649,14 +649,14 @@ compute_ensemble_memberships <- function(trees,
 
 #' Internal: compute the N x N_tree ensemble membership matrix
 #'
-#' Shared by the public \code{compute_ensemble_memberships()} and the stability
+#' Shared by the public \code{compute_ensemble()} and the stability
 #' evaluator. For each tree, removes \code{regions_per_partition - 1} edges
 #' (weighted sampling without replacement, Efraimidis-Spirakis) and labels the
 #' resulting connected components. One cut-set, and one column, per tree.
 #' Cut propensities come from \code{.cut_log_propensity()}.
 #'
 #' @param graph Parent \code{igraph} (kept for interface stability).
-#' @param trees A \code{"spanning_trees"} object.
+#' @param trees A \code{"pulse_trees"} object.
 #' @param N_tree Number of trees to use.
 #' @param regions_per_partition Number of regions per cut-set.
 #' @param prior_strength \eqn{\lambda}, in units of sd(\eqn{\gamma} log w).
@@ -681,7 +681,7 @@ compute_ensemble_memberships <- function(trees,
 #'   \code{min_size = 1} reproduce the plain Ward race draw for draw.
 #' @keywords internal
 #' @noRd
-.compute_ensemble_memberships_internal <- function(graph,
+.compute_ensemble_internal <- function(graph,
                                                    trees,
                                                    N_tree,
                                                    regions_per_partition,
@@ -912,7 +912,7 @@ compute_ensemble_memberships <- function(trees,
 #' which \eqn{i} has at least one piece-mate. Rows sum to 1 by construction,
 #' there is no tuning parameter, and a boundary unit whose pieces fall half
 #' into each of two regions gets 0.5 and 0.5 whatever the region sizes. Units
-#' with \eqn{M_i = 0} are filled from graph neighbours (see cluster_consensus()
+#' with \eqn{M_i = 0} are filled from graph neighbours (see compute_consensus()
 #'  Details).
 #'
 #' \strong{Cohesion.} Let \eqn{c_{im}} be the fraction of ensemble partitions
@@ -935,9 +935,10 @@ compute_ensemble_memberships <- function(trees,
 #' Everything is done through sparse indicator products and never materialises
 #' the \eqn{N \times N} similarity matrix.
 #'
-#' @param ensemble An \code{"ensemble_memberships"} object or a bare integer
+#' @param ensemble An \code{"pulse_ensemble"} object or a bare integer
 #'   matrix (\eqn{N \times M}).
-#' @param k Integer, \eqn{2 \le k < N}.
+#' @param final_regions Integer, number of consensus regions \eqn{k},
+#'   \eqn{2 \le k < N}.
 #' @param graph The parent \code{igraph}; needed for contiguity enforcement.
 #' @param large_n_threshold Above this \eqn{N}, use the sampled path.
 #' @param sample_size Units passed to \pkg{salso} on the sampled path.
@@ -952,15 +953,15 @@ compute_ensemble_memberships <- function(trees,
 #'   configuration and on for the winner.
 #' @param verbose Logical.
 #'
-#' @return A \code{"fuzzy_clusters"} object with
+#' @return A \code{"pulse_consensus"} object with
 #'   \describe{
-#'     \item{\code{memberships}}{\eqn{N \times k} matrix \eqn{\Pi}; rows sum to 1, filled from graph neighbours (see cluster_consensus() Details).
-#'     \item{\code{hard_clusters}}{Final labels (after contiguity repair).}
+#'     \item{\code{memberships}}{\eqn{N \times k} matrix \eqn{\Pi}; rows sum to 1, filled from graph neighbours (see compute_consensus() Details).
+#'     \item{\code{hard_labels}}{Final labels (after contiguity repair).}
 #'     \item{\code{certainty}}{\eqn{\Pi_{i, \mathrm{hard}_i}}.}
 #'     \item{\code{margin}}{Best minus second-best entry of \eqn{\Pi}.}
 #'     \item{\code{entropy}}{Row entropy of \eqn{\Pi}, normalized by \eqn{\log k}.}
 #'     \item{\code{pi_support}}{\eqn{M_i}, partitions in which \eqn{i} had a piece-mate.}
-#'     \item{\code{cohesion}}{Raw \eqn{A} (formerly \code{affinity}); not a probability.}
+#'     \item{\code{cohesion}}{Raw \eqn{A}; not a probability.}
 #'     \item{\code{silhouette}, \code{avg_sil_width}}{Co-association silhouette, from cohesion.}
 #'     \item{\code{expected_vi}, \code{region_coassoc}}{Mean VI(draw, consensus); \eqn{k \times k} mean co-association.}
 #'     \item{\code{salso_a}}{The generalized-VI parameter \eqn{a} salso settled on (on the sample, if sampled).}
@@ -973,14 +974,14 @@ compute_ensemble_memberships <- function(trees,
 #'       \code{labels}, its partition (length N, \code{NA} for units outside
 #'       the sample, no contiguity repair); \code{sampled}; \code{n_units}.
 #'       This count can depend strongly on \code{regions_per_partition}; check
-#'       with \code{\link{sweep_native_regions}} before reading it as a
+#'       with \code{\link{check_native_regions}} before reading it as a
 #'       property of the landscape.}
 #'   }
-#'   plus \code{k}, \code{method = "salso"}, \code{sampled}, \code{n_eff},
+#'   plus \code{k}, \code{sampled}, \code{n_eff},
 #'   \code{n_members}, \code{ensemble_meta}.
 #' @importFrom Matrix sparseMatrix crossprod
 #' @export
-cluster_consensus <- function(ensemble, k, graph = NULL,
+compute_consensus <- function(ensemble, final_regions, graph = NULL,
                               large_n_threshold  = 20000,
                               sample_size        = 5000L,
                               refine_iter        = 10L,
@@ -990,6 +991,7 @@ cluster_consensus <- function(ensemble, k, graph = NULL,
                               report_native      = TRUE,
                               verbose            = TRUE) {
         
+        k    <- final_regions
         meta <- .ensemble_meta(ensemble)
         memb <- meta$memb_mat
         N <- nrow(memb); M <- ncol(memb)
@@ -1020,7 +1022,7 @@ cluster_consensus <- function(ensemble, k, graph = NULL,
         res
 }
 
-#' Everything cluster_consensus() does after the hard partition.
+#' Everything compute_consensus() does after the hard partition.
 #'
 #' Deterministic given (ensemble, fit), except the optional salso_native report,
 #' which runs last so it cannot shift the labels. tune_regions() stores `fit` per
@@ -1113,7 +1115,7 @@ cluster_consensus <- function(ensemble, k, graph = NULL,
                 native <- .salso_native(memb, idx_nat, n_runs, n_cores)
                 if (verbose) message(sprintf(paste0(
                         "  salso without a target k (VI, a = 1): %d regions%s; requested k = %d ",
-                        "(regions_per_partition = %s). See sweep_native_regions()."),
+                        "(regions_per_partition = %s). See check_native_regions()."),
                         native$k,
                         if (native$sampled) sprintf(" on a %d-unit sample", native$n_units) else "",
                         k, format(meta$regions_per_partition)))
@@ -1122,7 +1124,7 @@ cluster_consensus <- function(ensemble, k, graph = NULL,
         structure(
                 list(
                         memberships    = Pi,
-                        hard_clusters  = as.integer(hard),
+                        hard_labels  = as.integer(hard),
                         certainty      = sm$certainty,
                         margin         = sm$margin,
                         entropy        = sm$entropy,
@@ -1141,14 +1143,12 @@ cluster_consensus <- function(ensemble, k, graph = NULL,
                         region_coassoc = B,
                         salso_native   = native,
                         k              = as.integer(k),
-                        method         = "salso",
                         sampled        = sampled,
-                        cluster_result = NULL,
                         n_eff          = 1 / meta$chance_coassoc,
                         n_members      = M,
                         ensemble_meta  = meta
                 ),
-                class = "fuzzy_clusters"
+                class = "pulse_consensus"
         )
 }
 
@@ -1173,7 +1173,7 @@ cluster_consensus <- function(ensemble, k, graph = NULL,
 #' only in the ensemble, so the table shows whether salso's count follows the
 #' data or follows the ensemble settings.
 #'
-#' @inheritParams compute_ensemble_memberships
+#' @inheritParams compute_ensemble
 #' @param regions_per_partition Integer vector of piece counts to compare.
 #' @param N_tree Integer vector of ensemble sizes, each \code{<= trees$n_trees}.
 #'   One ensemble is built per \code{regions_per_partition} at
@@ -1192,12 +1192,12 @@ cluster_consensus <- function(ensemble, k, graph = NULL,
 #' @examples
 #' \dontrun{
 #' trees <- sample_spanning_trees(g, n = 200, seed = 1)
-#' sw <- sweep_native_regions(trees, g, regions_per_partition = c(10, 25, 50, 100),
+#' sw <- check_native_regions(trees, g, regions_per_partition = c(10, 25, 50, 100),
 #'                            N_tree = c(50, 200), seed = 1)
 #' plot(native_regions ~ regions_per_partition, data = sw, log = "xy")
 #' }
 #' @export
-sweep_native_regions <- function(trees, graph,
+check_native_regions <- function(trees, graph,
                                  regions_per_partition = c(10L, 25L, 50L, 100L),
                                  N_tree              = trees$n_trees,
                                  weight_exponent     = 1,
@@ -1208,7 +1208,7 @@ sweep_native_regions <- function(trees, graph,
                                  n_cores             = 1L,
                                  seed                = NULL,
                                  verbose             = TRUE) {
-        stopifnot(inherits(trees, "spanning_trees"))
+        stopifnot(inherits(trees, "pulse_trees"))
         .local_seed(seed)
         R_vals <- sort(unique(as.integer(regions_per_partition)))
         N_vals <- sort(unique(as.integer(N_tree)))
@@ -1219,7 +1219,7 @@ sweep_native_regions <- function(trees, graph,
         
         rows <- vector("list", length(R_vals) * length(N_vals)); r <- 0L
         for (R in R_vals) {
-                memb <- .compute_ensemble_memberships_internal(
+                memb <- .compute_ensemble_internal(
                         graph = graph, trees = trees, N_tree = max(N_vals),
                         regions_per_partition = R, prior_strength = prior_strength,
                         weight_exponent = weight_exponent,
@@ -1247,11 +1247,11 @@ sweep_native_regions <- function(trees, graph,
 }
 
 #' Coerce ensemble input to a meta list (fixes the bare-matrix bug of the
-#' old cluster_consensus, which read ensemble$memberships from a matrix).
+#' old compute_consensus, which read ensemble$memberships from a matrix).
 #' @keywords internal
 #' @noRd
 .ensemble_meta <- function(ensemble) {
-        if (inherits(ensemble, "ensemble_memberships")) {
+        if (inherits(ensemble, "pulse_ensemble")) {
                 list(memb_mat              = ensemble$memberships,
                      regions_per_partition = ensemble$regions_per_partition,
                      N_tree                = ensemble$N_tree,
@@ -1266,7 +1266,7 @@ sweep_native_regions <- function(trees, graph,
                      prior_strength        = NA_real_,
                      chance_coassoc        = mean(.chance_coassoc_by_col(ensemble)))
         } else {
-                stop("`ensemble` must be an 'ensemble_memberships' object or an integer matrix.",
+                stop("`ensemble` must be an 'pulse_ensemble' object or an integer matrix.",
                      call. = FALSE)
         }
 }
@@ -1422,7 +1422,7 @@ sweep_native_regions <- function(trees, graph,
 }
 
 #' Cohesion: mean co-association of every unit with each reference region,
-#' self excluded. Formerly called affinity. Not a probability: rows do not sum
+#' self excluded. Not a probability: rows do not sum
 #' to 1, and the value shrinks roughly as 1 / region size. Empty regions and
 #' singleton self-cohesions are set to 0.
 #' @keywords internal
@@ -1680,7 +1680,7 @@ sweep_native_regions <- function(trees, graph,
 
 #' Keep, for each region, the connected component carrying the most score
 #' mass; grow the freed units back onto adjacent regions in order of score.
-#' `score` is any N x k matrix (cluster_consensus() passes Pi of the
+#' `score` is any N x k matrix (compute_consensus() passes Pi of the
 #' unrepaired labels). NA entries count as 0.
 #' @keywords internal
 #' @noRd
@@ -1718,16 +1718,16 @@ sweep_native_regions <- function(trees, graph,
 
 
 # ----- 
-#' Construct an "ensemble_memberships" object
+#' Construct an "pulse_ensemble" object
 #'
-#' Used both by compute_ensemble_memberships() and by the tuner when it slices
+#' Used both by compute_ensemble() and by the tuner when it slices
 #' a cached ensemble down to a smaller N_tree, so that a sliced ensemble is
 #' stamped with its own column count and chance co-association rather than
 #' those of the larger matrix it came from.
 #'
 #' @keywords internal
 #' @noRd
-.new_ensemble_memberships <- function(memb, N_tree, regions_per_partition,
+.new_ensemble <- function(memb, N_tree, regions_per_partition,
                                       weight_exponent,
                                       prior_strength, n_vertices,
                                       p0_by_col = NULL) {
@@ -1741,49 +1741,48 @@ sweep_native_regions <- function(trees, graph,
                         weight_exponent       = as.numeric(weight_exponent),
                         n_vertices            = n_vertices,
                         prior_strength        = prior_strength,
-                        chance_coassoc        = mean(p0_by_col),
-                        chance_coassoc_by_col = p0_by_col
+                        chance_coassoc        = p0_by_col
                 ),
-                class = "ensemble_memberships"
+                class = "pulse_ensemble"
         )
 }
 
-#' @rdname compute_ensemble_memberships
-#' @param x An object of class \code{"ensemble_memberships"}.
+#' @rdname compute_ensemble
+#' @param x An object of class \code{"pulse_ensemble"}.
 #' @param ... Further arguments passed to or from other methods (unused).
-#' @return \code{print.ensemble_memberships} returns \code{x} invisibly.
+#' @return \code{print.pulse_ensemble} returns \code{x} invisibly.
 #' @export
-print.ensemble_memberships <- function(x, ...) {
+print.pulse_ensemble <- function(x, ...) {
         cat(sprintf(
-                "<ensemble_memberships>  %d vertices x %d trees | regions_per_partition = %d\n",
+                "<pulse_ensemble>  %d vertices x %d trees | regions_per_partition = %d\n",
                 x$n_vertices, x$N_tree, x$regions_per_partition
         ))
         invisible(x)
 }
 
 
-#' @rdname cluster_consensus
-#' @param x An object of class \code{"fuzzy_clusters"}.
+#' @rdname compute_consensus
+#' @param x An object of class \code{"pulse_consensus"}.
 #' @param ... Further arguments passed to or from other methods (unused).
-#' @return \code{print.fuzzy_clusters} returns \code{x} invisibly.
+#' @return \code{print.pulse_consensus} returns \code{x} invisibly.
 #' @export
-print.fuzzy_clusters <- function(x, ...) {
+print.pulse_consensus <- function(x, ...) {
         cat(sprintf(
-                "<fuzzy_clusters>  %d nodes x %d clusters | method = %s | avg silhouette = %.4f\n",
-                nrow(x$memberships), x$k, x$method, x$avg_sil_width
+                "<pulse_consensus>  %d units x %d regions | avg silhouette = %.4f\n",
+                nrow(x$memberships), x$k, x$avg_sil_width
         ))
         invisible(x)
 }
 
 
 #' @rdname sample_spanning_trees
-#' @param x An object to print (e.g. of class \code{"spanning_trees"}).
+#' @param x An object to print (e.g. of class \code{"pulse_trees"}).
 #' @param ... Further arguments passed to or from other methods (unused).
-#' @return \code{print.spanning_trees} returns \code{x} invisibly.
+#' @return \code{print.pulse_trees} returns \code{x} invisibly.
 #' @export
-print.spanning_trees <- function(x, ...) {
+print.pulse_trees <- function(x, ...) {
         cat(sprintf(
-                "<spanning_trees>  %d trees | %d vertices | seed = %s\n",
+                "<pulse_trees>  %d trees | %d vertices | seed = %s\n",
                 x$n_trees, x$n_vertices,
                 if (is.null(x$seed)) "NULL" else as.character(x$seed)
         ))
@@ -1874,7 +1873,7 @@ print.spanning_trees <- function(x, ...) {
 #' Searches over up to four hyper-parameters -- \code{regions_per_partition},
 #' \code{weight_exponent}, \code{N_tree} and \code{final_regions} -- to find the combination optimising a
 #' clustering-validity criterion, operating on a pre-computed
-#' \code{"spanning_trees"} object. Any argument supplied as a length-1 vector is
+#' \code{"pulse_trees"} object. Any argument supplied as a length-1 vector is
 #' held fixed; any argument supplied as a vector of length > 1 becomes a search
 #' axis.
 #'
@@ -1885,7 +1884,7 @@ print.spanning_trees <- function(x, ...) {
 #' drawn from the same \code{trees} object; the tuner therefore builds each
 #' ensemble once at \code{max(N_tree)} and slices columns. The remaining two
 #' axes each require a fresh pass of
-#' \code{\link{compute_ensemble_memberships}}, so the number of distinct
+#' \code{\link{compute_ensemble}}, so the number of distinct
 #' \code{(regions_per_partition, weight_exponent)} pairs
 #' is the real cost driver, not the number of grid cells.
 #'
@@ -1940,7 +1939,7 @@ print.spanning_trees <- function(x, ...) {
 #'   that look like IDs trigger a warning.
 #' @param env_id Character vector of columns in \code{env} to exclude, for
 #'   example numeric ID columns. Default \code{NULL}.
-#' @param trees A \code{"spanning_trees"} object from
+#' @param trees A \code{"pulse_trees"} object from
 #'   \code{\link{sample_spanning_trees}}.
 #' @param N_tree Integer or integer vector (each \eqn{\ge 2} and
 #'   \eqn{\le} \code{trees$n_trees}). Candidate ensemble size(s).
@@ -1950,20 +1949,20 @@ print.spanning_trees <- function(x, ...) {
 #'   number(s) of final consensus clusters \emph{k}.
 #' @param weight_exponent Numeric or numeric vector (each \eqn{\ge 0}).
 #'   Candidate cut-probability exponent(s) \eqn{\gamma}. Default 1.
-#' @param metric Character. Selection criterion, higher is better:
+#' @param tuning_metric Character. Selection criterion, higher is better:
 #'   \code{"borda"} (default; mean rank over \code{voters}),
 #'   \code{"ch_env"} (\code{CH_ENV}, pseudo-F of the hard labels on
 #'   \code{env}), \code{"r2_env"} (\code{R2_ENV}), \code{"stability"}
 #'   (\code{STAB}), \code{"silhouette_ca"} (\code{SIL_CA}, co-association
 #'   silhouette) or \code{"expected_vi"} (minus \code{EVI}, mean variation of
 #'   information between ensemble columns and the consensus).
-#' @param strategy Character. \code{"grid"} (default), \code{"sequential"}, or
+#' @param tuning_strategy Character. \code{"grid"} (default), \code{"sequential"}, or
 #'   \code{"iterative"}. See Details.
 #' @param stability_B Integer. Random splits for \code{STAB} (see
 #'   Validity indices). Each split costs two consensus runs at half the
 #'   ensemble size. 0 skips it. Default 10.
 #' @param voters Character. Validity columns that vote in the Borda aggregate
-#'   (\code{metric = "borda"}). Default \code{c("CH_ENV", "STAB")}. Check
+#'   (\code{tuning_metric = "borda"}). Default \code{c("CH_ENV", "STAB")}. Check
 #'   \code{STAB} against \code{\link{compute_null_baseline}} before relying on it.
 #' @param prior_strength Non-negative numeric scalar \eqn{\lambda}. Lowers the
 #'   log cutting propensity of within-prior edges by \eqn{\lambda} standard
@@ -1977,11 +1976,11 @@ print.spanning_trees <- function(x, ...) {
 #' @param prior_typology Optional. Vertex attribute name or label vector; used
 #'   only by the \code{prior_strength = Inf} short-circuit.
 #' @param max_iter Integer. Maximum passes for \code{"iterative"}. Default 10.
-#' @param max_ensembles Integer or \code{Inf}. Guard against an accidentally
+#' @param max_configs Integer or \code{Inf}. Guard against an accidentally
 #'   enormous search: the call fails before any work if the number of distinct
 #'   ensemble pairs exceeds this. Default 64.
 #' @param size_influence Non-negative numeric, passed to
-#'   \code{\link{compute_ensemble_memberships}}. Not a tuning axis. Default 2.
+#'   \code{\link{compute_ensemble}}. Not a tuning axis. Default 2.
 #' @param large_n_threshold Integer. Above this number of vertices, salso runs
 #'   on \code{sample_size} units and the rest are assigned and refined.
 #'   Default 20000.
@@ -1991,19 +1990,19 @@ print.spanning_trees <- function(x, ...) {
 #' @param seed Optional integer seed; the caller's RNG state is restored on
 #'   exit.
 #' @param stability_seed Optional integer. Seeds the subsampling inside the
-#'   \code{STAB} metric, identically for every configuration, so configurations
+#'   \code{STAB} index, identically for every configuration, so configurations
 #'   are compared on the same column splits. Defaults to \code{seed}.
 #' @param verbose Logical. Default \code{TRUE}.
 #'
-#' @return An object of class \code{"regions_tuning"}: a list with
-#'   \code{best_result} (a \code{"fuzzy_clusters"} object), \code{best_config}
+#' @return An object of class \code{"pulse_regions_tuning"}: a list with
+#'   \code{best_result} (a \code{"pulse_consensus"} object), \code{best_config}
 #'   (one-row data frame of the winning values on all four axes), the individual
 #'   slots \code{best_regions_per_partition}, \code{best_final_regions},
 #'   \code{best_weight_exponent},
 #'   \code{best_N_tree}, plus \code{best_score}, \code{tuning_log} (one row per
 #'   configuration, with all four axis columns and all CVI columns),
 #'   \code{candidates}, \code{active_axes}, \code{n_ensembles_built},
-#'   \code{metric}, \code{voters}, \code{strategy}, \code{prior_strength} and
+#'   \code{tuning_metric}, \code{voters}, \code{tuning_strategy}, \code{prior_strength} and
 #'   \code{ensemble} (the winner's \eqn{N \times N_{tree}} label matrix).
 #'   When \code{prior_strength = Inf}, the exact-prior list is returned
 #'   instead.
@@ -2015,15 +2014,15 @@ tune_regions <- function(graph,
                          regions_per_partition = 50,
                          final_regions,
                          weight_exponent     = 1,
-                         metric = c("borda", "ch_env", "r2_env", "stability", "silhouette_ca", "expected_vi"),
-                         strategy = c("grid", "sequential", "iterative"),
+                         tuning_metric = c("borda", "ch_env", "r2_env", "stability", "silhouette_ca", "expected_vi"),
+                         tuning_strategy = c("grid", "sequential", "iterative"),
                          stability_B       = 10,
                          voters            = c("CH_ENV", "STAB"),
                          prior_strength    = 0,
                          prior_typology    = NULL,
                          max_iter          = 10,
                          size_influence    = 2,
-                         max_ensembles     = 64L,
+                         max_configs     = 64L,
                          large_n_threshold = 20000,
                          sample_size = 5000,
                          n_cores = 1,
@@ -2034,7 +2033,7 @@ tune_regions <- function(graph,
                          verbose           = TRUE) {
         
         # --- Checks -----------------------------------------------------*
-        stopifnot(inherits(trees, "spanning_trees"))
+        stopifnot(inherits(trees, "pulse_trees"))
         stopifnot(is.numeric(prior_strength), length(prior_strength) == 1L,
                   prior_strength >= 0)
         
@@ -2044,8 +2043,8 @@ tune_regions <- function(graph,
         
         
         # --- Argument Matching  -----------------------------------------*
-        strategy <- match.arg(strategy)
-        metric   <- match.arg(metric)
+        tuning_strategy <- match.arg(tuning_strategy)
+        tuning_metric   <- match.arg(tuning_metric)
         voters   <- unique(as.character(voters))
         bad_v    <- setdiff(voters, names(.CVI_DIRECTION))
         if (length(bad_v) || !length(voters))
@@ -2075,8 +2074,8 @@ tune_regions <- function(graph,
         stopifnot(length(N_tree) >= 1L, all(N_tree >= 2), all(N_tree <= trees$n_trees))
         stopifnot(length(weight_exponent) >= 1L, all(is.finite(weight_exponent)),
                   all(weight_exponent >= 0))
-        stopifnot(is.numeric(max_ensembles), length(max_ensembles) == 1L,
-                  max_ensembles >= 1)
+        stopifnot(is.numeric(max_configs), length(max_configs) == 1L,
+                  max_configs >= 1)
         
         cand <- list(
                 regions_per_partition = regions_per_partition,
@@ -2088,13 +2087,13 @@ tune_regions <- function(graph,
         
         # Distinct ensemble pairs: the actual cost of the search.
         n_ens_triples <- length(regions_per_partition) * length(weight_exponent)
-        if (strategy == "grid" && n_ens_triples > max_ensembles) {
+        if (tuning_strategy == "grid" && n_ens_triples > max_configs) {
                 stop(sprintf(paste0(
-                        "Grid requires %d distinct ensemble computations (limit `max_ensembles` = %s). ",
-                        "Use strategy = \"sequential\" / \"iterative\", shrink the ",
+                        "Grid requires %d distinct ensemble computations (limit `max_configs` = %s). ",
+                        "Use tuning_strategy = \"sequential\" / \"iterative\", shrink the ",
                         "regions_per_partition / weight_exponent ",
-                        "candidate sets, or raise `max_ensembles` deliberately."),
-                        n_ens_triples, format(max_ensembles)), call. = FALSE)
+                        "candidate sets, or raise `max_configs` deliberately."),
+                        n_ens_triples, format(max_configs)), call. = FALSE)
         }
         
         if (verbose && "N_tree" %in% active_axes) {
@@ -2111,7 +2110,7 @@ tune_regions <- function(graph,
         ens_seed <- sample.int(.Machine$integer.max, 1L)
         build_ensemble <- function(sr, we) {
                 .local_seed(ens_seed)
-                compute_ensemble_memberships(
+                compute_ensemble(
                         trees                 = trees,
                         N_tree                = N_tree_build,
                         graph                 = graph,
@@ -2154,7 +2153,7 @@ tune_regions <- function(graph,
                 } else {
                         ens_cache$mat[, seq_len(n_col), drop = FALSE]
                 }
-                .new_ensemble_memberships(
+                .new_ensemble(
                         memb                 = mat,
                         N_tree                 = ns,
                         regions_per_partition = sr,
@@ -2191,8 +2190,8 @@ tune_regions <- function(graph,
                         stability_seed = stability_seed, large_n_threshold = large_n_threshold,
                         sample_size = sample_size, n_cores = n_cores, verbose = verbose)
                 list(out = cbind(cfg[, axis_cols, drop = FALSE],
-                                 data.frame(P0    = memb_mat$chance_coassoc,
-                                            N_EFF = 1 / memb_mat$chance_coassoc),
+                                 data.frame(P0    = mean(memb_mat$chance_coassoc),
+                                            N_EFF = 1 / mean(memb_mat$chance_coassoc)),
                                  cvis),
                      fit = fit)
         }
@@ -2203,7 +2202,7 @@ tune_regions <- function(graph,
                 # Borda ranks are computed globally over all rows evaluated so far, so
                 # the score column must be rebuilt after every batch.
                 if (is.null(tuning_log) || nrow(tuning_log) == 0L) return(invisible(NULL))
-                tuning_log$score <<- .derive_score_column(tuning_log, metric, voters)
+                tuning_log$score <<- .derive_score_column(tuning_log, tuning_metric, voters)
                 invisible(NULL)
         }
         
@@ -2280,9 +2279,9 @@ tune_regions <- function(graph,
                 invisible(NULL)
         }
         
-        # --- Run the chosen strategy -----------------------------------------*
+        # --- Run the chosen tuning_strategy -----------------------------------------*
         if (verbose) {
-                message(sprintf("Tuning (%s strategy, metric = %s) ...", strategy, metric))
+                message(sprintf("Tuning (%s tuning_strategy, tuning_metric = %s) ...", tuning_strategy, tuning_metric))
                 message(sprintf("  Active axes: %s",
                                 if (length(active_axes)) paste(active_axes, collapse = ", ")
                                 else "none (single configuration)"))
@@ -2292,7 +2291,7 @@ tune_regions <- function(graph,
                 # Degenerate case: nothing to search, evaluate the one configuration.
                 evaluate_configs(cur_df())
                 
-        } else if (strategy == "grid") {
+        } else if (tuning_strategy == "grid") {
                 # expand.grid varies its first argument fastest; ordering it this way
                 # keeps configurations that share an ensemble contiguous, and visits
                 # N_tree descending so the max-size build happens first in each block.
@@ -2309,11 +2308,11 @@ tune_regions <- function(graph,
                 tick <- if (verbose) .make_progress(nrow(pairs), "Grid search") else NULL
                 evaluate_configs(pairs, tick)
                 
-        } else if (strategy == "sequential") {
+        } else if (tuning_strategy == "sequential") {
                 evaluate_configs(cur_df())             # seed the incumbent
                 for (axis in active_axes) sweep_axis(axis, axis)
                 
-        } else if (strategy == "iterative") {
+        } else if (tuning_strategy == "iterative") {
                 evaluate_configs(cur_df())             # seed the incumbent
                 iter <- 0L
                 repeat {
@@ -2340,11 +2339,11 @@ tune_regions <- function(graph,
         # --- Deduplicate and pick the best configuration ---------------------*
         tuning_log <- tuning_log[!duplicated(.tune_key(tuning_log)), , drop = FALSE]
         rownames(tuning_log) <- NULL
-        tuning_log$score <- .derive_score_column(tuning_log, metric, voters)
+        tuning_log$score <- .derive_score_column(tuning_log, tuning_metric, voters)
         
         if (all(is.na(tuning_log$score))) {
                 stop("All hyper-parameter combinations produced an undefined score; ",
-                     "check the metric and inputs.", call. = FALSE)
+                     "check the tuning_metric and inputs.", call. = FALSE)
         }
         
         best_idx <- which.max(tuning_log$score)
@@ -2358,7 +2357,7 @@ tune_regions <- function(graph,
                         "N_tree = %d, final_regions = %d ",
                         "(%s score = %.4f)"),
                         best_cfg$regions_per_partition, best_cfg$weight_exponent,
-                        best_cfg$N_tree, best_cfg$final_regions, metric, best_sc))
+                        best_cfg$N_tree, best_cfg$final_regions, tuning_metric, best_sc))
                 message("  Finalising the scored winner (no refit) ...")
         }
         
@@ -2393,13 +2392,13 @@ tune_regions <- function(graph,
                         candidates                = cand,
                         active_axes               = active_axes,
                         n_ensembles_built         = ens_cache$built,
-                        metric                    = metric,
+                        tuning_metric                    = tuning_metric,
                         voters                    = voters,
-                        strategy                  = strategy,
+                        tuning_strategy                  = tuning_strategy,
                         prior_strength            = prior_strength,
                         ensemble                  = best_res$ensemble_meta$memb_mat
                 ),
-                class = "regions_tuning"
+                class = "pulse_regions_tuning"
         )
 }
 
@@ -2412,8 +2411,8 @@ tune_regions <- function(graph,
 #' @keywords internal
 #' @noRd
 .PULSE_REGIONS_FIELDS <- c(
-        "memberships", "entropy", "hard_clusters", "k",
-        "config", "tuned", "score", "metric", "strategy", "tuning_log",
+        "memberships", "entropy", "hard_labels", "k",
+        "config", "tuned", "score", "tuning_metric", "tuning_strategy", "tuning_log",
         "candidates", "n_ensembles_built",
         "prior_strength", "coverage", "fit", "trees", "ensemble",
         "p0", "n_eff"
@@ -2469,20 +2468,20 @@ tune_regions <- function(graph,
 #' Derived quantities (entropy, k) are computed once, here, rather
 #' than independently in each branch.
 #'
-#' @param fit A "fuzzy_clusters" object from cluster_consensus(), or NULL for
+#' @param fit A "pulse_consensus" object from compute_consensus(), or NULL for
 #'   the exact-prior degenerate case, in which case \code{memberships} and
-#'   \code{hard_clusters} must be supplied directly.
+#'   \code{hard_labels} must be supplied directly.
 #' @param config One-row data frame or named list giving the four tuning axes.
-#' @param trees The "spanning_trees" object used, or NULL.
+#' @param trees The "pulse_trees" object used, or NULL.
 #' @param prior_strength Numeric lambda_E actually applied.
 #' @param tuned Logical. TRUE if a search was run.
-#' @param score,metric,strategy Tuning metadata. NA in the untuned branch: the
+#' @param score,tuning_metric,tuning_strategy Tuning metadata. NA in the untuned branch: the
 #'   hardened silhouette is deliberately NOT substituted, because it is not
 #'   comparable to a tuned score and a populated-but-incomparable slot is worse
 #'   than an empty one.
 #' @param tuning_log,candidates,n_ensembles_built Search provenance, or NULL/NA.
 #' @param coverage Length-N logical, exact-prior case only. NULL otherwise.
-#' @param memberships,hard_clusters Supplied directly only when \code{fit} is
+#' @param memberships,hard_labels Supplied directly only when \code{fit} is
 #'   NULL. Ignored otherwise.
 #' @param validate Logical. Run the shape assertions. TRUE except in tight
 #'   internal loops.
@@ -2497,14 +2496,14 @@ tune_regions <- function(graph,
                                prior_strength    = 0,
                                tuned             = FALSE,
                                score             = NA_real_,
-                               metric            = NA_character_,
-                               strategy          = NA_character_,
+                               tuning_metric            = NA_character_,
+                               tuning_strategy          = NA_character_,
                                tuning_log        = NULL,
                                candidates        = NULL,
                                n_ensembles_built = NA_integer_,
                                coverage          = NULL,
                                memberships       = NULL,
-                               hard_clusters     = NULL,
+                               hard_labels     = NULL,
                                validate          = TRUE,
                                ensemble          = NULL) {
         
@@ -2512,18 +2511,18 @@ tune_regions <- function(graph,
         
         # --- Pull the primitives ---------------------------------------------*
         if (!degenerate) {
-                need <- c("memberships", "hard_clusters")
+                need <- c("memberships", "hard_labels")
                 miss <- setdiff(need, names(fit))
                 if (length(miss))
-                        stop("cluster_consensus() did not return: ",
+                        stop("compute_consensus() did not return: ",
                              paste(miss, collapse = ", "),
                              ". The pulse_regions contract cannot be met.", call. = FALSE)
                 
                 U             <- fit$memberships
-                hard_clusters <- fit$hard_clusters
+                hard_labels <- fit$hard_labels
         } else {
-                if (is.null(memberships) || is.null(hard_clusters))
-                        stop("`fit = NULL` requires `memberships` and `hard_clusters`.",
+                if (is.null(memberships) || is.null(hard_labels))
+                        stop("`fit = NULL` requires `memberships` and `hard_labels`.",
                              call. = FALSE)
                 U            <- memberships
         }
@@ -2545,7 +2544,7 @@ tune_regions <- function(graph,
         if (isTRUE(validate)) {
                 N <- nrow(U)
                 stopifnot(is.matrix(U), is.numeric(U), N >= 1L, k >= 1L)
-                stopifnot(length(hard_clusters) == N)
+                stopifnot(length(hard_labels) == N)
                 stopifnot(length(entropy) == N)
                 
                 # Rows sum to 1 up to floating point. Uncovered vertices in the
@@ -2570,13 +2569,13 @@ tune_regions <- function(graph,
         out <- list(
                 memberships       = U,
                 entropy           = entropy,
-                hard_clusters     = as.integer(hard_clusters),
+                hard_labels     = as.integer(hard_labels),
                 k                 = as.integer(k),
                 config            = config,
                 tuned             = isTRUE(tuned),
                 score             = as.numeric(score),
-                metric            = as.character(metric),
-                strategy          = as.character(strategy),
+                tuning_metric            = as.character(tuning_metric),
+                tuning_strategy          = as.character(tuning_strategy),
                 tuning_log        = tuning_log,
                 candidates        = candidates,
                 n_ensembles_built = as.integer(n_ensembles_built),
@@ -2600,7 +2599,7 @@ tune_regions <- function(graph,
 print.pulse_regions <- function(x, ...) {
         cat(sprintf("<pulse_regions>  %d units x %d regions | %s\n",
                     nrow(x$memberships), x$k,
-                    if (x$tuned) sprintf("tuned (%s, %s)", x$metric, x$strategy)
+                    if (x$tuned) sprintf("tuned (%s, %s)", x$tuning_metric, x$tuning_strategy)
                     else "single configuration"))
         cfg <- x$config
         cat(sprintf("  ir = %d | gamma = %g | N_tree = %d\n",
@@ -2690,14 +2689,14 @@ print.pulse_regions <- function(x, ...) {
 #' @param B Integer. Null replicates. Default 19.
 #' @param stability_B Integer. Random splits for \code{STAB}; use the value of
 #'   the observed run.
-#' @param observed Optional \code{"regions_tuning"} object or a data frame
+#' @param observed Optional \code{"pulse_regions_tuning"} object or a data frame
 #'   with \code{final_regions} and validity columns (e.g. a \code{tuning_log}).
 #'   Rows are matched on the ensemble configuration when those columns exist.
 #' @param large_n_threshold,sample_size,n_cores As in \code{\link{tune_regions}}.
 #' @param seed Optional integer seed; the caller's RNG state is restored.
 #' @param verbose Logical.
 #'
-#' @return An object of class \code{"null_baseline"}: \code{null} (one row per
+#' @return An object of class \code{"pulse_null"}: \code{null} (one row per
 #'   replicate and k), \code{summary} (one row per k and criterion: observed,
 #'   null mean, null 95\% bound in the "better" direction, \code{excess} =
 #'   observed minus null mean with the sign set so positive is better than the
@@ -2746,7 +2745,7 @@ compute_null_baseline <- function(graph, env = NULL, env_id = NULL, final_region
                 igraph::E(g_b)$weight <- .null_weights(env_b)
                 tr  <- sample_spanning_trees(g_b, n = N_tree, verbose = FALSE,
                                              target_edge_turnover = target_edge_turnover)
-                ens <- compute_ensemble_memberships(tr, N_tree = N_tree, graph = g_b,
+                ens <- compute_ensemble(tr, N_tree = N_tree, graph = g_b,
                                                     regions_per_partition = regions_per_partition,
                                                     weight_exponent = weight_exponent,
                                                     size_influence = size_influence,
@@ -2754,7 +2753,7 @@ compute_null_baseline <- function(graph, env = NULL, env_id = NULL, final_region
                 stab_seed <- sample.int(.Machine$integer.max, 1L)
                 out[[b]] <- do.call(rbind, lapply(final_regions, function(k) {
                         res <- tryCatch(
-                                cluster_consensus(ens, k, graph = g_b,
+                                compute_consensus(ens, k, graph = g_b,
                                                   large_n_threshold = large_n_threshold,
                                                   sample_size = sample_size, n_cores = n_cores,
                                                   report_native = FALSE, verbose = FALSE),
@@ -2773,13 +2772,13 @@ compute_null_baseline <- function(graph, env = NULL, env_id = NULL, final_region
                      N_tree = as.integer(N_tree), weight_exponent = as.numeric(weight_exponent))
         structure(list(null = null, summary = .null_summary(null, observed, cfg),
                        config = cfg, B = as.integer(B)),
-                  class = "null_baseline")
+                  class = "pulse_null")
 }
 
 #' @keywords internal
 #' @noRd
 .null_summary <- function(null, observed, cfg) {
-        if (inherits(observed, "regions_tuning")) observed <- observed$tuning_log
+        if (inherits(observed, "pulse_regions_tuning")) observed <- observed$tuning_log
         if (!is.null(observed)) {
                 observed <- as.data.frame(observed)
                 for (ax in names(cfg)) if (ax %in% names(observed))
@@ -2811,8 +2810,8 @@ compute_null_baseline <- function(graph, env = NULL, env_id = NULL, final_region
 }
 
 #' @export
-print.null_baseline <- function(x, ...) {
-        cat(sprintf("<null_baseline>  %d replicates | regions_per_partition = %d | N_tree = %d | weight_exponent = %g\n",
+print.pulse_null <- function(x, ...) {
+        cat(sprintf("<pulse_null>  %d replicates | regions_per_partition = %d | N_tree = %d | weight_exponent = %g\n",
                     x$B, x$config$regions_per_partition, x$config$N_tree, x$config$weight_exponent))
         s <- x$summary[x$summary$criterion %in% c("CH_ENV", "STAB"), ]
         s[] <- lapply(s, function(v) if (is.numeric(v)) signif(v, 3) else v)

@@ -15,7 +15,7 @@ check_cut_placement(
 )
 }
 \arguments{
-\item{trees}{A \code{"spanning_trees"} object.}
+\item{trees}{A \code{"pulse_trees"} object.}
 
 \item{regions_per_partition}{Integer \eqn{R \ge 2}.}
 
@@ -24,17 +24,17 @@ added (it is the ceiling reference).}
 
 \item{weight_exponent}{\eqn{\gamma}. Default 1.}
 
-\item{prior_strength}{\eqn{\lambda}, as in \code{\link{compute_ensemble_memberships}}.}
+\item{prior_strength}{\eqn{\lambda}, as in \code{\link{compute_ensemble}}.}
 
 \item{N_tree}{Number of trees to use. Default \code{min(100, n_trees)}.}
 
 \item{seed}{Optional integer; the caller's RNG state is restored.}
 }
 \value{
-Object of class \code{"cut_placement"}: \code{summary} (one row per
+Object of class \code{"pulse_cut_placement"}: \code{summary} (one row per
 setting: \code{above_median} share of cuts on edges heavier than the tree
 median, \code{mean_pct}, \code{env_retained}, \code{singleton_share} share
-of cuts that split off one catchment, \code{median_small_piece}),
+of cuts that split off one unit, \code{median_small_piece}),
 \code{cuts} (one row per cut: setting, tree, percentile, small-piece
 size) and \code{config}.
 }
@@ -60,6 +60,6 @@ not to sampling noise.
 
 Only cutting is simulated; pieces are not labelled. Cost is
 \code{N_tree} x \code{length(size_influence)} partial sorts of \eqn{N - 1}
-keys plus one subtree-size pass per tree: seconds on 10^4 catchments,
+keys plus one subtree-size pass per tree: seconds on 10^4 units,
 about a minute per 100 trees on 2.7 x 10^5.
 }

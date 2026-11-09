@@ -35,25 +35,23 @@
         classes <- sort(unique(prior_labels[coverage]))
         K       <- length(classes)
         
-        hard_clusters           <- rep(NA_integer_, N)
-        hard_clusters[coverage] <- match(prior_labels[coverage], classes)
+        hard_labels           <- rep(NA_integer_, N)
+        hard_labels[coverage] <- match(prior_labels[coverage], classes)
         
         # One-hot membership for covered vertices; all-zero rows for uncovered ones.
         memberships <- matrix(0, nrow = N, ncol = K)
-        memberships[cbind(which(coverage), hard_clusters[coverage])] <- 1
+        memberships[cbind(which(coverage), hard_labels[coverage])] <- 1
         
         list(
                 memberships         = memberships,
-                hard_clusters       = hard_clusters,
+                hard_labels       = hard_labels,
                 coverage            = coverage,        # length-N logical
                 best_regions_per_partition = K,
                 best_final_regions  = K,
                 best_N_tree          = NA_integer_,
                 best_score          = NA_real_,
                 tuning_log          = NULL,
-                #N_tree_stability     = NULL,
                 trees               = NULL,
-                cluster_result      = NULL,
                 prior_strength      = Inf,
                 class_levels        = classes
         )

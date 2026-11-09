@@ -96,11 +96,11 @@ tuning. 0 skips it. Default 10.}
 
 \item{large_n_threshold}{Integer. Above this number of vertices, salso
 runs on a sample of units and the rest are assigned and refined. Default
-20000. See \code{\link{cluster_consensus}}.}
+20000. See \code{\link{compute_consensus}}.}
 
 \item{n_cores}{Integer. Cores passed to \code{salso::salso()}. Default 1.}
 
-\item{trees}{Optional \code{"spanning_trees"} object from
+\item{trees}{Optional \code{"pulse_trees"} object from
 \code{\link{sample_spanning_trees}}. If supplied, no trees are sampled
 and \code{prior_typology} and \code{target_edge_turnover} are ignored.}
 
@@ -116,11 +116,11 @@ caller's RNG state is restored on exit.}
 An object of class \code{"pulse_regions"}, a list with
 \describe{
 \item{\code{memberships}}{\eqn{N \times k} matrix \eqn{\Pi}. Rows sum
-to 1; filled from graph neighbours (see cluster_consensus() Details);
+to 1; filled from graph neighbours (see compute_consensus() Details);
 all-zero for uncovered units when
 \code{prior_strength = Inf}.}
 \item{\code{entropy}}{Row entropy of \code{memberships}.}
-\item{\code{hard_clusters}}{Integer vector of consensus labels.}
+\item{\code{hard_labels}}{Integer vector of consensus labels.}
 \item{\code{k}}{Number of regions.}
 \item{\code{config}}{One-row data frame: \code{regions_per_partition},
 \code{weight_exponent}, \code{N_tree}, \code{final_regions}.}
@@ -133,11 +133,11 @@ when not tuned.}
 \item{\code{prior_strength}}{\eqn{\lambda} as applied.}
 \item{\code{coverage}}{Logical per unit when
 \code{prior_strength = Inf}, else \code{NULL}.}
-\item{\code{fit}}{The \code{"fuzzy_clusters"} object from
-\code{\link{cluster_consensus}}, with certainty, margin, cohesion,
+\item{\code{fit}}{The \code{"pulse_consensus"} object from
+\code{\link{compute_consensus}}, with certainty, margin, cohesion,
 loss terms and diagnostics; \code{NULL} when
 \code{prior_strength = Inf}.}
-\item{\code{trees}}{The \code{"spanning_trees"} object used.}
+\item{\code{trees}}{The \code{"pulse_trees"} object used.}
 \item{\code{ensemble}}{The \eqn{N \times N_{tree}} label matrix.}
 \item{\code{p0}, \code{n_eff}}{Mean chance co-association of the
 ensemble and \eqn{1 / p_0}.}
@@ -159,12 +159,12 @@ g <- make_lattice(c(15, 15))
 E(g)$weight <- runif(ecount(g))
 res <- get_regions(g, regions_per_partition = c(10, 20), final_regions = c(3, 4),
                    N_tree = 30, seed = 1)
-table(res$hard_clusters)
+table(res$hard_labels)
 }
 
 }
 \seealso{
 \code{\link{sample_spanning_trees}},
-\code{\link{compute_ensemble_memberships}},
-\code{\link{cluster_consensus}}, \code{\link{tune_regions}}.
+\code{\link{compute_ensemble}},
+\code{\link{compute_consensus}}, \code{\link{tune_regions}}.
 }

@@ -1,21 +1,21 @@
 mock_unc_levels <- function() {
         reg <- structure(list(memberships   = rbind(c(0.9, 0.1, 0), c(0.5, 0.3, 0.2),
                                                     c(NA, NA, NA), c(0.2, 0.7, 0.1)),
-                              hard_clusters = c(1L, 2L, NA, 2L),   # row 2: repaired, hard != argmax
+                              hard_labels = c(1L, 2L, NA, 2L),   # row 2: repaired, hard != argmax
                               fit = list()),
                          class = "pulse_regions")
         ## Region 1 has two local types, region 2 has one.
         U_loc <- rbind(c(0.6, 0.4, 0), c(0.9, 0.1, 0), c(0, 0, 1), c(0, 0, 1))
         loc <- structure(list(memberships  = U_loc,
-                              hard_classes = max.col(U_loc, ties.method = "first"),
+                              hard_labels = max.col(U_loc, ties.method = "first"),
                               certainty    = apply(U_loc, 1, max),
                               key = data.frame(column = 1:3, region = c(1L, 1L, 2L),
                                                local_type = c(1L, 2L, 1L))),
                          class = "pulse_local_types")
         U_mos <- rbind(c(0.7, 0.2, 0.1), c(0.4, 0.35, 0.25))
-        mos <- structure(list(memberships = U_mos, hard_clusters = c(1L, 1L),
-                              best_k = 3L, valid = c(TRUE, FALSE, TRUE, FALSE)),
-                         class = "mosaic_types")
+        mos <- structure(list(memberships = U_mos, hard_labels = c(1L, 1L),
+                              n_mosaic_types = 3L, valid = c(TRUE, FALSE, TRUE, FALSE)),
+                         class = "pulse_mosaic_types")
         list(reg = reg, loc = loc, mos = mos)
 }
 
@@ -69,7 +69,7 @@ test_that("plot_certainty() and plot_margin() build for every option", {
 
 test_that("crisp memberships trigger a warning", {
         skip_if_not_installed("ggplot2")
-        mos <- structure(list(memberships = diag(3), hard_clusters = 1:3, best_k = 3L,
-                              valid = rep(TRUE, 3)), class = "mosaic_types")
+        mos <- structure(list(memberships = diag(3), hard_labels = 1:3, n_mosaic_types = 3L,
+                              valid = rep(TRUE, 3)), class = "pulse_mosaic_types")
         expect_warning(plot_certainty(mosaic = mos), "crisp")
 })

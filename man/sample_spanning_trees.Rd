@@ -2,11 +2,11 @@
 % Please edit documentation in R/regions.R
 \name{sample_spanning_trees}
 \alias{sample_spanning_trees}
-\alias{print.spanning_trees}
+\alias{print.pulse_trees}
 \title{Sample spanning trees from a Spatial Graph}
 \usage{
 sample_spanning_trees(
-  weighted_graph,
+  graph,
   n,
   seed = NULL,
   verbose = TRUE,
@@ -15,10 +15,10 @@ sample_spanning_trees(
   prior_strength = 0
 )
 
-\method{print}{spanning_trees}(x, ...)
+\method{print}{pulse_trees}(x, ...)
 }
 \arguments{
-\item{weighted_graph}{A connected \code{igraph} object. Edges must carry a
+\item{graph}{A connected \code{igraph} object. Edges must carry a
 numeric \code{weight} attribute (dissimilarity; finite and non-negative).
 Any \code{eid} edge attribute is overwritten with the edge position.
 Vertices may optionally carry a prior-typology attribute (see
@@ -39,7 +39,7 @@ labels (character / factor / integer); or (b) a vector of length
 that vertex. When supplied, edges connecting two vertices with the same
 non-NA label are flagged as "within-prior"; their cut propensity is
 lowered in the cutting step (see \code{prior_strength} in
-\code{\link{compute_ensemble_memberships}} and
+\code{\link{compute_ensemble}} and
 \code{\link{get_regions}}). Default \code{NULL} (no prior). Tree shape
 does not depend on the prior.}
 
@@ -49,14 +49,14 @@ The noise scale is calibrated to reach it. 0 gives \code{n} copies of
 the minimum spanning tree. Default 0.1.}
 
 \item{prior_strength}{Numeric. Stored in the result for
-\code{\link{compute_ensemble_memberships}}; not used for sampling.}
+\code{\link{compute_ensemble}}; not used for sampling.}
 
-\item{x}{An object to print (e.g. of class \code{"spanning_trees"}).}
+\item{x}{An object to print (e.g. of class \code{"pulse_trees"}).}
 
 \item{...}{Further arguments passed to or from other methods (unused).}
 }
 \value{
-An object of class \code{"spanning_trees"} — a list with:
+An object of class \code{"pulse_trees"} — a list with:
 \describe{
 \item{\code{trees}}{List of sampled spanning trees (\code{igraph}
 objects carrying the original \code{weight} and the parent-edge
@@ -75,13 +75,13 @@ within-prior edges, or \code{NULL}.}
 \item{\code{prior_strength}}{As supplied.}
 }
 
-\code{print.spanning_trees} returns \code{x} invisibly.
+\code{print.pulse_trees} returns \code{x} invisibly.
 }
 \description{
 Draws \code{n} spanning trees from a weighted, connected \code{igraph}
 object; a disconnected graph is an error. The trees, together with the parent graph's edge
 weights/endpoints and any resolved prior-typology information, are bundled
-into a \code{"spanning_trees"} object that the rest of the pipeline consumes.
+into a \code{"pulse_trees"} object that the rest of the pipeline consumes.
 }
 \examples{
 \dontrun{

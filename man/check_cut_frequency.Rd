@@ -2,7 +2,7 @@
 % Please edit documentation in R/ensemble_diagnostics.R
 \name{check_cut_frequency}
 \alias{check_cut_frequency}
-\alias{plot.cut_frequency}
+\alias{plot.pulse_cut_frequency}
 \title{Check how often edges are cut against their environmental distance}
 \usage{
 check_cut_frequency(
@@ -13,10 +13,10 @@ check_cut_frequency(
   n_bins = 20L
 )
 
-\method{plot}{cut_frequency}(x, x_scale = c("percentile", "distance"), n_points = 3000L, ...)
+\method{plot}{pulse_cut_frequency}(x, x_scale = c("percentile", "distance"), n_points = 3000L, ...)
 }
 \arguments{
-\item{ensemble}{An \code{"ensemble_memberships"} object or an integer label
+\item{ensemble}{An \code{"pulse_ensemble"} object or an integer label
 matrix (units x partitions), rows in vertex order of \code{graph}.}
 
 \item{graph}{The \code{igraph} the ensemble was built on.}
@@ -35,7 +35,7 @@ skew) or \code{"distance"} (raw values, bin medians).}
 \item{n_points}{Integer. Edges drawn as background points. Default 3000.}
 }
 \value{
-Object of class \code{"cut_frequency"} with \code{edges} (one row
+Object of class \code{"pulse_cut_frequency"} with \code{edges} (one row
 per edge: \code{distance}, \code{percentile}, \code{cut_freq},
 \code{ref_freq}), \code{bins} (per bin: \code{percentile},
 \code{distance}, \code{mean}, \code{q90}, \code{ref_mean}),
@@ -59,19 +59,19 @@ is the MST of perturbed weights, so it avoids heavy edges) and the cut rule
 (\code{weight_exponent}, \code{size_influence}). To separate them, pass a
 \code{reference} ensemble cut uniformly from the same trees:
 \preformatted{
-ref <- compute_ensemble_memberships(trees, N_tree, graph, R,
+ref <- compute_ensemble(trees, N_tree, graph, R,
                                     weight_exponent = 0)
 }
 The gap between the curves is what the cut rule adds. γ = 0 ignores the
 weights; add size_influence = 0 for uniform random cuts.
 Compare \code{lift} between the two, not \code{rho}: rank correlation
-rewards the many single-catchment cuts around environmental outliers.
+rewards the many single-unit cuts around environmental outliers.
 
 \code{rho} is the Spearman correlation between distance and cut frequency.
 \code{lift} is the mean cut frequency in the top distance decile divided by
 that in the bottom decile.
 
 Cost: one pass over the edges per partition; memory is two integer vectors
-of edge length. Seconds on 10^4 catchments, minutes on 2.7 x 10^5 with
+of edge length. Seconds on 10^4 units, minutes on 2.7 x 10^5 with
 500 trees.
 }

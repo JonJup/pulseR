@@ -1,11 +1,11 @@
 # =============================================================================
 # connect_components()  --  greedily bridge disconnected components of a graph
 #
-# Companion to polygon_to_network(): it consumes the same vertex convention
+# Companion to build_network(): it consumes the same vertex convention
 # (integer ids 1..n in feature order, no name-based matching) and is called
 # either with `polygons=` (in-memory path) or `centroids=` (chunked path).
 #
-# Relies on these package-internal utilities defined in polygon_to_network.R:
+# Relies on these package-internal utilities defined in build_network.R:
 #   .log(), .need(), .assert_flag(), .warn_if_longlat()
 # =============================================================================
 
@@ -66,10 +66,10 @@
 #' (\code{bridge_dist}) depends on what is supplied:
 #' \describe{
 #'   \item{\code{"boundary"}}{\code{polygons} supplied (in-memory
-#'     \code{polygon_to_network()}): shortest distance between the two
+#'     \code{build_network()}): shortest distance between the two
 #'     polygons. A topology gap or corner contact gets a length near 0.}
 #'   \item{\code{"centroid"}}{only \code{centroids} supplied (chunked
-#'     \code{polygon_to_network()}): centroid-to-centroid distance, which is
+#'     \code{build_network()}): centroid-to-centroid distance, which is
 #'     always at least the boundary distance, so the same bridge receives a
 #'     larger penalty in \code{\link{add_edge_weight}}.}
 #' }
@@ -202,7 +202,7 @@ connect_components <- function(g,
                 }
                 
                 # Add by integer vertex id (graph carries no `name` attribute, so numeric
-                # references are interpreted as ids -- matching polygon_to_network()).
+                # references are interpreted as ids -- matching build_network()).
                 g <- igraph::add_edges(g, c(bridge$from, bridge$to),
                                        attr = list(bridge = TRUE, bridge_dist = d_bridge))
                 

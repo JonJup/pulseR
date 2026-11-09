@@ -97,7 +97,7 @@
                             stability_B = 25L,
                             stability_seed = NULL, large_n_threshold = 20000,
                             sample_size = 5000L, n_cores = 1L, verbose = FALSE) {
-        k <- res$k; hard <- res$hard_clusters
+        k <- res$k; hard <- res$hard_labels
         fe <- if (is.null(env)) c(CH_ENV = NA_real_, R2_ENV = NA_real_) else .pseudo_F_env(env, hard, k)
         if (verbose && stability_B > 0L) message(sprintf("    stability (B = %d) ...", stability_B))
         stab <- .stability_consensus(memb, k, B = stability_B,

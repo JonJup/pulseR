@@ -23,22 +23,22 @@
 #'
 #' Only cutting is simulated; pieces are not labelled. Cost is
 #' \code{N_tree} x \code{length(size_influence)} partial sorts of \eqn{N - 1}
-#' keys plus one subtree-size pass per tree: seconds on 10^4 catchments,
+#' keys plus one subtree-size pass per tree: seconds on 10^4 units,
 #' about a minute per 100 trees on 2.7 x 10^5.
 #'
-#' @param trees A \code{"spanning_trees"} object.
+#' @param trees A \code{"pulse_trees"} object.
 #' @param regions_per_partition Integer \eqn{R \ge 2}.
 #' @param size_influence Numeric vector of settings to compare. 0 is always
 #'   added (it is the ceiling reference).
 #' @param weight_exponent \eqn{\gamma}. Default 1.
-#' @param prior_strength \eqn{\lambda}, as in \code{\link{compute_ensemble_memberships}}.
+#' @param prior_strength \eqn{\lambda}, as in \code{\link{compute_ensemble}}.
 #' @param N_tree Number of trees to use. Default \code{min(100, n_trees)}.
 #' @param seed Optional integer; the caller's RNG state is restored.
 #'
-#' @return Object of class \code{"cut_placement"}: \code{summary} (one row per
+#' @return Object of class \code{"pulse_cut_placement"}: \code{summary} (one row per
 #'   setting: \code{above_median} share of cuts on edges heavier than the tree
 #'   median, \code{mean_pct}, \code{env_retained}, \code{singleton_share} share
-#'   of cuts that split off one catchment, \code{median_small_piece}),
+#'   of cuts that split off one unit, \code{median_small_piece}),
 #'   \code{cuts} (one row per cut: setting, tree, percentile, small-piece
 #'   size) and \code{config}.
 #' @export
@@ -46,7 +46,7 @@ check_cut_placement <- function(trees, regions_per_partition,
                                 size_influence  = c(0, 0.5, 1, 2, 4),
                                 weight_exponent = 1, prior_strength = 0,
                                 N_tree = NULL, seed = NULL) {
-        stopifnot(inherits(trees, "spanning_trees"),
+        stopifnot(inherits(trees, "pulse_trees"),
                   is.numeric(size_influence), all(size_influence >= 0),
                   length(regions_per_partition) == 1L, regions_per_partition >= 2,
                   length(weight_exponent) == 1L, weight_exponent >= 0,
@@ -118,12 +118,12 @@ check_cut_placement <- function(trees, regions_per_partition,
                                      weight_exponent = weight_exponent,
                                      prior_strength = prior_strength,
                                      N_tree = as.integer(N_tree), n_vertices = n_v)),
-                  class = "cut_placement")
+                  class = "pulse_cut_placement")
 }
 
 #' @export
-print.cut_placement <- function(x, ...) {
-        cat(sprintf("<cut_placement>  N_tree = %d | R = %d | weight_exponent = %g | N = %d\n",
+print.pulse_cut_placement <- function(x, ...) {
+        cat(sprintf("<pulse_cut_placement>  N_tree = %d | R = %d | weight_exponent = %g | N = %d\n",
                     x$config$N_tree, x$config$regions_per_partition,
                     x$config$weight_exponent, x$config$n_vertices))
         s <- x$summary
@@ -137,7 +137,7 @@ print.cut_placement <- function(x, ...) {
 #' Check whether the ensemble has enough trees (split-half convergence)
 #'
 #' Draws two disjoint sets of \code{m} ensemble columns, builds a consensus
-#' from each with \code{\link{cluster_consensus}}, and compares the two hard
+#' from each with \code{\link{compute_consensus}}, and compares the two hard
 #' partitions by the adjusted Rand index (ARI). Repeated over a ladder of
 #' sizes \code{m} up to half the ensemble, this traces how reproducible the
 #' consensus is as the ensemble grows.
@@ -161,22 +161,22 @@ print.cut_placement <- function(x, ...) {
 #' Cost: \code{2 x B x length(sizes) + 2} consensus runs. With the defaults
 #' and \code{M = 500}, 26 runs.
 #'
-#' @param ensemble An \code{"ensemble_memberships"} object or an integer
+#' @param ensemble An \code{"pulse_ensemble"} object or an integer
 #'   label matrix (units x partitions).
 #' @param k Integer. Number of consensus regions.
 #' @param graph Optional \code{igraph}; if given, contiguity is repaired as in
-#'   \code{cluster_consensus()} (consensus partition only).
+#'   \code{compute_consensus()} (consensus partition only).
 #' @param sizes Integer vector of half-ensemble sizes. Default: \eqn{M/16},
 #'   \eqn{M/8}, \eqn{M/4}, \eqn{M/2}, keeping sizes \eqn{\ge 10}.
 #' @param B Integer. Split-half replicates per size. Default 3.
 #' @param tol Numeric. ARI gain over the last doubling below which the curve
 #'   counts as flat. Default 0.01.
 #' @param large_n_threshold,sample_size,n_runs,n_cores Passed to
-#'   \code{\link{cluster_consensus}}.
+#'   \code{\link{compute_consensus}}.
 #' @param seed Optional integer; the caller's RNG state is restored.
 #' @param verbose Logical.
 #'
-#' @return Object of class \code{"ensemble_size_check"}: \code{replicates}
+#' @return Object of class \code{"pulse_ensemble_size"}: \code{replicates}
 #'   (one row per size and replicate), \code{summary} (per size: mean, min
 #'   and max ARI, gain over the previous size), \code{search_floor},
 #'   \code{converged}, \code{k}, \code{n_members}.
@@ -203,11 +203,11 @@ check_ensemble_size <- function(ensemble, k, graph = NULL, sizes = NULL,
         .local_seed(seed)
 
         hard_of <- function(cols)
-                cluster_consensus(memb[, cols, drop = FALSE], k, graph = graph,
+                compute_consensus(memb[, cols, drop = FALSE], k, graph = graph,
                                   large_n_threshold = large_n_threshold,
                                   sample_size = sample_size, n_runs = n_runs,
                                   n_cores = n_cores, report_native = FALSE,
-                                  verbose = FALSE)$hard_clusters
+                                  verbose = FALSE)$hard_labels
 
         reps <- vector("list", length(sizes) * B)
         i <- 0L
@@ -235,12 +235,12 @@ check_ensemble_size <- function(ensemble, k, graph = NULL, sizes = NULL,
         structure(list(replicates = reps, summary = s, search_floor = sfloor,
                        converged = converged, tol = tol, k = as.integer(k),
                        n_members = M),
-                  class = "ensemble_size_check")
+                  class = "pulse_ensemble_size")
 }
 
 #' @export
-print.ensemble_size_check <- function(x, ...) {
-        cat(sprintf("<ensemble_size_check>  k = %d | ensemble = %d partitions | tol = %g\n",
+print.pulse_ensemble_size <- function(x, ...) {
+        cat(sprintf("<pulse_ensemble_size>  k = %d | ensemble = %d partitions | tol = %g\n",
                     x$k, x$n_members, x$tol))
         s <- x$summary
         s[] <- lapply(s, function(v) if (is.numeric(v)) signif(v, 3) else v)
@@ -271,23 +271,23 @@ print.ensemble_size_check <- function(x, ...) {
 #' (\code{weight_exponent}, \code{size_influence}). To separate them, pass a
 #' \code{reference} ensemble cut uniformly from the same trees:
 #' \preformatted{
-#' ref <- compute_ensemble_memberships(trees, N_tree, graph, R,
+#' ref <- compute_ensemble(trees, N_tree, graph, R,
 #'                                     weight_exponent = 0)
 #' }
 #' The gap between the curves is what the cut rule adds. γ = 0 ignores the 
 #' weights; add size_influence = 0 for uniform random cuts.
 #' Compare \code{lift} between the two, not \code{rho}: rank correlation
-#' rewards the many single-catchment cuts around environmental outliers.
+#' rewards the many single-unit cuts around environmental outliers.
 #'
 #' \code{rho} is the Spearman correlation between distance and cut frequency.
 #' \code{lift} is the mean cut frequency in the top distance decile divided by
 #' that in the bottom decile.
 #'
 #' Cost: one pass over the edges per partition; memory is two integer vectors
-#' of edge length. Seconds on 10^4 catchments, minutes on 2.7 x 10^5 with
+#' of edge length. Seconds on 10^4 units, minutes on 2.7 x 10^5 with
 #' 500 trees.
 #'
-#' @param ensemble An \code{"ensemble_memberships"} object or an integer label
+#' @param ensemble An \code{"pulse_ensemble"} object or an integer label
 #'   matrix (units x partitions), rows in vertex order of \code{graph}.
 #' @param graph The \code{igraph} the ensemble was built on.
 #' @param distance Numeric, one value per edge of \code{graph}. Default
@@ -296,7 +296,7 @@ print.ensemble_size_check <- function(x, ...) {
 #' @param reference Optional second ensemble on the same graph (see Details).
 #' @param n_bins Integer. Number of equal-count distance bins. Default 20.
 #'
-#' @return Object of class \code{"cut_frequency"} with \code{edges} (one row
+#' @return Object of class \code{"pulse_cut_frequency"} with \code{edges} (one row
 #'   per edge: \code{distance}, \code{percentile}, \code{cut_freq},
 #'   \code{ref_freq}), \code{bins} (per bin: \code{percentile},
 #'   \code{distance}, \code{mean}, \code{q90}, \code{ref_mean}),
@@ -359,13 +359,13 @@ check_cut_frequency <- function(ensemble, graph, distance = NULL,
                 summary = list(main = stats_of(cf),
                                reference = if (is.null(ref)) NULL else stats_of(rf)),
                 M = main$M, n_dropped = sum(!keep)),
-                class = "cut_frequency")
+                class = "pulse_cut_frequency")
 }
 
 #' @export
-print.cut_frequency <- function(x, ...) {
+print.pulse_cut_frequency <- function(x, ...) {
         s <- x$summary$main
-        cat(sprintf("<cut_frequency>  %d partitions | %d edges%s\n", x$M, nrow(x$edges),
+        cat(sprintf("<pulse_cut_frequency>  %d partitions | %d edges%s\n", x$M, nrow(x$edges),
                     if (x$n_dropped) sprintf(" (%d with NA distance left out)", x$n_dropped) else ""))
         line <- function(lab, s) cat(sprintf(
                 "%-10s rho = %.3f | lift top/bottom decile = %.2f | mean = %.4f | never cut = %.1f%%\n",
@@ -380,7 +380,7 @@ print.cut_frequency <- function(x, ...) {
 #' @param n_points Integer. Edges drawn as background points. Default 3000.
 #' @rdname check_cut_frequency
 #' @export
-plot.cut_frequency <- function(x, x_scale = c("percentile", "distance"),
+plot.pulse_cut_frequency <- function(x, x_scale = c("percentile", "distance"),
                                n_points = 3000L, ...) {
         x_scale <- match.arg(x_scale)
         e  <- x$edges; b <- x$bins
@@ -445,7 +445,7 @@ plot.cut_frequency <- function(x, x_scale = c("percentile", "distance"),
 #' worth it". \code{S_chao2} is the Chao2 lower bound on the number of
 #' boundary edges the sampler can reach.
 #'
-#' Edge counts ignore distance: a boundary moved by one catchment counts as
+#' Edge counts ignore distance: a boundary moved by one unit counts as
 #' new edges. A slowly saturating curve with a small Jaccard distance means
 #' the trees keep jittering boundaries locally; a large Jaccard distance means
 #' they keep proposing different regionalisations.
@@ -454,11 +454,11 @@ plot.cut_frequency <- function(x, x_scale = c("percentile", "distance"),
 #' \eqn{M \times M} cross-product. Memory is about 12 bytes per boundary
 #' edge per tree (e.g. 300 MB for 500 trees with 50,000 boundary edges each).
 #'
-#' @param ensemble An \code{"ensemble_memberships"} object or an integer label
+#' @param ensemble An \code{"pulse_ensemble"} object or an integer label
 #'   matrix (units x partitions), rows in vertex order of \code{graph}.
 #' @param graph The \code{igraph} the ensemble was built on.
 #'
-#' @return Object of class \code{"tree_novelty"} with \code{per_tree} (one
+#' @return Object of class \code{"pulse_tree_novelty"} with \code{per_tree} (one
 #'   row per tree: \code{n_boundary}, \code{new_edges}, \code{share_new},
 #'   \code{nn_jaccard}), \code{curve} (expected distinct edges and expected
 #'   share new, by number of trees), \code{summary} (\code{S_obs},
@@ -529,13 +529,13 @@ check_tree_novelty <- function(ensemble, graph) {
                 summary  = list(S_obs = S_obs, S_chao2 = S_chao, coverage = cover,
                                 Q1 = Q1, Q2 = Q2),
                 M = M),
-                class = "tree_novelty")
+                class = "pulse_tree_novelty")
 }
 
 #' @export
-print.tree_novelty <- function(x, ...) {
+print.pulse_tree_novelty <- function(x, ...) {
         s <- x$summary
-        cat(sprintf("<tree_novelty>  %d trees | %d boundary edges seen | Chao2 >= %.0f\n",
+        cat(sprintf("<pulse_tree_novelty>  %d trees | %d boundary edges seen | Chao2 >= %.0f\n",
                     x$M, s$S_obs, s$S_chao2))
         cat(sprintf("Coverage %.3f: the next tree is expected to add %.1f%% new boundary edges.\n",
                     s$coverage, 100 * (1 - s$coverage)))
@@ -548,7 +548,7 @@ print.tree_novelty <- function(x, ...) {
 #' @param log_x Logical. Log-scale the tree axis. Default \code{FALSE}.
 #' @rdname check_tree_novelty
 #' @export
-plot.tree_novelty <- function(x, log_x = FALSE, ...) {
+plot.pulse_tree_novelty <- function(x, log_x = FALSE, ...) {
         op <- graphics::par(mfrow = c(1, 2), mar = c(4, 4, 3, 1))
         on.exit(graphics::par(op))
         s   <- x$summary; pt <- x$per_tree; cv <- x$curve

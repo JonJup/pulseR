@@ -11,15 +11,16 @@ tune_regions(
   regions_per_partition = 50,
   final_regions,
   weight_exponent = 1,
-  metric = c("borda", "ch_env", "r2_env", "stability", "silhouette_ca", "expected_vi"),
-  strategy = c("grid", "sequential", "iterative"),
+  tuning_metric = c("borda", "ch_env", "r2_env", "stability", "silhouette_ca",
+    "expected_vi"),
+  tuning_strategy = c("grid", "sequential", "iterative"),
   stability_B = 10,
   voters = c("CH_ENV", "STAB"),
   prior_strength = 0,
   prior_typology = NULL,
   max_iter = 10,
   size_influence = 2,
-  max_ensembles = 64L,
+  max_configs = 64L,
   large_n_threshold = 20000,
   sample_size = 5000,
   n_cores = 1,
@@ -33,7 +34,7 @@ tune_regions(
 \arguments{
 \item{graph}{The parent \code{igraph} object the trees were sampled from.}
 
-\item{trees}{A \code{"spanning_trees"} object from
+\item{trees}{A \code{"pulse_trees"} object from
 \code{\link{sample_spanning_trees}}.}
 
 \item{N_tree}{Integer or integer vector (each \eqn{\ge 2} and
@@ -48,7 +49,7 @@ number(s) of final consensus clusters \emph{k}.}
 \item{weight_exponent}{Numeric or numeric vector (each \eqn{\ge 0}).
 Candidate cut-probability exponent(s) \eqn{\gamma}. Default 1.}
 
-\item{metric}{Character. Selection criterion, higher is better:
+\item{tuning_metric}{Character. Selection criterion, higher is better:
 \code{"borda"} (default; mean rank over \code{voters}),
 \code{"ch_env"} (\code{CH_ENV}, pseudo-F of the hard labels on
 \code{env}), \code{"r2_env"} (\code{R2_ENV}), \code{"stability"}
@@ -56,7 +57,7 @@ Candidate cut-probability exponent(s) \eqn{\gamma}. Default 1.}
 silhouette) or \code{"expected_vi"} (minus \code{EVI}, mean variation of
 information between ensemble columns and the consensus).}
 
-\item{strategy}{Character. \code{"grid"} (default), \code{"sequential"}, or
+\item{tuning_strategy}{Character. \code{"grid"} (default), \code{"sequential"}, or
 \code{"iterative"}. See Details.}
 
 \item{stability_B}{Integer. Random splits for \code{STAB} (see
@@ -64,7 +65,7 @@ Validity indices). Each split costs two consensus runs at half the
 ensemble size. 0 skips it. Default 10.}
 
 \item{voters}{Character. Validity columns that vote in the Borda aggregate
-(\code{metric = "borda"}). Default \code{c("CH_ENV", "STAB")}. Check
+(\code{tuning_metric = "borda"}). Default \code{c("CH_ENV", "STAB")}. Check
 \code{STAB} against \code{\link{compute_null_baseline}} before relying on it.}
 
 \item{prior_strength}{Non-negative numeric scalar \eqn{\lambda}. Lowers the
@@ -83,9 +84,9 @@ only by the \code{prior_strength = Inf} short-circuit.}
 \item{max_iter}{Integer. Maximum passes for \code{"iterative"}. Default 10.}
 
 \item{size_influence}{Non-negative numeric, passed to
-\code{\link{compute_ensemble_memberships}}. Not a tuning axis. Default 2.}
+\code{\link{compute_ensemble}}. Not a tuning axis. Default 2.}
 
-\item{max_ensembles}{Integer or \code{Inf}. Guard against an accidentally
+\item{max_configs}{Integer or \code{Inf}. Guard against an accidentally
 enormous search: the call fails before any work if the number of distinct
 ensemble pairs exceeds this. Default 64.}
 
@@ -113,21 +114,21 @@ example numeric ID columns. Default \code{NULL}.}
 exit.}
 
 \item{stability_seed}{Optional integer. Seeds the subsampling inside the
-\code{STAB} metric, identically for every configuration, so configurations
+\code{STAB} index, identically for every configuration, so configurations
 are compared on the same column splits. Defaults to \code{seed}.}
 
 \item{verbose}{Logical. Default \code{TRUE}.}
 }
 \value{
-An object of class \code{"regions_tuning"}: a list with
-\code{best_result} (a \code{"fuzzy_clusters"} object), \code{best_config}
+An object of class \code{"pulse_regions_tuning"}: a list with
+\code{best_result} (a \code{"pulse_consensus"} object), \code{best_config}
 (one-row data frame of the winning values on all four axes), the individual
 slots \code{best_regions_per_partition}, \code{best_final_regions},
 \code{best_weight_exponent},
 \code{best_N_tree}, plus \code{best_score}, \code{tuning_log} (one row per
 configuration, with all four axis columns and all CVI columns),
 \code{candidates}, \code{active_axes}, \code{n_ensembles_built},
-\code{metric}, \code{voters}, \code{strategy}, \code{prior_strength} and
+\code{tuning_metric}, \code{voters}, \code{tuning_strategy}, \code{prior_strength} and
 \code{ensemble} (the winner's \eqn{N \times N_{tree}} label matrix).
 When \code{prior_strength = Inf}, the exact-prior list is returned
 instead.
@@ -136,7 +137,7 @@ instead.
 Searches over up to four hyper-parameters -- \code{regions_per_partition},
 \code{weight_exponent}, \code{N_tree} and \code{final_regions} -- to find the combination optimising a
 clustering-validity criterion, operating on a pre-computed
-\code{"spanning_trees"} object. Any argument supplied as a length-1 vector is
+\code{"pulse_trees"} object. Any argument supplied as a length-1 vector is
 held fixed; any argument supplied as a vector of length > 1 becomes a search
 axis.
 }
@@ -148,7 +149,7 @@ membership matrix. \code{N_tree} is nearly free, because an ensemble of
 drawn from the same \code{trees} object; the tuner therefore builds each
 ensemble once at \code{max(N_tree)} and slices columns. The remaining two
 axes each require a fresh pass of
-\code{\link{compute_ensemble_memberships}}, so the number of distinct
+\code{\link{compute_ensemble}}, so the number of distinct
 \code{(regions_per_partition, weight_exponent)} pairs
 is the real cost driver, not the number of grid cells.
 

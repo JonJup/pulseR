@@ -1,6 +1,6 @@
 test_that("add_edge_weight() stores the matrix behind the weights", {
         x <- make_grid_sf()
-        net <- suppressMessages(polygon_to_network(x, verbose = FALSE))
+        net <- suppressMessages(build_network(x, verbose = FALSE))
         g <- add_edge_weight(net, id_col = "ID", verbose = FALSE)
         E <- igraph::graph_attr(g, "env")
         expect_true(is.matrix(E))
@@ -14,7 +14,7 @@ test_that("add_edge_weight() stores the matrix behind the weights", {
 
 test_that("ID-like columns trigger a warning", {
         x <- make_grid_sf()
-        net <- suppressMessages(polygon_to_network(x, verbose = FALSE))
+        net <- suppressMessages(build_network(x, verbose = FALSE))
         expect_warning(add_edge_weight(net, verbose = FALSE), "look like unit IDs")
         X <- cbind(id = 1:20, v = stats::rnorm(20))
         expect_warning(.warn_id_like(X, "`env_id`"), "id")
@@ -23,7 +23,7 @@ test_that("ID-like columns trigger a warning", {
 
 test_that(".resolve_env() defaults to the stored matrix", {
         x <- make_grid_sf()
-        net <- suppressMessages(polygon_to_network(x, verbose = FALSE))
+        net <- suppressMessages(build_network(x, verbose = FALSE))
         g <- add_edge_weight(net, id_col = "ID", verbose = FALSE)
         expect_identical(.resolve_env(NULL, NULL, g), igraph::graph_attr(g, "env"))
         env <- sf::st_drop_geometry(x)
@@ -36,12 +36,12 @@ test_that(".resolve_env() defaults to the stored matrix", {
 
 test_that("an ID column does not reach CH_ENV under the default env", {
         x <- make_grid_sf()
-        net <- suppressMessages(polygon_to_network(x, verbose = FALSE))
+        net <- suppressMessages(build_network(x, verbose = FALSE))
         g <- add_edge_weight(net, id_col = "ID", verbose = FALSE)
         tr <- sample_spanning_trees(g, n = 8, seed = 1, verbose = FALSE)
         run <- function(env) suppressWarnings(tune_regions(
                 g, tr, N_tree = 8, regions_per_partition = 6, final_regions = 2:3,
-                stability_B = 0, metric = "ch_env", env = env, seed = 1,
+                stability_B = 0, tuning_metric = "ch_env", env = env, seed = 1,
                 verbose = FALSE))$tuning_log$CH_ENV
         expect_equal(run(NULL), run(igraph::graph_attr(g, "env")))
         expect_false(isTRUE(all.equal(run(NULL), run(sf::st_drop_geometry(x)))))
@@ -49,7 +49,7 @@ test_that("an ID column does not reach CH_ENV under the default env", {
 
 test_that("compute_null_baseline() refuses an env that does not reproduce the weights", {
         x <- make_grid_sf()
-        net <- suppressMessages(polygon_to_network(x, verbose = FALSE))
+        net <- suppressMessages(build_network(x, verbose = FALSE))
         g <- add_edge_weight(net, id_col = "ID", verbose = FALSE)
         raw <- sf::st_drop_geometry(x)[, c("temp", "prec")]
         expect_error(compute_null_baseline(g, raw, final_regions = 2, regions_per_partition = 6,
@@ -62,6 +62,6 @@ test_that("compute_null_baseline() refuses an env that does not reproduce the we
         nb <- compute_null_baseline(g, final_regions = 2, regions_per_partition = 6,
                                     N_tree = 8, B = 1, stability_B = 0, seed = 1,
                                     verbose = FALSE)
-        expect_s3_class(nb, "null_baseline")
+        expect_s3_class(nb, "pulse_null")
         expect_true(all(is.finite(nb$null$CH_ENV)))
 })

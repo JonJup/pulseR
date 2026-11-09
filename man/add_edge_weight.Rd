@@ -55,7 +55,7 @@ typology systems.}
 \item{bridge_scale}{Length scale \eqn{\lambda} of the bridge penalty, in
 metres (see \emph{Bridge penalty}). \code{NULL} (default) uses the graph
 attribute \code{bridge_scale_default} set by
-\code{\link{polygon_to_network}}. \code{Inf} switches the penalty off.
+\code{\link{build_network}}. \code{Inf} switches the penalty off.
 This is a fixed modelling choice, not a tuning parameter:
 \code{\link{tune_regions}} does not vary it.}
 
@@ -136,7 +136,7 @@ identical units is still penalised. A bridge across a topology gap
 (\eqn{d \approx 0}) gets almost no penalty; one much longer than
 \eqn{\lambda} is as dissimilar as the most dissimilar real neighbour pair,
 so spanning-tree cuts strongly prefer it. Note that the chunked path of
-\code{polygon_to_network()} measures \eqn{d} between centroids, the
+\code{build_network()} measures \eqn{d} between centroids, the
 in-memory path between boundaries.
 }
 

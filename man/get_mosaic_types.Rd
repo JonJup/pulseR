@@ -5,8 +5,8 @@
 \title{Mosaic types from co-occurrence signatures}
 \usage{
 get_mosaic_types(
-  sigs,
-  n_clusters = 2:10,
+  signatures,
+  n_mosaic_types = 2:10,
   method = c("dmm", "pam"),
   distance = c("js", "hellinger", "tv", "bray", "euclidean"),
   crisp = FALSE,
@@ -21,11 +21,11 @@ get_mosaic_types(
 )
 }
 \arguments{
-\item{sigs}{Signature matrix from \code{\link{compute_all_signatures}}. With
+\item{signatures}{Signature matrix from \code{\link{compute_all_signatures}}. With
 \code{method = "dmm"} it must carry the \code{"totals"} attribute, which
 subsetting or \code{rbind()} drops.}
 
-\item{n_clusters}{Candidate counts, all \eqn{\ge 2}. Default 2:10.}
+\item{n_mosaic_types}{Candidate counts, all \eqn{\ge 2}. Default 2:10.}
 
 \item{method}{\code{"dmm"} (default): Dirichlet-multinomial mixture on the
 signatures converted back to edge pseudo-counts (Holmes et al. 2012).
@@ -33,7 +33,7 @@ code{"pam"}: fuzzy PAM on a signature distance. Memberships are then
 posterior type probabilities ("which type, and how confidently") rather
 than distance-based fuzzy degrees.}
 
-\item{distance}{Metric; see \code{\link{signature_distance}}. With
+\item{distance}{Metric; see \code{\link{compute_signature_distance}}. With
 \code{method = "dmm"} it is used only for saturation (estimated on at most
 2000 rows) and, when the metric needs them, silhouettes. The full
 \eqn{N \times N} matrix is built only in that last case.}
@@ -61,7 +61,7 @@ Default 5000.}
 \code{max_iter} (500), \code{tol} (1e-5, relative log-likelihood change, as in mclust), \code{A_init} (50),
 \code{alpha_min} (1e-4), \code{A_max} (1e6, precision cap: the multinomial
 limit), \code{n_scale} (1). \code{n_scale} multiplies the
-pseudo-counts; rerun at 0.5 and 2 to check that \code{best_k} is not an
+pseudo-counts; rerun at 0.5 and 2 to check that \code{k_sel} is not an
 artefact of the count scale.}
 
 \item{seed}{Optional integer; the caller's RNG state is restored on exit.}
@@ -69,12 +69,12 @@ artefact of the count scale.}
 \item{verbose}{Logical.}
 }
 \value{
-A list of class \code{"mosaic_types"} with \code{clusters} (PAM fit
-or \code{pulse_dmm} object), \code{memberships}, \code{hard_clusters},
+A list of class \code{"pulse_mosaic_types"} with \code{clusters} (PAM fit
+or \code{pulse_dmm} object), \code{memberships}, \code{hard_labels},
 \code{d_to_medoids}, \code{medoid_signatures} (DMM: component mean
-signatures), \code{best_k}, \code{validity}, \code{saturation},
+signatures), \code{k_sel}, \code{validity}, \code{saturation},
 \code{distance}, \code{method}, \code{dmm_control}, \code{sampled} and
-\code{valid} (map back to rows of \code{sigs}).
+\code{valid} (map back to rows of \code{signatures}).
 }
 \description{
 Clusters polygons by their signatures and selects the number of mosaic types.
