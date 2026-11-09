@@ -20,6 +20,9 @@ tune_regions(
   prior_typology = NULL,
   max_iter = 10,
   size_influence = 2,
+  cut_rule = c("propensity", "ssd"),
+  refine_boundary = FALSE,
+  min_size = 1L,
   max_configs = 64L,
   large_n_threshold = 20000,
   sample_size = 5000,
@@ -85,6 +88,11 @@ only by the \code{prior_strength = Inf} short-circuit.}
 
 \item{size_influence}{Non-negative numeric, passed to
 \code{\link{compute_ensemble}}. Not a tuning axis. Default 2.}
+
+\item{cut_rule, refine_boundary, min_size}{Cut rule, boundary refinement and
+smallest piece, as in \code{\link{get_regions}}. Fixed for the whole
+search; every configuration is scored on the refined partition when
+\code{refine_boundary = TRUE}, so the score belongs to the returned regions.}
 
 \item{max_configs}{Integer or \code{Inf}. Guard against an accidentally
 enormous search: the call fails before any work if the number of distinct

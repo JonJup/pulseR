@@ -13,6 +13,8 @@ compute_consensus(
   sample_size = 5000L,
   refine_iter = 10L,
   enforce_contiguity = !is.null(graph),
+  refine_boundary = FALSE,
+  min_size = 1L,
   n_runs = 16L,
   n_cores = 1L,
   report_native = TRUE,
@@ -39,6 +41,15 @@ matrix (\eqn{N \times M}).}
 
 \item{enforce_contiguity}{Logical. Reattach fragments so every region is a
 single connected component of \code{graph}.}
+
+\item{refine_boundary}{Logical. After contiguity repair, move boundary units
+to an adjacent region when that lowers the within-region sum of squares of
+\code{graph_attr(graph, "env")}, never disconnecting a region or shrinking
+it below \code{min_size}. Default \code{FALSE}. Not to be confused with
+\code{refine_iter}, which counts single-unit loss moves on the sampled path.}
+
+\item{min_size}{Integer \eqn{\ge 1}. Smallest region size the boundary
+refinement may leave. Default 1.}
 
 \item{n_runs, n_cores}{Passed to \code{salso::salso()}.}
 

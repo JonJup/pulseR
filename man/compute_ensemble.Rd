@@ -13,7 +13,9 @@ compute_ensemble(
   prior_strength = 0,
   weight_exponent = 1,
   verbose = TRUE,
-  size_influence = 2
+  size_influence = 2,
+  cut_rule = c("propensity", "ssd"),
+  min_size = 1L
 )
 
 \method{print}{pulse_ensemble}(x, ...)
@@ -56,6 +58,18 @@ deterministic heaviest-edge removal as \eqn{\gamma \to \infty}).
 environmental term \eqn{\gamma \log w}, per tree. 0 ignores piece size;
 the default 2 lets size dominate, so cuts rarely shave off single units.}
 
+\item{cut_rule}{\code{"propensity"} (default): the
+\code{regions_per_partition - 1} cuts of a tree are drawn at once by the
+exponential race above. \code{"ssd"}: cuts are drawn one at a time, each
+by an exponential race on the Ward reduction in within-piece sum of
+squares of \code{graph_attr(graph, "env")}, recomputed after every cut;
+\code{weight_exponent}, \code{size_influence} and \code{prior_strength}
+act on that gain in the same units. Needs the environment matrix that
+\code{\link{add_edge_weight}} stores on the graph.}
+
+\item{min_size}{Integer \eqn{\ge 1}. Smallest allowed piece. Used only by
+\code{cut_rule = "ssd"}, where cuts are sequential. Default 1.}
+
 \item{x}{An object of class \code{"pulse_ensemble"}.}
 
 \item{...}{Further arguments passed to or from other methods (unused).}
@@ -74,6 +88,7 @@ is a region assignment from one spanning tree.}
 \item{\code{chance_coassoc}}{Per-column chance co-association
 \eqn{p_{0,t} = \sum_r (n_r / N)^2}; its mean is the reference scale
 for cohesion.}
+\item{\code{cut_rule}, \code{min_size}}{The cut settings used.}
 }
 
 \code{print.pulse_ensemble} returns \code{x} invisibly.

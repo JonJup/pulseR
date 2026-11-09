@@ -12,6 +12,8 @@ check_native_regions(
   weight_exponent = 1,
   size_influence = 2,
   prior_strength = 0,
+  cut_rule = c("propensity", "ssd"),
+  min_size = 1L,
   sample_size = 2000L,
   n_runs = 4L,
   n_cores = 1L,
@@ -54,6 +56,8 @@ on any graph. \eqn{\lambda = 0} (default) ignores the prior;
 one standard deviation lighter on the log scale. If that spread is zero
 (\code{weight_exponent = 0} or constant weights), one unit halves the
 propensity instead, with a warning.}
+
+\item{cut_rule, min_size}{As in \code{\link{compute_ensemble}}.}
 
 \item{sample_size}{Units passed to salso; the same sample for every row.}
 

@@ -18,8 +18,7 @@
 }
 
 .memb_ssd <- function(x, k, ...) {
-        op <- options(pulseR.cut_rule = "ssd"); on.exit(options(op))
-        .compute_ensemble_internal(x$g, x$tr, length(x$tr$trees), k, ...)
+        .compute_ensemble_internal(x$g, x$tr, length(x$tr$trees), k, cut_rule = "ssd", ...)
 }
 
 test_that(".forest_cut_gains returns Ward gain, h and smaller side", {

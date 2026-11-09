@@ -13,6 +13,9 @@ get_regions(
   N_tree,
   weight_exponent = 1L,
   size_influence = 2,
+  cut_rule = c("propensity", "ssd"),
+  refine_boundary = FALSE,
+  min_size = 1L,
   prior_typology = NULL,
   prior_strength = 0,
   target_edge_turnover = 0.1,
@@ -63,6 +66,15 @@ the weights; add size_influence = 0 for uniform random cuts}
 \eqn{\log(n_c (N - n_c) / N)} relative to the spread of the environmental
 term \eqn{\gamma \log w}, per tree. 0 ignores piece size; the default 2
 lets size dominate, so cuts rarely shave off single units.}
+
+\item{cut_rule}{\code{"propensity"} (default) or \code{"ssd"}: how each
+tree is cut. See \code{\link{compute_ensemble}}.}
+
+\item{refine_boundary}{Logical. Contiguity-preserving boundary refinement
+after consensus. Default \code{FALSE}. See \code{\link{compute_consensus}}.}
+
+\item{min_size}{Integer \eqn{\ge 1}. Smallest piece the \code{"ssd"} rule may
+cut off, and smallest region the boundary refinement may leave. Default 1.}
 
 \item{prior_typology}{Optional. Vertex attribute name (single character)
 or vector of length \code{vcount(graph)} giving a prior ecoregion label
@@ -123,9 +135,10 @@ all-zero for uncovered units when
 \item{\code{hard_labels}}{Integer vector of consensus labels.}
 \item{\code{k}}{Number of regions.}
 \item{\code{config}}{One-row data frame: \code{regions_per_partition},
-\code{weight_exponent}, \code{N_tree}, \code{final_regions}.}
+\code{weight_exponent}, \code{N_tree}, \code{final_regions},
+\code{cut_rule}, \code{refine_boundary}, \code{min_size}.}
 \item{\code{tuned}}{Logical. \code{TRUE} if \code{tune_regions()} ran.}
-\item{\code{score}, \code{metric}, \code{strategy}}{Tuning result;
+\item{\code{score}, \code{tuning_metric}, \code{tuning_strategy}}{Tuning result;
 \code{NA} when not tuned.}
 \item{\code{tuning_log}, \code{candidates},
 \code{n_ensembles_built}}{Search provenance; \code{NULL} or \code{NA}

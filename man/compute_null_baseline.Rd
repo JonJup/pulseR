@@ -14,6 +14,9 @@ compute_null_baseline(
   weight_exponent = 1,
   size_influence = 2,
   target_edge_turnover = 0.1,
+  cut_rule = c("propensity", "ssd"),
+  refine_boundary = FALSE,
+  min_size = 1L,
   B = 19L,
   stability_B = 10,
   observed = NULL,
@@ -35,7 +38,7 @@ null ensemble (k is cheap).}
 \item{regions_per_partition, N_tree, weight_exponent}{Single values: the
 ensemble configuration under test (e.g. \code{tune_regions()$best_config}).}
 
-\item{size_influence, target_edge_turnover}{As in \code{\link{get_regions}}.}
+\item{size_influence, target_edge_turnover, cut_rule, refine_boundary, min_size}{As in \code{\link{get_regions}}; use the values of the observed run.}
 
 \item{B}{Integer. Null replicates. Default 19.}
 
@@ -58,6 +61,8 @@ replicate and k), \code{summary} (one row per k and criterion: observed,
 null mean, null 95\\% bound in the "better" direction, \code{excess} =
 observed minus null mean with the sign set so positive is better than the
 null, and the empirical \code{p}), \code{config}, and \code{B}.
+\code{settings} holds \code{cut_rule}, \code{refine_boundary} and
+\code{min_size}.
 }
 \description{
 Shuffles the rows of \code{env} among units, recomputes every edge weight
