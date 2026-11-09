@@ -281,9 +281,15 @@ neighbourhood_weights <- function(Rk, coords,
 #'   memory is tight. Default 64.
 #' @param digits Rounding, or \code{NULL} (default) for none. Rounding is lossy
 #'   and was only ever cosmetic.
+#' @param exclude_bridges Drop edges flagged \code{bridge == TRUE} (set by
+#'   \code{\link{polygon_to_network}}) before building neighbourhoods, so
+#'   neighbourhoods never cross a bridge. Default \code{TRUE}. A graph without
+#'   a \code{bridge} edge attribute is used unchanged.
 #' @param verbose Logical.
 #' @return Numeric \eqn{n \times \binom{c+1}{2}} matrix with \code{"a:b"} column
-#'   names. Rows whose neighbourhood contains no edge are \code{NA}.
+#'   names and attribute \code{"exclude_bridges"}. Rows whose neighbourhood
+#'   contains no edge are \code{NA}; with \code{exclude_bridges = TRUE} this
+#'   includes units joined to the rest only by bridges.
 #' @importFrom igraph as_adjacency_matrix ends E is_igraph vcount
 #' @importFrom Matrix crossprod
 #' @export
@@ -294,8 +300,11 @@ compute_all_signatures <- function(P, graph, k,
                                    drop_zero_cols = TRUE,
                                    block   = 64L,
                                    digits  = NULL,
+                                   exclude_bridges = TRUE,
                                    verbose = TRUE) {
         kernel <- match.arg(kernel)
+        if (!is.logical(exclude_bridges) || length(exclude_bridges) != 1L || is.na(exclude_bridges))
+                stop("`exclude_bridges` must be TRUE or FALSE.", call. = FALSE)
         
         lab <- NULL
         if (is.list(P) && !is.null(P$P)) { lab <- P$labels; P <- P$P }
@@ -312,6 +321,7 @@ compute_all_signatures <- function(P, graph, k,
         if (is.null(lab)) lab <- colnames(P)
         if (is.null(lab)) lab <- paste0("c", seq_len(nc))
         
+        if (exclude_bridges) graph <- .drop_bridges(graph, verbose)
         if (verbose) message(sprintf("Reachability (k = %d) for %d polygons ...", k, n))
         Rk <- get_reachability(graph, k)
         W  <- neighbourhood_weights(Rk, coords, kernel, sigma)
@@ -371,7 +381,7 @@ compute_all_signatures <- function(P, graph, k,
         rs[empty] <- NA_real_
         structure(sigs, class = c("mosaic_signatures", "matrix", "array"),
                   n_classes = nc, class_labels = lab, k_order = k,
-                  kernel = kernel, sigma = sigma,
+                  kernel = kernel, sigma = sigma, exclude_bridges = exclude_bridges,
                   totals = rs)    # summed edge weight per neighbourhood: DMM pseudo-counts
 }
 
@@ -1105,7 +1115,9 @@ print.mosaic_types <- function(x, ...) {
 #' @param coords Centroid matrix.
 #' @param k_range Neighbourhood orders. Default 1:5.
 #' @param n_clusters Candidate mosaic-type counts. Default 2:10.
-#' @param kernel,sigma Passed to \code{\link{compute_all_signatures}}.
+#' @param kernel,sigma,exclude_bridges Passed to
+#'   \code{\link{compute_all_signatures}}. \code{exclude_bridges} defaults to
+#'   \code{TRUE}.
 #' @param ... Passed to \code{\link{get_mosaic_types}} (\code{distance},
 #'   \code{metric}, \code{stability_B}, \code{sample_size}, \code{seed}).
 #' @details \code{k} is bounded on both sides: too small and the signatures are
@@ -1127,7 +1139,7 @@ print.mosaic_types <- function(x, ...) {
 #'   \code{best_k}.
 #' @export
 sweep_k_order <- function(P, graph, coords = NULL, k_range = 1:5, n_clusters = 2:10,
-                          kernel = "none", sigma = "global", ...) {
+                          kernel = "none", sigma = "global", exclude_bridges = TRUE, ...) {
         if (!igraph::is_igraph(graph)) stop("`graph` must be an igraph object.", call. = FALSE)
         k_range <- sort(unique(as.integer(k_range)))
         
@@ -1136,7 +1148,8 @@ sweep_k_order <- function(P, graph, coords = NULL, k_range = 1:5, n_clusters = 2
                 k <- k_range[i]
                 message("\n=== Neighbourhood order k = ", k, " ===")
                 sigs <- compute_all_signatures(P, graph, k, coords = coords,
-                                               kernel = kernel, sigma = sigma, verbose = TRUE)
+                                               kernel = kernel, sigma = sigma,
+                                               exclude_bridges = exclude_bridges, verbose = TRUE)
                 cl <- get_mosaic_types(sigs, n_clusters = n_clusters, ...)
                 ## FIX: the old version built a frame with no `silhouette` column and
                 ## then selected on it, and it indexed cl$validity by column position.
