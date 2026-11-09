@@ -780,13 +780,7 @@ get_mosaic_types <- function(sigs,
         if (any(is.na(n_clusters)) || any(n_clusters < 2L))
                 stop("`n_clusters` must all be integers >= 2.", call. = FALSE)
         
-        if (!is.null(seed)) {
-                if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
-                        old <- get(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
-                        on.exit(assign(".Random.seed", old, envir = .GlobalEnv), add = TRUE)
-                }
-                set.seed(seed)
-        }
+        .local_seed(seed)
         
         sampled <- is.finite(sample_size) && N > sample_size
         idx <- if (sampled) sort(sample.int(N, sample_size)) else seq_len(N)
@@ -1050,7 +1044,7 @@ print.mosaic_types <- function(x, ...) {
         if (B <= 0L) return(NA_real_)
         N <- nrow(D_full); n_sub <- floor(N * subsample_frac)
         if (n_sub < k * 2L) return(NA_real_)
-        if (!is.null(seed)) set.seed(seed)
+        .local_seed(seed)
         aris <- vapply(seq_len(B), function(b) {
                 idx <- sort(sample.int(N, n_sub, replace = FALSE))
                 lab <- cluster::pam(stats::as.dist(D_full[idx, idx]), k = k, diss = TRUE)$clustering

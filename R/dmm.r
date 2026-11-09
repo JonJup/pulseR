@@ -156,7 +156,7 @@
         if (any(X < 0, na.rm = TRUE) || anyNA(X)) stop("`X` must be non-negative with no NA.", call. = FALSE)
         if (any(rowSums(X) <= 0)) stop("Every row of `X` needs a positive total.", call. = FALSE)
         if (K < 1L || K > nrow(X)) stop("`K` must be between 1 and nrow(X).", call. = FALSE)
-        if (!is.null(seed)) set.seed(seed)
+        .local_seed(seed)
         
         tr  <- .dmm_triplets(X)
         H   <- sqrt(X / tr$n)                         # Hellinger embedding for initialisation
