@@ -58,9 +58,10 @@ the minimum spanning tree. Default 0.1.}
 \value{
 An object of class \code{"pulse_trees"} — a list with:
 \describe{
-\item{\code{trees}}{List of sampled spanning trees (\code{igraph}
-objects carrying the original \code{weight} and the parent-edge
-position \code{eid}).}
+\item{\code{edge_ids}}{Integer matrix (\code{(N - 1) x n}) of parent-edge
+positions; column j holds tree j's edges in \code{igraph::mst()} order.
+Weights: \code{edge_weights[edge_ids[, j]]}; endpoints:
+\code{edge_endpoints[edge_ids[, j], ]}.}
 \item{\code{n_trees}}{Number of trees sampled.}
 \item{\code{n_vertices}}{Number of vertices in the original graph.}
 \item{\code{edge_weights}}{Numeric vector of all parent-graph edge

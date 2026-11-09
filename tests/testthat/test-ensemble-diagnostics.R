@@ -31,7 +31,7 @@ test_that("zero weight spread falls back to halvings, with one warning", {
         expect_true(r$fallback)
         expect_equal(r$unit, log(2))
         x  <- .toy_trees(5, 15, prior = rep(1:3, each = 75))
-        for (j in 1:5) igraph::E(x$tr$trees[[j]])$weight <- 1
+        x$tr$edge_weights[] <- 1
         expect_warning(.compute_ensemble_internal(x$g, x$tr, 5, 4, prior_strength = 1),
                        "halvings")
 })

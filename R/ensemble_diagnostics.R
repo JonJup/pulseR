@@ -55,18 +55,17 @@ check_cut_placement <- function(trees, regions_per_partition,
         if (is.null(N_tree)) N_tree <- min(100L, trees$n_trees)
         stopifnot(N_tree >= 1, N_tree <= trees$n_trees)
         .local_seed(seed)
-
+        
         si    <- sort(unique(c(0, size_influence)))
         lev   <- c("random", as.character(si))
         n_v   <- trees$n_vertices
         n_cut <- as.integer(regions_per_partition) - 1L
         wpe   <- trees$within_prior_edge
         out   <- vector("list", N_tree)
-
+        
         for (j in seq_len(N_tree)) {
-                tree     <- trees$trees[[j]]
-                w        <- igraph::E(tree)$weight
-                edge_ids <- igraph::E(tree)$eid
+                edge_ids <- .tree_edge_ids(trees, j)
+                w        <- trees$edge_weights[edge_ids]
                 n_e      <- length(w)
                 if (n_cut >= n_e)
                         stop("regions_per_partition must be below the number of tree edges.",
@@ -77,7 +76,7 @@ check_cut_placement <- function(trees, regions_per_partition,
                 above <- w > stats::median(w)
                 le    <- log(stats::rexp(n_e))                  # shared draws
                 wp    <- if (is.null(wpe)) NULL else wpe[edge_ids]
-
+                
                 pick <- function(key) {
                         cut <- which(key <= sort(key, partial = n_cut)[n_cut])
                         cut[seq_len(min(length(cut), n_cut))]
@@ -101,7 +100,7 @@ check_cut_placement <- function(trees, regions_per_partition,
         }
         cuts <- do.call(rbind, out)
         cuts$setting <- factor(cuts$setting, levels = lev)
-
+        
         agg <- function(f) vapply(split(cuts, cuts$setting), f, numeric(1))
         mp  <- agg(function(d) mean(d$pct))
         rng <- mp[["0"]] - mp[["random"]]

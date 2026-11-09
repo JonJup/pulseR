@@ -6,7 +6,7 @@ test_that("sample_spanning_trees() works without eid and is reproducible", {
         a <- sample_spanning_trees(g, n = 5, seed = 42, verbose = FALSE)
         expect_identical(.Random.seed, before)
         b <- sample_spanning_trees(g, n = 5, seed = 42, verbose = FALSE)
-        ids <- function(x) lapply(x$trees, function(t) sort(igraph::E(t)$eid))
+        ids <- function(x) lapply(seq_len(x$n_trees), function(j) sort(x$edge_ids[, j]))
         expect_identical(ids(a), ids(b))
         expect_true(all(lengths(ids(a)) == igraph::vcount(g) - 1L))
 })
@@ -15,13 +15,10 @@ test_that("a non-positional eid is overwritten, not used to map edges", {
         set.seed(2)
         g <- igraph::make_lattice(c(6, 6))
         igraph::E(g)$weight <- stats::runif(igraph::ecount(g))
+        ref <- sample_spanning_trees(g, n = 3, seed = 1, verbose = FALSE)   # no eid
         igraph::E(g)$eid <- rev(seq_len(igraph::ecount(g)))
-        tr <- sample_spanning_trees(g, n = 3, seed = 1, verbose = FALSE)
-        for (t in tr$trees) {
-                ep_tree <- igraph::ends(t, igraph::E(t), names = FALSE)
-                ep_par  <- tr$edge_endpoints[igraph::E(t)$eid, , drop = FALSE]
-                expect_equal(t(apply(ep_tree, 1, sort)), t(apply(ep_par, 1, sort)))
-        }
+        tr  <- sample_spanning_trees(g, n = 3, seed = 1, verbose = FALSE)   # reversed eid
+        expect_identical(tr$edge_ids, ref$edge_ids)
 })
 
 test_that(".subtree_sizes() matches brute force on random spanning trees", {

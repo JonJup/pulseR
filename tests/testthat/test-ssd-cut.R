@@ -18,7 +18,7 @@
 }
 
 .memb_ssd <- function(x, k, ...) {
-        .compute_ensemble_internal(x$g, x$tr, length(x$tr$trees), k, cut_rule = "ssd", ...)
+        .compute_ensemble_internal(x$g, x$tr, x$tr$n_trees, k, cut_rule = "ssd", ...)
 }
 
 test_that(".forest_cut_gains returns Ward gain, h and smaller side", {
@@ -33,8 +33,8 @@ test_that("defaults reproduce the plain Ward race draw for draw", {
         x <- .ssd_fixture()
         ref <- function(x, k, gam) {                           # pre-change branch
                 X <- igraph::graph_attr(x$g, "env")
-                vapply(x$tr$trees, function(tree) {
-                        ep <- igraph::ends(tree, igraph::E(tree), names = FALSE)
+                vapply(seq_len(x$tr$n_trees), function(j) {
+                        ep <- x$tr$edge_endpoints[x$tr$edge_ids[, j], , drop = FALSE]
                         for (s in seq_len(k - 1L)) {
                                 g_e <- pmax(.forest_cut_gains(ep, X)$gain, .Machine$double.xmin)
                                 ep  <- ep[-which.min(log(stats::rexp(nrow(ep))) - gam * log(g_e)), ,

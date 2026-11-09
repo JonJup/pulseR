@@ -369,9 +369,10 @@ get_regions <- function(graph,
 #'
 #' @return An object of class \code{"pulse_trees"} — a list with:
 #'   \describe{
-#'     \item{\code{trees}}{List of sampled spanning trees (\code{igraph}
-#'       objects carrying the original \code{weight} and the parent-edge
-#'       position \code{eid}).}
+#'    \item{\code{edge_ids}}{Integer matrix (\code{(N - 1) x n}) of parent-edge
+#'       positions; column j holds tree j's edges in \code{igraph::mst()} order.
+#'       Weights: \code{edge_weights[edge_ids[, j]]}; endpoints:
+#'       \code{edge_endpoints[edge_ids[, j], ]}.}
 #'     \item{\code{n_trees}}{Number of trees sampled.}
 #'     \item{\code{n_vertices}}{Number of vertices in the original graph.}
 #'     \item{\code{edge_weights}}{Numeric vector of all parent-graph edge
@@ -487,20 +488,21 @@ sample_spanning_trees <- function(graph, n, seed = NULL, verbose = TRUE,
                                             w      = edge_w, 
                                             s      = edge_mad,
                                             target = target_edge_turnover)
-        tree_list <- vector("list", n)
-        
+        n_v      <- igraph::vcount(graph)
+        edge_ids <- matrix(0L, nrow = n_v - 1L, ncol = n)
         for (j in seq_len(n)) {
-                # Perturb weights 
                 wp <- edge_w + eta_emp * edge_mad * rnorm(length(edge_w))
-                tree_list[[j]] <- igraph::mst(graph, weights = wp)
+                # Keep the tree's own edge order. Cut indices and RNG draws in
+                # compute_ensemble() are positional; sorting changes results.
+                edge_ids[, j] <- igraph::E(igraph::mst(graph, weights = wp))$eid
                 tick(j)
         }
         
         structure(
                 list(
-                        trees             = tree_list,
+                        edge_ids          = edge_ids,
                         n_trees           = as.integer(n),
-                        n_vertices        = igraph::vcount(graph),
+                        n_vertices        = n_v,
                         edge_weights      = edge_w,
                         edge_endpoints    = edge_endpoints,
                         seed              = seed,
@@ -738,14 +740,14 @@ compute_ensemble <- function(trees,
 #' @keywords internal
 #' @noRd
 .compute_ensemble_internal <- function(graph,
-                                                   trees,
-                                                   N_tree,
-                                                   regions_per_partition,
-                                                   prior_strength  = 0,
-                                                   weight_exponent = 1,
-                                                   size_influence  = 2,
-                                                   cut_rule = "propensity",
-                                                   min_size = 1L) {
+                                       trees,
+                                       N_tree,
+                                       regions_per_partition,
+                                       prior_strength  = 0,
+                                       weight_exponent = 1,
+                                       size_influence  = 2,
+                                       cut_rule = "propensity",
+                                       min_size = 1L) {
         n_use <- as.integer(N_tree)
         n_reg <- as.integer(regions_per_partition)
         n_v   <- trees$n_vertices
@@ -758,14 +760,12 @@ compute_ensemble <- function(trees,
         n_fallback <- 0L
         min_size   <- .check_min_size(min_size, n_reg, n_v)
         
+        ep_all   <- trees$edge_endpoints
         memb_mat <- matrix(0L, nrow = n_v, ncol = n_use)
         for (j in seq_len(n_use)) {
-                tree <- trees$trees[[j]]
-                if (igraph::vcount(tree) != n_v)
-                        stop("Spanning tree does not span the parent vertex set", call. = FALSE)
-                w        <- igraph::E(tree)$weight
+                edge_ids <- .tree_edge_ids(trees, j)
+                w        <- trees$edge_weights[edge_ids]
                 n_e      <- length(w)
-                edge_ids <- igraph::E(tree)$eid
                 if (anyNA(w) || any(is.infinite(w)) || any(w < 0))
                         stop("Edge weights must be positive and finite numbers", call. = FALSE)
                 if (anyNA(edge_ids))
@@ -775,7 +775,7 @@ compute_ensemble <- function(trees,
                 if (identical(cut_rule, "ssd")) {
                         X <- igraph::graph_attr(graph, "env")
                         if (is.null(X)) stop("cut_rule 'ssd' needs graph_attr(graph, 'env').")
-                        ep <- igraph::ends(tree, igraph::E(tree), names = FALSE)
+                        ep <- ep_all[edge_ids, , drop = FALSE]
                         wp <- if (prior_strength > 0 && !is.null(wpe)) wpe[edge_ids] else NULL
                         if (!is.null(wp)) wp[is.na(wp)] <- FALSE
                         fb <- FALSE
@@ -806,8 +806,7 @@ compute_ensemble <- function(trees,
                                 if (!is.null(wp)) wp <- wp[-drop]
                         }
                         n_fallback <- n_fallback + fb
-                        memb_mat[, j] <- as.integer(igraph::components(igraph::make_graph(
-                                as.vector(t(ep)), n = n_v, directed = FALSE))$membership)
+                        memb_mat[, j] <- .labels_from_edges(ep, n_v)
                         next
                 }
                 
@@ -817,7 +816,7 @@ compute_ensemble <- function(trees,
                                 "reduce regions_per_partition or supply a connected graph."),
                                 n_to_cut, n_e), call. = FALSE)
                 }
-                n_c    <- .subtree_sizes(edge_ids, trees$edge_endpoints, n_v = n_v)
+                n_c    <- .subtree_sizes(edge_ids, ep_all, n_v = n_v)
                 size_f <- n_c * (n_v - n_c) / n_v
                 
                 pr <- .cut_log_propensity(
@@ -834,8 +833,8 @@ compute_ensemble <- function(trees,
                 key <- log(stats::rexp(n_e)) - pr$lp
                 cut <- which(key <= sort(key, partial = n_to_cut)[n_to_cut])
                 if (length(cut) > n_to_cut) cut <- cut[seq_len(n_to_cut)]
-                memb_mat[, j] <- as.integer(
-                        igraph::components(igraph::delete_edges(tree, cut))$membership)
+                memb_mat[, j] <- .labels_from_edges(
+                        ep_all[edge_ids[-cut], , drop = FALSE], n_v)
         }
         if (n_fallback > 0L)
                 warning(sprintf(paste0(
@@ -3110,3 +3109,33 @@ print.pulse_null <- function(x, ...) {
         }
         list(z = z, moves = moves, passes = pass)
 }
+
+#' Internal: parent-edge positions of tree j
+#'
+#' Column j of \code{trees$edge_ids}, in the order \code{igraph::mst()}
+#' returned the edges. Stops with a re-run hint on objects saved before
+#' the edge-id format.
+#' @keywords internal
+#' @noRd
+.tree_edge_ids <- function(trees, j) {
+        ids <- trees$edge_ids
+        if (is.null(ids))
+                stop(paste0("This `pulse_trees` object uses the old format (`$trees`, ",
+                            "no `$edge_ids`). Re-run sample_spanning_trees()."),
+                     call. = FALSE)
+        if (nrow(ids) != trees$n_vertices - 1L)
+                stop("Spanning tree does not span the parent vertex set", call. = FALSE)
+        ids[, j]
+}
+
+#' Internal: component labels of the forest given by an edge-endpoint matrix
+#'
+#' Labels follow igraph::components(): numbered by first vertex index, so
+#' they equal the labels of the same forest built any other way.
+#' @keywords internal
+#' @noRd
+.labels_from_edges <- function(ep, n_v) {
+        as.integer(igraph::components(igraph::make_graph(
+                as.vector(t(ep)), n = n_v, directed = FALSE))$membership)
+}
+
