@@ -8,10 +8,11 @@
   X,
   K,
   n_start = 5L,
-  max_iter = 200L,
-  tol = 1e-07,
+  max_iter = 500L,
+  tol = 1e-05,
   A_init = 50,
   alpha_min = 1e-04,
+  A_max = 1e+06,
   seed = NULL
 )
 }
@@ -20,23 +21,31 @@
 
 \item{K}{Number of mosaic types.}
 
-\item{n_start}{Random restarts (k-means on the Hellinger embedding); best log-likelihood kept.}
+\item{n_start}{Random restarts; best log-likelihood kept.}
 
 \item{max_iter, tol}{EM limits; \code{tol} is on the relative log-likelihood change.}
 
-\item{A_init}{Initial concentration sum(alpha) of each component.}
+\item{A_init}{Starting precision sum(alpha) for the DMM EM.}
 
 \item{alpha_min}{Floor on alpha. A pair absent from a type would otherwise get
 alpha -> 0, which forbids any catchment containing that pair from joining it.}
+
+\item{A_max}{Cap on the precision. At the cap the DMM equals a multinomial
+mixture to numerical precision for any realistic count total.}
 
 \item{seed}{Optional integer seed.}
 }
 \value{
 Object of class \code{pulse_dmm}: memberships \code{U} (N x K), hard
 \code{cluster}, \code{alpha} (K x C), mixing weights \code{pi}, \code{loglik},
-\code{BIC}, \code{ICL} (both lower is better), \code{trace}, \code{converged}.
+\code{BIC}, \code{ICL} (both lower is better), \code{limit}, \code{trace},
+\code{converged}.
 }
 \description{
-Fit a Dirichlet-multinomial mixture
+Each start: k-means on the Hellinger embedding, then a multinomial mixture
+(cheap), then DMM EM from there. If the precision gradient is still positive
+at \code{A_max} for every component under the multinomial fit, the data show
+no overdispersion: the multinomial mixture is the DMM solution and EM is
+skipped (\code{limit = "multinomial"}).
 }
 \keyword{internal}

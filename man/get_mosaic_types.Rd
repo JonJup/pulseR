@@ -34,7 +34,9 @@ posterior type probabilities ("which type, and how confidently") rather
 than distance-based fuzzy degrees.}
 
 \item{distance}{Metric; see \code{\link{signature_distance}}. With
-\code{method = "dmm"} it is used only for saturation and silhouettes.}
+\code{method = "dmm"} it is used only for saturation (estimated on at most
+2000 rows) and, when the metric needs them, silhouettes. The full
+\eqn{N \times N} matrix is built only in that last case.}
 
 \item{crisp}{Logical. Hard memberships. With \code{"dmm"} only the returned
 memberships are hardened; selection still uses the soft fit.}
@@ -57,7 +59,8 @@ Default 20000.}
 
 \item{dmm_control}{Named list overriding DMM defaults: \code{n_start} (5),
 \code{max_iter} (500), \code{tol} (1e-5, relative log-likelihood change, as in mclust), \code{A_init} (50),
-\code{alpha_min} (1e-4), \code{n_scale} (1). \code{n_scale} multiplies the
+\code{alpha_min} (1e-4), \code{A_max} (1e6, precision cap: the multinomial
+limit), \code{n_scale} (1). \code{n_scale} multiplies the
 pseudo-counts; rerun at 0.5 and 2 to check that \code{best_k} is not an
 artefact of the count scale.}
 

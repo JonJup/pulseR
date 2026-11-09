@@ -52,3 +52,51 @@ test_that("engine/metric mismatches and missing totals fail early", {
         expect_error(get_mosaic_types(fx$sig, 2:3, method = "dmm", verbose = FALSE,
                                       dmm_control = list(nstart = 2)), "Unknown")
 })
+
+test_that("sweep_k_order() runs for both engines (mosaic_contrast stack overflow)", {
+        fx <- .dmm_fixture(n = 12)
+        expect_length(mosaic_contrast(fx$sig, fx$g), nrow(fx$sig))
+        sp <- suppressMessages(sweep_k_order(fx$P, fx$g, k_range = 1:2, n_clusters = 2:3,
+                                             stability_B = 0, verbose = FALSE))
+        sd <- suppressWarnings(suppressMessages(
+                sweep_k_order(fx$P, fx$g, k_range = 1:2, n_clusters = 2:3, method = "dmm",
+                              verbose = FALSE, dmm_control = list(n_start = 1))))
+        expect_equal(nrow(attr(sp, "by_order")), 2L)
+        expect_equal(nrow(attr(sd, "by_order")), 2L)
+})
+
+test_that(".fit_dmm() recovers finite concentrations", {
+        set.seed(4); K <- 3; C <- 20; N <- 900; A <- c(20, 50, 200)
+        m <- matrix(stats::rgamma(K * C, 0.7), K); m <- m / rowSums(m)
+        z <- sample(K, N, TRUE)
+        X <- t(vapply(seq_len(N), function(i) {
+                p <- stats::rgamma(C, A[z[i]] * m[z[i], ]); p <- p / sum(p)
+                as.numeric(stats::rmultinom(1, 150, p))
+        }, numeric(C)))
+        f <- .fit_dmm(X, K, n_start = 2, seed = 1)
+        expect_equal(f$limit, "dirichlet-multinomial")
+        expect_true(f$converged)
+        expect_lt(length(f$trace), 30)
+        expect_gt(.adjusted_rand_index(f$cluster, z), 0.95)
+        conc <- f$concentration[order(f$concentration)]
+        expect_true(all(abs(log(conc / A)) < log(1.6)))      # within a factor of 1.6
+})
+
+test_that(".fit_dmm() returns the multinomial limit when there is no overdispersion", {
+        set.seed(5); K <- 2; C <- 10; N <- 400
+        th <- matrix(stats::rgamma(K * C, 1), K); th <- th / rowSums(th)
+        z <- sample(K, N, TRUE)
+        X <- t(vapply(z, function(k) as.numeric(stats::rmultinom(1, 40, th[k, ])), numeric(C)))
+        f <- .fit_dmm(X, K, n_start = 1, seed = 1)
+        expect_equal(f$limit, "multinomial")
+        expect_equal(f$df, K * (C - 1) + (K - 1))
+        expect_gt(.adjusted_rand_index(f$cluster, z), 0.95)
+})
+
+test_that("DMM with metric = 'ICL' skips the N x N distance matrix", {
+        fx <- .dmm_fixture()
+        m <- suppressWarnings(get_mosaic_types(fx$sig, 2:3, method = "dmm", seed = 1,
+                                               verbose = FALSE, dmm_control = list(n_start = 1)))
+        expect_true(all(is.na(m$validity$SILH_fuzzy)))
+        expect_true(is.finite(m$saturation))
+})

@@ -695,6 +695,21 @@ compute_ensemble_memberships <- function(trees,
                 if (anyNA(edge_ids))
                         stop("Failed to map a spanning-tree edge back to the parent graph.",
                              call. = FALSE)
+                
+                if (identical(getOption("pulseR.cut_rule"), "ssd")) {
+                        X <- igraph::graph_attr(graph, "env")
+                        if (is.null(X)) stop("cut_rule 'ssd' needs graph_attr(graph, 'env').")
+                        ep <- igraph::ends(tree, igraph::E(tree), names = FALSE)
+                        for (s in seq_len(n_to_cut)) {
+                                g_e <- pmax(.forest_cut_gains(ep, X), .Machine$double.xmin)
+                                key <- log(stats::rexp(nrow(ep))) - weight_exponent * log(g_e)
+                                ep  <- ep[-which.min(key), , drop = FALSE]
+                        }
+                        memb_mat[, j] <- as.integer(igraph::components(igraph::make_graph(
+                                as.vector(t(ep)), n = n_v, directed = FALSE))$membership)
+                        next
+                }
+                
                 if (n_to_cut >= n_e) {
                         stop(sprintf(paste0(
                                 "Requested %d cuts but the spanning tree has only %d edges; ",
@@ -777,6 +792,45 @@ compute_ensemble_memberships <- function(trees,
         n_c <- integer(n_e)
         for (v in seq_len(n_v)) if (v != root) n_c[pedge[v]] <- size[v]
         n_c
+}
+
+# SSD reduction of cutting each edge of a forest, within its own component.
+# ep: m x 2 integer edge matrix; X: n x p matrix in vertex order.
+.forest_cut_gains <- function(ep, X) {
+        n_v <- nrow(X); n_e <- nrow(ep)
+        from <- c(ep[, 1], ep[, 2]); to <- c(ep[, 2], ep[, 1])
+        eid  <- rep(seq_len(n_e), 2L)
+        o    <- order(from); to_s <- to[o]; eid_s <- eid[o]
+        ptr  <- c(0L, cumsum(tabulate(from, n_v)))
+        parent <- integer(n_v); pedge <- integer(n_v); comp <- integer(n_v)
+        bfs <- integer(n_v); tail <- 0L; nc <- 0L; roots <- integer(0)
+        for (r in seq_len(n_v)) {
+                if (comp[r] != 0L) next
+                nc <- nc + 1L; comp[r] <- nc; roots[nc] <- r
+                tail <- tail + 1L; bfs[tail] <- r; head <- tail
+                while (head <= tail) {
+                        v <- bfs[head]; head <- head + 1L
+                        if (ptr[v + 1L] > ptr[v]) for (i in (ptr[v] + 1L):ptr[v + 1L]) {
+                                u <- to_s[i]
+                                if (comp[u] == 0L) {
+                                        comp[u] <- nc; parent[u] <- v; pedge[u] <- eid_s[i]
+                                        tail <- tail + 1L; bfs[tail] <- u
+                                }
+                        }
+                }
+        }
+        size <- rep(1, n_v); St <- t(X)               # p x n: contiguous columns
+        for (i in n_v:1L) {
+                v <- bfs[i]; p <- parent[v]
+                if (p > 0L) { size[p] <- size[p] + size[v]; St[, p] <- St[, p] + St[, v] }
+        }
+        ch <- which(parent > 0L); rt <- roots[comp[ch]]
+        n1 <- size[ch]; n2 <- size[rt] - n1; k <- nrow(St)
+        d  <- St[, ch, drop = FALSE] / rep(n1, each = k) -
+                (St[, rt, drop = FALSE] - St[, ch, drop = FALSE]) / rep(n2, each = k)
+        gain <- numeric(n_e)
+        gain[pedge[ch]] <- n1 * n2 / (n1 + n2) * colSums(d^2)
+        gain
 }
 
 
@@ -943,7 +997,22 @@ cluster_consensus <- function(ensemble, k, graph = NULL,
                         coh  <- .cohesion_from_stats(st, seq_len(N), hard, N)
                 }
         }
-        
+        # --- boundary refinement: contiguity-preserving SSD descent ---------*
+        # Experimental: options(pulseR.refine = TRUE). Needs contiguous input,
+        # so it runs after contiguity repair; moves never disconnect a region.
+        if (isTRUE(getOption("pulseR.refine")) && !is.null(graph)) {
+                X <- igraph::graph_attr(graph, "env")
+                if (is.null(X)) stop("pulseR.refine needs graph_attr(graph, 'env').", call. = FALSE)
+                hard2   <- .refine_regions(hard, graph, X)$z
+                n_moved <- sum(hard2 != hard)
+                if (n_moved > 0L) {
+                        if (verbose) message(sprintf("  boundary refinement: %d unit(s) moved", n_moved))
+                        step[hard2 != hard] <- 6L                     # "boundary"
+                        hard <- hard2
+                        st   <- .ensemble_stats(memb, hard, k, pi = TRUE, gvi_a = a)
+                        coh  <- .cohesion_from_stats(st, seq_len(N), hard, N)
+                }
+        }
         # --- memberships and per-unit summaries, all from final labels -------*
         Pi  <- st$Pi
         sm  <- .membership_summaries(Pi, hard)
@@ -1145,7 +1214,8 @@ sweep_native_regions <- function(trees, graph,
 
 # Steps that can set a consensus label, in pipeline order. `label_step` records
 # the LAST step that changed a unit's label.
-.LABEL_STEPS <- c("salso", "merge", "assign", "refine", "contiguity")
+#.LABEL_STEPS <- c("salso", "merge", "assign", "refine", "contiguity")
+.LABEL_STEPS <- c("salso", "merge", "assign", "refine", "contiguity", "boundary")
 
 #' Co-labelling statistics of an ensemble against a reference labelling
 #'
@@ -2649,4 +2719,40 @@ print.null_baseline <- function(x, ...) {
         s[] <- lapply(s, function(v) if (is.numeric(v)) signif(v, 3) else v)
         print(s, row.names = FALSE)
         invisible(x)
+}
+# Contiguity-preserving SSD descent on a hard partition. Moves a boundary
+# unit to an adjacent region if total within-region SSD drops and the old
+# region stays connected. Same objective as the "ssd" cut rule.
+.refine_regions <- function(z, graph, X, max_pass = 20L) {
+        z   <- match(z, sort(unique(z))); k <- max(z)
+        nb  <- lapply(igraph::adjacent_vertices(graph, igraph::V(graph)), as.integer)
+        n_r <- tabulate(z, k)
+        S   <- rowsum(X, z, reorder = TRUE)
+        moves <- 0L
+        for (pass in seq_len(max_pass)) {
+                moved <- 0L
+                bnd <- which(vapply(seq_along(z), function(i) any(z[nb[[i]]] != z[i]), logical(1)))
+                for (i in bnd) {
+                        a <- z[i]; cand <- setdiff(unique(z[nb[[i]]]), a)
+                        if (!length(cand) || n_r[a] <= 1L) next
+                        out  <- n_r[a] / (n_r[a] - 1) * sum((X[i, ] - S[a, ] / n_r[a])^2)
+                        gain <- vapply(cand, function(b)
+                                out - n_r[b] / (n_r[b] + 1) * sum((X[i, ] - S[b, ] / n_r[b])^2), numeric(1))
+                        if (max(gain) <= 0) next
+                        b    <- cand[which.max(gain)]
+                        same <- nb[[i]][z[nb[[i]]] == a]
+                        if (length(same) > 1L) {              # is i a cut vertex of region a?
+                                ia <- setdiff(which(z == a), i)
+                                cm <- igraph::components(igraph::induced_subgraph(graph, ia))$membership
+                                if (length(unique(cm[match(same, ia)])) > 1L) next
+                        }
+                        z[i] <- b
+                        S[a, ] <- S[a, ] - X[i, ]; S[b, ] <- S[b, ] + X[i, ]
+                        n_r[a] <- n_r[a] - 1L;     n_r[b] <- n_r[b] + 1L
+                        moved <- moved + 1L
+                }
+                moves <- moves + moved
+                if (!moved) break
+        }
+        list(z = z, moves = moves, passes = pass)
 }

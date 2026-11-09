@@ -9,8 +9,7 @@ mosaic_contrast(sigs, graph)
 \arguments{
 \item{sigs}{Signature matrix.}
 
-\item{graph}{The adjacency graph. If \code{sigs} was computed with
-\code{exclude_bridges = TRUE}, bridge edges are excluded here too.}
+\item{graph}{The adjacency graph.}
 }
 \value{
 Numeric vector of length \eqn{n}.

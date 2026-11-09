@@ -14,7 +14,6 @@ compute_all_signatures(
   drop_zero_cols = TRUE,
   block = 64L,
   digits = NULL,
-  exclude_bridges = TRUE,
   verbose = TRUE
 )
 }
@@ -41,21 +40,11 @@ memory is tight. Default 64.}
 \item{digits}{Rounding, or \code{NULL} (default) for none. Rounding is lossy
 and was only ever cosmetic.}
 
-\item{exclude_bridges}{Logical. If \code{TRUE} (default), edges flagged
-\code{bridge} (added by \code{\link{connect_components}}) are removed
-before neighbourhoods are built, so neighbourhoods do not reach across
-the sea or a data gap. They are removed from both the reachability
-pattern \eqn{(A + I)^k} and the edges summed into the signature. A unit
-linked only by bridges (for example a one-catchment island) then gets an
-\code{NA} signature, which \code{\link{get_mosaic_types}} skips. Graphs
-without a \code{bridge} edge attribute are used as they are.}
-
 \item{verbose}{Logical.}
 }
 \value{
 Numeric \eqn{n \times \binom{c+1}{2}} matrix with \code{"a:b"} column
-names. Rows whose neighbourhood contains no edge are \code{NA}. The
-attribute \code{exclude_bridges} records the setting.
+names. Rows whose neighbourhood contains no edge are \code{NA}.
 }
 \description{
 For focal \eqn{f} the signature is the upper triangle of

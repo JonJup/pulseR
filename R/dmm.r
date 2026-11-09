@@ -58,82 +58,158 @@
         m + log(rowSums(exp(L - m)))
 }
 
-## Minka fixed point for one component, weights r. Zero cells give zero numerator.
-## Rows with r < r_min are skipped: they barely move alpha and dominate cost once memberships sharpen.
-.dmm_update_alpha <- function(tr, r, a, inner = 2L, alpha_min = 1e-4, r_min = 1e-8) {
+## Precision gradient (and Hessian) of the weighted DM log-likelihood in A = sum(alpha),
+## mean m fixed. Zero cells contribute nothing, so only the non-zero triplets are summed.
+.dmm_grad_A <- function(tr, r, m, A, hess = FALSE, r_min = 1e-8) {
+        keep <- which(r[tr$i] > r_min)
+        rk <- r[tr$i[keep]]; xk <- tr$x[keep]; mj <- m[tr$j[keep]]; amj <- A * mj
+        rows <- r > r_min; nr <- tr$n[rows]; rr <- r[rows]
+        g <- sum(rr * (digamma(A) - digamma(nr + A))) +
+                sum(rk * mj * (digamma(xk + amj) - digamma(amj)))
+        if (!hess) return(g)
+        h <- sum(rr * (trigamma(A) - trigamma(nr + A))) +
+                sum(rk * mj^2 * (trigamma(xk + amj) - trigamma(amj)))
+        c(g, h)
+}
+
+## M-step for one component, weights r. Each inner step does
+##  (i) a safeguarded Newton search for the precision A in log A, mean fixed. Newton
+##      is used only where the likelihood is concave in log A; elsewhere it takes a
+##      unit step uphill. Far above the optimum the likelihood is convex in log A,
+##      and plain Newton then runs to infinity.
+## (ii) one Minka (2000) fixed-point step on the full vector, which never decreases
+##      the likelihood.
+## Step (i) replaces the slow part of the old update: the fixed point alone moves A
+## only a little per iteration, so a large or infinite optimum took hundreds of EM
+## iterations to approach. A is capped at A_max (the multinomial limit).
+.dmm_update_alpha <- function(tr, r, a, inner = 2L, newton = 5L, alpha_min = 1e-4,
+                              A_max = 1e6, r_min = 1e-8) {
         keep <- which(r[tr$i] > r_min)
         rk   <- r[tr$i[keep]]; xk <- tr$x[keep]; jk <- tr$j[keep]
         rows <- r > r_min; nr <- tr$n[rows]; rr <- r[rows]
         w <- numeric(length(tr$x))
         for (s in seq_len(inner)) {
+                m <- a / sum(a)
+                for (t in seq_len(newton)) {
+                        A  <- sum(a)
+                        gh <- .dmm_grad_A(tr, r, m, A, hess = TRUE, r_min = r_min)
+                        d1 <- A * gh[1]; d2 <- d1 + A^2 * gh[2]       # derivatives in log A
+                        step <- if (is.finite(d2) && d2 < 0) -d1 / d2 else sign(d1)
+                        step <- max(min(step, 2), -2)
+                        A_new <- min(A * exp(step), A_max)
+                        a <- pmax(A_new * m, alpha_min)
+                        if (abs(step) < 1e-4 || A_new >= A_max) break
+                }
                 A   <- sum(a)
                 w[keep] <- rk * (digamma(xk + a[jk]) - digamma(a[jk]))
                 num <- .gsum(w, tr$cends)
                 den <- sum(rr * (digamma(nr + A) - digamma(A)))
                 a   <- pmax(a * num / den, alpha_min)
+                if (sum(a) > A_max) a <- pmax(a * (A_max / sum(a)), alpha_min)
         }
         a
 }
 
+## Multinomial mixture EM: the DMM in the limit A -> Inf. One matrix product per
+## iteration. Used to initialise the DMM and as its exact solution when the data
+## show no overdispersion.
+.fit_mm <- function(X, lab, K, max_iter = 200L, tol = 1e-7) {
+        N <- nrow(X); R <- matrix(0, N, K); R[cbind(seq_len(N), lab)] <- 1
+        ll_old <- -Inf
+        for (it in seq_len(max_iter)) {
+                Th   <- crossprod(R, X) + 1e-10; Th <- Th / rowSums(Th)
+                pi_k <- pmax(colMeans(R), .Machine$double.eps)
+                L    <- X %*% t(log(Th)) + rep(log(pi_k), each = N)
+                lse  <- .lse_rows(L); R <- exp(L - lse); ll <- sum(lse)
+                if (abs(ll - ll_old) < tol * abs(ll)) break
+                ll_old <- ll
+        }
+        list(R = R, theta = Th)
+}
+
 #' Fit a Dirichlet-multinomial mixture
+#'
+#' Each start: k-means on the Hellinger embedding, then a multinomial mixture
+#' (cheap), then DMM EM from there. If the precision gradient is still positive
+#' at \code{A_max} for every component under the multinomial fit, the data show
+#' no overdispersion: the multinomial mixture is the DMM solution and EM is
+#' skipped (\code{limit = "multinomial"}).
 #'
 #' @param X Count matrix (N x C), from \code{.sig_to_counts()}. Fractional counts are fine.
 #' @param K Number of mosaic types.
-#' @param n_start Random restarts (k-means on the Hellinger embedding); best log-likelihood kept.
+#' @param n_start Random restarts; best log-likelihood kept.
 #' @param max_iter,tol EM limits; \code{tol} is on the relative log-likelihood change.
-#' @param A_init Initial concentration sum(alpha) of each component.
+#' @param A_init Starting precision sum(alpha) for the DMM EM.
 #' @param alpha_min Floor on alpha. A pair absent from a type would otherwise get
 #'   alpha -> 0, which forbids any catchment containing that pair from joining it.
+#' @param A_max Cap on the precision. At the cap the DMM equals a multinomial
+#'   mixture to numerical precision for any realistic count total.
 #' @param seed Optional integer seed.
 #' @return Object of class \code{pulse_dmm}: memberships \code{U} (N x K), hard
 #'   \code{cluster}, \code{alpha} (K x C), mixing weights \code{pi}, \code{loglik},
-#'   \code{BIC}, \code{ICL} (both lower is better), \code{trace}, \code{converged}.
+#'   \code{BIC}, \code{ICL} (both lower is better), \code{limit}, \code{trace},
+#'   \code{converged}.
 #' @keywords internal
-.fit_dmm <- function(X, K, n_start = 5L, max_iter = 200L, tol = 1e-7,
-                     A_init = 50, alpha_min = 1e-4, seed = NULL) {
+.fit_dmm <- function(X, K, n_start = 5L, max_iter = 500L, tol = 1e-5,
+                     A_init = 50, alpha_min = 1e-4, A_max = 1e6, seed = NULL) {
         X <- as.matrix(X)
         if (any(X < 0, na.rm = TRUE) || anyNA(X)) stop("`X` must be non-negative with no NA.", call. = FALSE)
         if (any(rowSums(X) <= 0)) stop("Every row of `X` needs a positive total.", call. = FALSE)
         if (K < 1L || K > nrow(X)) stop("`K` must be between 1 and nrow(X).", call. = FALSE)
-        .local_seed(seed)
+        if (!is.null(seed)) set.seed(seed)
         
-        tr <- .dmm_triplets(X)
-        H  <- sqrt(X / tr$n)                          # Hellinger embedding for initialisation
+        tr  <- .dmm_triplets(X)
+        H   <- sqrt(X / tr$n)                         # Hellinger embedding for initialisation
+        eps <- .Machine$double.eps
+        mstep <- function(R, alpha) {
+                for (k in seq_len(K))
+                        alpha[k, ] <- .dmm_update_alpha(tr, R[, k], alpha[k, ],
+                                                        alpha_min = alpha_min, A_max = A_max)
+                alpha
+        }
         best <- NULL
         
         for (st in seq_len(n_start)) {
                 lab <- if (K == 1L) rep(1L, tr$N) else
                         stats::kmeans(H, centers = K, nstart = 1L, iter.max = 50L,
                                       algorithm = "MacQueen")$cluster
-                R <- matrix(0, tr$N, K); R[cbind(seq_len(tr$N), lab)] <- 1
-                alpha <- matrix(0, K, tr$C)
-                for (k in seq_len(K)) {
-                        m <- colSums(X[lab == k, , drop = FALSE]); m <- m / sum(m)
-                        alpha[k, ] <- .dmm_update_alpha(tr, R[, k], pmax(m * A_init, alpha_min),
-                                                        alpha_min = alpha_min)
-                }
-                pi_k <- colMeans(R)
-                trace <- numeric(0); converged <- FALSE
+                mm   <- .fit_mm(X, lab, K)
+                R    <- mm$R
+                pi_k <- pmax(colMeans(R), eps)
                 
-                for (it in seq_len(max_iter)) {
-                        L   <- .dmm_logdens(tr, alpha) + rep(log(pi_k), each = tr$N)
+                ## No overdispersion anywhere: the multinomial mixture is the solution.
+                limit <- all(vapply(seq_len(K), function(k)
+                        .dmm_grad_A(tr, R[, k], mm$theta[k, ], A_max) > 0, logical(1)))
+                if (limit) {
+                        alpha <- pmax(mm$theta * A_max, alpha_min)
+                        L <- .dmm_logdens(tr, alpha) + rep(log(pi_k), each = tr$N)
                         lse <- .lse_rows(L)
-                        R   <- exp(L - lse)
-                        trace[it] <- sum(lse)
-                        if (it > 1L && abs(trace[it] - trace[it - 1L]) < tol * abs(trace[it])) {
-                                converged <- TRUE; break
+                        fit <- list(R = exp(L - lse), alpha = alpha, pi = pi_k, loglik = sum(lse),
+                                    trace = sum(lse), converged = TRUE, start = st,
+                                    limit = "multinomial")
+                } else {
+                        alpha <- mstep(R, pmax(mm$theta * A_init, alpha_min))
+                        trace <- numeric(0); converged <- FALSE
+                        for (it in seq_len(max_iter)) {
+                                L   <- .dmm_logdens(tr, alpha) + rep(log(pi_k), each = tr$N)
+                                lse <- .lse_rows(L)
+                                R   <- exp(L - lse)
+                                trace[it] <- sum(lse)
+                                if (it > 1L && abs(trace[it] - trace[it - 1L]) < tol * abs(trace[it])) {
+                                        converged <- TRUE; break
+                                }
+                                pi_k  <- pmax(colMeans(R), eps)
+                                alpha <- mstep(R, alpha)
                         }
-                        pi_k <- pmax(colMeans(R), .Machine$double.eps)
-                        for (k in seq_len(K))
-                                alpha[k, ] <- .dmm_update_alpha(tr, R[, k], alpha[k, ],
-                                                                alpha_min = alpha_min)
+                        fit <- list(R = R, alpha = alpha, pi = pi_k, loglik = trace[length(trace)],
+                                    trace = trace, converged = converged, start = st,
+                                    limit = "dirichlet-multinomial")
                 }
-                if (is.null(best) || trace[length(trace)] > best$loglik)
-                        best <- list(R = R, alpha = alpha, pi = pi_k, loglik = trace[length(trace)],
-                                     trace = trace, converged = converged, start = st)
+                if (is.null(best) || fit$loglik > best$loglik) best <- fit
         }
         
-        df  <- K * tr$C + (K - 1L)
+        ## At the cap the concentrations are not free parameters.
+        df  <- if (best$limit == "multinomial") K * (tr$C - 1L) + (K - 1L) else K * tr$C + (K - 1L)
         BIC <- -2 * best$loglik + df * log(tr$N)
         R   <- best$R
         EN  <- -sum(R[R > 0] * log(R[R > 0]))
@@ -141,7 +217,7 @@
         structure(list(U = R, cluster = max.col(R, ties.method = "first"),
                        alpha = best$alpha, pi = best$pi, K = K,
                        loglik = best$loglik, BIC = BIC, ICL = BIC + 2 * EN, df = df,
-                       concentration = rowSums(best$alpha),
+                       concentration = rowSums(best$alpha), limit = best$limit,
                        trace = best$trace, converged = best$converged,
                        valid = attr(X, "valid")),
                   class = "pulse_dmm")
@@ -170,7 +246,9 @@ print.pulse_dmm <- function(x, ...) {
         cat(sprintf("logLik %.1f | BIC %.1f | ICL %.1f (lower is better) | %s after %d iterations\n",
                     x$loglik, x$BIC, x$ICL,
                     if (x$converged) "converged" else "NOT converged", length(x$trace)))
+        if (identical(x$limit, "multinomial"))
+                cat("Multinomial limit: no overdispersion detected; concentrations sit at the cap.\n")
         cat("Sizes:        ", tabulate(x$cluster, x$K), "\n")
         cat("Concentration:", signif(x$concentration, 3), "\n")
         invisible(x)
-}
+}
