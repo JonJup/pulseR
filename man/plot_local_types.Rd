@@ -40,22 +40,21 @@ type, z-scored per predictor. Requires \code{env}.}
 \item{geom}{An \code{sf} object, if not already attached.}
 
 \item{regions}{The parent \code{"pulse_regions"} object. Supplying it keeps
-the hues identical to the level-1 figures and enables
-\code{confidence = "joint"}.}
+the hues identical to the level-1 figures.}
 
-\item{palette}{Local-type colours; defaults to \code{\link{local_palette}}
+\item{palette}{Local-type colors; defaults to \code{\link{local_palette}}
 built on \code{\link{pulse_palette}(regions)}.}
 
 \item{confidence}{\code{"own"} (default) uses the local-type row maximum;
-\code{"joint"} multiplies it by the parent region's \eqn{\Pi} certainty, so a unit
-the regionalisation never placed cannot look confident about its local
-type. Use \code{"joint"} for any figure that stands alone.}
+\code{"joint"} uses \eqn{w_{ir} z_{irg}} of the assigned local type: Level 1
+region membership × within-region type probability. Use \code{"joint"} for
+any figure that stands alone.}
 
 \item{which}{Integer region, for \code{what = "region"}.}
 
 \item{env}{Predictor matrix, for \code{what = "profiles"}.}
 
-\item{raster, raster_px}{Rasterisation control.}
+\item{raster, raster_px}{Rasterization control.}
 
 \item{...}{Unused.}
 }

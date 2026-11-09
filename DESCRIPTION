@@ -22,7 +22,6 @@ Imports:
     utils
 Suggests: 
     arrow,
-    dplyr,
     ggplot2,
     knitr,
     nngeo,

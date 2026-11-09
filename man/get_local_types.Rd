@@ -14,6 +14,7 @@ get_local_types(
   cutoff = 0.1,
   weights = c("memberships", "typicality"),
   model_name = c("VVV", "EEE", "VVI", "VII"),
+  scale = TRUE,
   hc_use = "VARS",
   drop_constant = FALSE,
   weight_eps = 1e-06,
@@ -71,6 +72,10 @@ by default: weighted EM for equal-volume models can need ~40x more
 iterations than \code{"VVV"}. With a single predictor the names are
 mapped to \code{"E"}/\code{"V"}.}
 
+\item{scale}{Boolean indicating whether predictor variables should be sacled
+or not. If predictors are not scaled the families VVI and VII are not
+available.}
+
 \item{hc_use}{Character scalar passed to \code{\link[mclust]{hc}} as
 \code{use}. Set explicitly (default \code{"VARS"}) because the
 \pkg{mclust} default has changed between versions.}
@@ -124,6 +129,7 @@ where the predictor is constant within the region and the region was
 fitted with the globally scaled prior.}
 \item{\code{variables}, \code{cutoff}, \code{weights},
 \code{model_name}}{Settings used (\code{model_name} = candidates).}
+\item{\code{scaling}}{List \code{center}, \code{scale}; \code{NULL} if \code{scale = FALSE}.}
 }
 
 \code{print.pulse_local_types} returns \code{x} invisibly.
@@ -152,17 +158,19 @@ per region by weighted BIC, \eqn{2\ell - p \log n_{\mathrm{eff}}} with
 \eqn{n_{\mathrm{eff}}}; this is what lets small regions fall back to
 shared, diagonal or spherical covariances instead of failing.
 
-The hierarchical initialisation uses \code{"VVV"} when a region's core has
+The hierarchical initialization uses \code{"VVV"} when a region's core has
 more units than predictors and \code{"EII"} otherwise. It is computed once
 per region and shared by every candidate model, so all candidates start
 from the same partition.
 
-The returned local-type probability for region \eqn{r}, component \eqn{k} is
-\eqn{z_{irk} w_{ir}}. Because each \eqn{z_i} row sums to one, the raw row
+The membership of local type \eqn{k} of region \eqn{r} is \eqn{w_{ir} z_{irk}}:
+Level 1 region membership × within-region type probability. Local types never
+change region memberships: summed over the local types of region \eqn{r}, the
+memberships return \eqn{w_{ir}}. Because each \eqn{z_i} row sums to one, the raw row
 sums of the combined matrix equal \eqn{\sum_r w_{ir}} — exactly 1 when
 \code{weights = "memberships"}, and something else when
 \code{weights = "typicality"}, which is why \code{memberships} is returned
-row-normalised and the unnormalised version is kept as \code{weighted}.
+row-normalized and the normalized version is kept as \code{weighted}.
 
 Units with \eqn{w_{ir} \le} \code{weight_eps} are excluded from region
 \eqn{r}'s fit and receive a zero in that region's columns. This is exact,

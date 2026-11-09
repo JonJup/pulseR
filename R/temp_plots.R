@@ -295,8 +295,6 @@ fade_by_confidence <- function(cols, w, floor = 0.12, to_l = 88) {
 #'   cohesion. Cohesion shrinks with region size, so large homogeneous regions
 #'   look uncertain; use it only to compare units within one region.
 #'   \code{"membership"} is accepted as an alias for \code{"certainty"}.
-#'   Units with no \eqn{\Pi} row (\code{pi_support == 0}) are drawn fully
-#'   faded.
 #' @param which Integer vector of regions, for \code{what = "membership"}.
 #' @param margin Numeric, for \code{what = "transition"}. Default 0.1.
 #' @param raster,raster_px Rasterisation control, passed to the map builder.
@@ -545,17 +543,16 @@ plot_regions <- function(x,
 #'   }
 #' @param geom An \code{sf} object, if not already attached.
 #' @param regions The parent \code{"pulse_regions"} object. Supplying it keeps
-#'   the hues identical to the level-1 figures and enables
-#'   \code{confidence = "joint"}.
-#' @param palette Local-type colours; defaults to \code{\link{local_palette}}
+#'   the hues identical to the level-1 figures.
+#' @param palette Local-type colors; defaults to \code{\link{local_palette}}
 #'   built on \code{\link{pulse_palette}(regions)}.
 #' @param confidence \code{"own"} (default) uses the local-type row maximum;
-#'   \code{"joint"} multiplies it by the parent region's \eqn{\Pi} certainty, so a unit
-#'   the regionalisation never placed cannot look confident about its local
-#'   type. Use \code{"joint"} for any figure that stands alone.
+#'   \code{"joint"} uses \eqn{w_{ir} z_{irg}} of the assigned local type: Level 1
+#'   region membership × within-region type probability. Use \code{"joint"} for 
+#'   any figure that stands alone.
 #' @param which Integer region, for \code{what = "region"}.
 #' @param env Predictor matrix, for \code{what = "profiles"}.
-#' @param raster,raster_px Rasterisation control.
+#' @param raster,raster_px Rasterization control.
 #' @param ... Unused.
 #' @return A \code{ggplot} object.
 #' @export
@@ -693,12 +690,10 @@ plot_local_types <- function(x,
 #' @keywords internal
 #' @noRd
 .local_confidence <- function(x, regions, confidence) {
-        own <- x$certainty
-        if (confidence == "own") return(own)
-        if (is.null(regions))
-                stop("`confidence = \"joint\"` needs the parent `regions` object.", call. = FALSE)
-        rc <- .confidence_vec(regions, "certainty")
-        own * rc
+        if (confidence == "own") return(x$certainty)
+        ## certainty_raw is w_ir * z_irg of the assigned local type. Level 1
+        ## membership is already in it, so it is not multiplied again.
+        .first_non_null(x$certainty_raw, x$certainty)
 }
 
 #' @keywords internal

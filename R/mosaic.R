@@ -699,9 +699,9 @@ compute_fuzzy <- function(d, k, fuzziness = 2) {
 #'   \code{method = "dmm"} it must carry the \code{"totals"} attribute, which
 #'   subsetting or \code{rbind()} drops.
 #' @param n_clusters Candidate counts, all \eqn{\ge 2}. Default 2:10.
-#' @param method \code{"pam"} (default): fuzzy PAM on a signature distance.
-#'   \code{"dmm"}: Dirichlet-multinomial mixture on the signatures converted
-#'   back to edge pseudo-counts (Holmes et al. 2012). Memberships are then
+#' @param method \code{"dmm"} (default): Dirichlet-multinomial mixture on the 
+#'   signatures converted back to edge pseudo-counts (Holmes et al. 2012). 
+#'   code{"pam"}: fuzzy PAM on a signature distance. Memberships are then
 #'   posterior type probabilities ("which type, and how confidently") rather
 #'   than distance-based fuzzy degrees.
 #' @param distance Metric; see \code{\link{signature_distance}}. With
@@ -721,7 +721,7 @@ compute_fuzzy <- function(d, k, fuzziness = 2) {
 #' @param sample_size Objects clustered exactly. Above this the routine samples,
 #'   fits on the sample and assigns the remainder (PAM: nearest medoid; DMM:
 #'   posterior under the fitted mixture). \code{Inf} forces the exact path.
-#'   Default 20000.
+#'   Default 5000.
 #' @param dmm_control Named list overriding DMM defaults: \code{n_start} (5),
 #'   \code{max_iter} (500), \code{tol} (1e-5, relative log-likelihood change, as in mclust), \code{A_init} (50),
 #'   \code{alpha_min} (1e-4), \code{A_max} (1e6, precision cap: the multinomial
@@ -741,7 +741,7 @@ compute_fuzzy <- function(d, k, fuzziness = 2) {
 #' @export
 get_mosaic_types <- function(sigs,
                              n_clusters  = 2:10,
-                             method      = c("pam", "dmm"),
+                             method      = c("dmm","pam"),
                              distance    = c("js", "hellinger", "tv", "bray", "euclidean"),
                              crisp       = FALSE,
                              metric      = c("borda", "CH_JS", "R2_JS", "GD5", "FS",
@@ -749,7 +749,7 @@ get_mosaic_types <- function(sigs,
                                              "ICL", "BIC"),
                              fuzziness   = 2,
                              stability_B = 25L,
-                             sample_size = 20000L,
+                             sample_size = 5000,
                              dmm_control = list(),
                              seed        = NULL,
                              verbose     = TRUE) {
@@ -1049,7 +1049,7 @@ print.mosaic_types <- function(x, ...) {
 
 #' @keywords internal
 #' @noRd
-.stability_pam_diss <- function(D_full, hard_clusters, k, B = 25L,
+.stability_pam_diss <- function(D_full, hard_clusters, k, B = 10,
                                 subsample_frac = 0.8, seed = NULL) {
         if (B <= 0L) return(NA_real_)
         N <- nrow(D_full); n_sub <- floor(N * subsample_frac)
@@ -1283,4 +1283,4 @@ print.mosaic_P <- function(x, ...) {
                 cat("  note: rows do not all sum to the same total, so polygons contribute\n",
                     "  unequal mass to their neighbours' signatures (see `normalise`)\n")
         invisible(x)
-}
+}

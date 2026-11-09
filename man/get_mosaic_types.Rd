@@ -7,14 +7,14 @@
 get_mosaic_types(
   sigs,
   n_clusters = 2:10,
-  method = c("pam", "dmm"),
+  method = c("dmm", "pam"),
   distance = c("js", "hellinger", "tv", "bray", "euclidean"),
   crisp = FALSE,
   metric = c("borda", "CH_JS", "R2_JS", "GD5", "FS", "stability", "silhouette_fuzzy",
     "silhouette", "ICL", "BIC"),
   fuzziness = 2,
   stability_B = 25L,
-  sample_size = 20000L,
+  sample_size = 5000,
   dmm_control = list(),
   seed = NULL,
   verbose = TRUE
@@ -27,9 +27,9 @@ subsetting or \code{rbind()} drops.}
 
 \item{n_clusters}{Candidate counts, all \eqn{\ge 2}. Default 2:10.}
 
-\item{method}{\code{"pam"} (default): fuzzy PAM on a signature distance.
-\code{"dmm"}: Dirichlet-multinomial mixture on the signatures converted
-back to edge pseudo-counts (Holmes et al. 2012). Memberships are then
+\item{method}{\code{"dmm"} (default): Dirichlet-multinomial mixture on the
+signatures converted back to edge pseudo-counts (Holmes et al. 2012).
+code{"pam"}: fuzzy PAM on a signature distance. Memberships are then
 posterior type probabilities ("which type, and how confidently") rather
 than distance-based fuzzy degrees.}
 
@@ -55,7 +55,7 @@ memberships are hardened; selection still uses the soft fit.}
 \item{sample_size}{Objects clustered exactly. Above this the routine samples,
 fits on the sample and assigns the remainder (PAM: nearest medoid; DMM:
 posterior under the fitted mixture). \code{Inf} forces the exact path.
-Default 20000.}
+Default 5000.}
 
 \item{dmm_control}{Named list overriding DMM defaults: \code{n_start} (5),
 \code{max_iter} (500), \code{tol} (1e-5, relative log-likelihood change, as in mclust), \code{A_init} (50),

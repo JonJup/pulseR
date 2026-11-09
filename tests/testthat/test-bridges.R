@@ -122,13 +122,4 @@ test_that("the permutation null accepts a penalised graph", {
         expect_s3_class(nb, "null_baseline")
 })
 
-test_that("merge_catchments() keeps an identical island apart unless bridge_scale = Inf", {
-        skip_if_not_installed("dplyr")
-        x <- make_island_sf()
-        x$temp[17] <- x$temp[8]; x$prec[17] <- x$prec[8]   # island = its bridge partner
-        run <- function(bs) suppressWarnings(suppressMessages(
-                merge_catchments(NULL, x, id_col = "ID", env_cols = c("temp", "prec"),
-                                 threshold = 1e-6, max_rounds = 1, bridge_scale = bs)))
-        expect_identical(nrow(run(NULL)), 17L)            # penalised: no merge
-        expect_identical(nrow(run(Inf)), 16L)             # unpenalised: island merges
-})
+

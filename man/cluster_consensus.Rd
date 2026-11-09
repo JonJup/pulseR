@@ -55,17 +55,17 @@ configuration and on for the winner.}
 \value{
 A \code{"fuzzy_clusters"} object with
 \describe{
-\item{\code{memberships}}{\eqn{N \times k} matrix \eqn{\Pi}; rows sum to 1, \code{NA} where \code{pi_support == 0}.}
+\item{\code{memberships}}{\eqn{N \times k} matrix \eqn{\Pi}; rows sum to 1, filled from graph neighbours (see cluster_consensus() Details).
 \item{\code{hard_clusters}}{Final labels (after contiguity repair).}
 \item{\code{certainty}}{\eqn{\Pi_{i, \mathrm{hard}_i}}.}
 \item{\code{margin}}{Best minus second-best entry of \eqn{\Pi}.}
-\item{\code{entropy}}{Row entropy of \eqn{\Pi}, normalised by \eqn{\log k}.}
+\item{\code{entropy}}{Row entropy of \eqn{\Pi}, normalized by \eqn{\log k}.}
 \item{\code{pi_support}}{\eqn{M_i}, partitions in which \eqn{i} had a piece-mate.}
 \item{\code{cohesion}}{Raw \eqn{A} (formerly \code{affinity}); not a probability.}
 \item{\code{silhouette}, \code{avg_sil_width}}{Co-association silhouette, from cohesion.}
 \item{\code{expected_vi}, \code{region_coassoc}}{Mean VI(draw, consensus); \eqn{k \times k} mean co-association.}
-\item{\code{salso_a}}{The generalised-VI parameter \eqn{a} salso settled on (on the sample, if sampled).}
-\item{\code{expected_loss}}{Generalised VI of the final labels at \code{salso_a}, per unit, in bits.}
+\item{\code{salso_a}}{The generalized-VI parameter \eqn{a} salso settled on (on the sample, if sampled).}
+\item{\code{expected_loss}}{Generalized VI of the final labels at \code{salso_a}, per unit, in bits.}
 \item{\code{loss_gap}, \code{loss_alt}}{Change in total loss (bits) if the unit alone moved to \code{loss_alt}; negative means a single move would lower the loss.}
 \item{\code{label_step}}{Factor: last step that changed the label (salso, merge, assign, refine, contiguity).}
 \item{\code{salso_info}, \code{refine_info}}{salso's own fit summary; on the sampled path, VI-move convergence and per-round log (else \code{NULL}).}
@@ -99,8 +99,8 @@ where \eqn{M_i} (returned as \code{pi_support}) counts the partitions in
 which \eqn{i} has at least one piece-mate. Rows sum to 1 by construction,
 there is no tuning parameter, and a boundary unit whose pieces fall half
 into each of two regions gets 0.5 and 0.5 whatever the region sizes. Units
-with \eqn{M_i = 0} get an \code{NA} row. \eqn{\Pi} is an ensemble
-frequency, not a probability of class membership.
+with \eqn{M_i = 0} are filled from graph neighbours (see cluster_consensus()
+Details).
 
 \strong{Cohesion.} Let \eqn{c_{im}} be the fraction of ensemble partitions
 in which \eqn{i} and \eqn{m} share a piece. The \emph{cohesion} of \eqn{i}

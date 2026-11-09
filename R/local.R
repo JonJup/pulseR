@@ -182,17 +182,19 @@
 #' \eqn{n_{\mathrm{eff}}}; this is what lets small regions fall back to
 #' shared, diagonal or spherical covariances instead of failing.
 #'
-#' The hierarchical initialisation uses \code{"VVV"} when a region's core has
+#' The hierarchical initialization uses \code{"VVV"} when a region's core has
 #' more units than predictors and \code{"EII"} otherwise. It is computed once
 #' per region and shared by every candidate model, so all candidates start
 #' from the same partition.
 #'
-#' The returned local-type probability for region \eqn{r}, component \eqn{k} is
-#' \eqn{z_{irk} w_{ir}}. Because each \eqn{z_i} row sums to one, the raw row
+#' The membership of local type \eqn{k} of region \eqn{r} is \eqn{w_{ir} z_{irk}}:
+#' Level 1 region membership × within-region type probability. Local types never
+#' change region memberships: summed over the local types of region \eqn{r}, the
+#' memberships return \eqn{w_{ir}}. Because each \eqn{z_i} row sums to one, the raw row
 #' sums of the combined matrix equal \eqn{\sum_r w_{ir}} — exactly 1 when
 #' \code{weights = "memberships"}, and something else when
 #' \code{weights = "typicality"}, which is why \code{memberships} is returned
-#' row-normalised and the unnormalised version is kept as \code{weighted}.
+#' row-normalized and the normalized version is kept as \code{weighted}.
 #'
 #' Units with \eqn{w_{ir} \le} \code{weight_eps} are excluded from region
 #' \eqn{r}'s fit and receive a zero in that region's columns. This is exact,
@@ -238,6 +240,9 @@
 #'   by default: weighted EM for equal-volume models can need ~40x more
 #'   iterations than \code{"VVV"}. With a single predictor the names are
 #'   mapped to \code{"E"}/\code{"V"}.
+#' @param scale Boolean indicating whether predictor variables should be sacled 
+#'   or not. If predictors are not scaled the families VVI and VII are not 
+#'   available.
 #' @param hc_use Character scalar passed to \code{\link[mclust]{hc}} as
 #'   \code{use}. Set explicitly (default \code{"VARS"}) because the
 #'   \pkg{mclust} default has changed between versions.
@@ -281,6 +286,7 @@
 #'       fitted with the globally scaled prior.}
 #'     \item{\code{variables}, \code{cutoff}, \code{weights},
 #'       \code{model_name}}{Settings used (\code{model_name} = candidates).}
+#'     \item{\code{scaling}}{List \code{center}, \code{scale}; \code{NULL} if \code{scale = FALSE}.}
 #'   }
 #'
 #' @seealso \code{\link{get_regions}}, \code{\link[mclust]{me.weighted}}.
@@ -311,6 +317,7 @@ get_local_types <- function(env,
                             cutoff         = 0.1,
                             weights        = c("memberships", "typicality"),
                             model_name     = c("VVV", "EEE", "VVI", "VII"),
+                            scale          = TRUE,
                             hc_use         = "VARS",
                             drop_constant  = FALSE,
                             weight_eps     = 1e-6,
@@ -319,6 +326,11 @@ get_local_types <- function(env,
                             verbose        = FALSE) {
         
         weights <- match.arg(weights)
+        user_models <- !missing(model_name)
+        if (!is.logical(scale) || length(scale) != 1L || is.na(scale)){
+                stop("scale must be set to TRUE or FALSE", call. = "FALSE")
+        }
+        
         
         ## ---- 0. Input validation -------------------------------------------*
         if (!is.data.frame(env))
@@ -483,8 +495,26 @@ get_local_types <- function(env,
                 }
         }
         variables <- colnames(Xdata)
-        V_all     <- stats::cov(Xdata)
-        d      <- ncol(Xdata)
+        ## One coordinate system for all regions, so meta-type distances compare like with like.
+        scaling <- NULL
+        if (scale) {
+                scaling <- list(center = colMeans(Xdata),
+                                scale  = sqrt(.col_var(Xdata, seq_len(N))))
+                Xdata <- sweep(sweep(Xdata, 2L, scaling$center, "-"), 2L, scaling$scale, "/")
+        }
+        V_all <- stats::cov(Xdata)
+        d     <- ncol(Xdata)
+        ## mclust's default prior shrinks diagonal/spherical variances toward one scalar.
+        unit_dep <- c("EII", "VII", "EEI", "VEI", "EVI", "VVI")
+        if (!scale && d > 1L && any(model_name %in% unit_dep)) {
+                drop_m <- intersect(model_name, unit_dep)
+                if (user_models)
+                        warning(sprintf("Model(s) %s depend on predictor units and need `scale = TRUE`; dropped.",
+                                        paste(drop_m, collapse = ", ")), call. = FALSE)
+                model_name <- setdiff(model_name, drop_m)
+                if (!length(model_name))
+                        stop("No `model_name` left with `scale = FALSE`; use \"VVV\" or \"EEE\".", call. = FALSE)
+        }
         models <- .resolve_model_names(model_name, d)
         
         ## ---- 4. Per-region fitting -----------------------------------------*
@@ -663,6 +693,7 @@ get_local_types <- function(env,
                 else NULL,
                 constant      = const,
                 variables     = variables,
+                scaling = scaling,
                 cutoff        = cutoff,
                 weights       = weights,
                 model_name    = models

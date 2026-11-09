@@ -62,9 +62,8 @@ is the MST of perturbed weights, so it avoids heavy edges) and the cut rule
 ref <- compute_ensemble_memberships(trees, N_tree, graph, R,
                                     weight_exponent = 0)
 }
-The gap between the curves is what the cut rule adds. Caveat:
-\code{weight_exponent = 0} also switches off the size term, so the
-reference cuts mostly single catchments and its boundaries are short.
+The gap between the curves is what the cut rule adds. γ = 0 ignores the
+weights; add size_influence = 0 for uniform random cuts.
 Compare \code{lift} between the two, not \code{rho}: rank correlation
 rewards the many single-catchment cuts around environmental outliers.
 

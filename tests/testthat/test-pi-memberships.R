@@ -178,14 +178,21 @@ test_that("memberships and summaries come from the repaired labels", {
         expect_snapshot(print(shown, row.names = FALSE))
 })
 
-test_that("an NA membership row triggers a warning naming pi_support", {
+test_that("a unit without piece-mates is filled, one-hot without a graph", {
         memb <- cbind(c(1, 1, 2, 2, 3), c(1, 2, 2, 2, 3))
         local_mocked_bindings(.consensus_partition = mock_partition(c(1L, 1L, 2L, 2L, 2L)))
-        expect_warning(
-                fit <- cluster_consensus(memb, k = 2L, verbose = FALSE),
-                "pi_support")
+        expect_warning(fit <- cluster_consensus(memb, k = 2L, verbose = FALSE), "pi_support")
         expect_equal(fit$pi_support[5], 0L)
-        expect_true(is.na(fit$certainty[5]))
+        expect_equal(fit$memberships[5, ], c(0, 1))
+        g <- igraph::make_ring(5, circular = FALSE)
+        expect_warning(fit <- cluster_consensus(memb, k = 2L, graph = g, verbose = FALSE), "pi_support")
+        expect_equal(fit$memberships[5, ], fit$memberships[4, ])
+})
+
+test_that(".fill_unsupported_pi() fills in synchronous passes", {
+        Pi  <- rbind(c(1, 0), c(NA, NA), c(NA, NA), c(0, 1))
+        out <- .fill_unsupported_pi(Pi, c(1L, 1L, 2L, 2L), igraph::make_ring(4, circular = FALSE))
+        expect_equal(out[2, ], c(1, 0)); expect_equal(out[3, ], c(0, 1))
 })
 
 # ---------------------------------------------------------------------------

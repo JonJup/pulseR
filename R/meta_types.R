@@ -122,7 +122,8 @@ local_type_distance <- function(local,
         if (method == "empirical") {
                 if (is.null(env)) stop("`method = \"empirical\"` needs `env`.", call. = FALSE)
                 X <- as.matrix(env[, local$variables, drop = FALSE])
-                if (nrow(X) > n_sample) X <- X[sort(sample.int(nrow(X), n_sample)), , drop = FALSE]
+                if (!is.null(local$scaling))
+                        X <- sweep(sweep(X, 2L, local$scaling$center, "-"), 2L, local$scaling$scale, "/")
                 ## Column c = the density of type c over the sampled catchments,
                 ## normalised to a distribution. Bhattacharyya coefficient between
                 ## columns then measures overlap where the data actually live.

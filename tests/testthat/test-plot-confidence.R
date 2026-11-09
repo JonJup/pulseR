@@ -12,11 +12,7 @@ test_that(".confidence_vec() defaults to Pi certainty, not cohesion", {
                          quote(c("certainty", "margin", "typicality")))
 })
 
-test_that("joint local-type confidence uses parent Pi certainty", {
-        reg <- structure(list(memberships = rbind(c(0.5, 0.5), c(1, 0)),
-                              hard_clusters = c(1L, 1L),
-                              fit = list(cohesion = rbind(c(0.01, 0), c(0.01, 0)))),
-                         class = "pulse_regions")
-        loc <- list(certainty = c(0.8, 0.8))
-        expect_equal(.local_confidence(loc, reg, "joint"), c(0.4, 0.8))
+test_that("joint local-type confidence counts Level 1 once", {
+        loc <- list(certainty = c(0.8, 0.8), certainty_raw = c(0.4, 0.8))
+        expect_equal(.local_confidence(loc, NULL, "joint"), c(0.4, 0.8))
 })

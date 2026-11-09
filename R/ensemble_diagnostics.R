@@ -252,7 +252,6 @@ print.ensemble_size_check <- function(x, ...) {
             else "Still rising over the last doubling: add trees and rerun.\n")
         invisible(x)
 }
-## Append to R/ensemble_diagnostics.R
 
 #' Check how often edges are cut against their environmental distance
 #'
@@ -275,9 +274,8 @@ print.ensemble_size_check <- function(x, ...) {
 #' ref <- compute_ensemble_memberships(trees, N_tree, graph, R,
 #'                                     weight_exponent = 0)
 #' }
-#' The gap between the curves is what the cut rule adds. Caveat:
-#' \code{weight_exponent = 0} also switches off the size term, so the
-#' reference cuts mostly single catchments and its boundaries are short.
+#' The gap between the curves is what the cut rule adds. γ = 0 ignores the 
+#' weights; add size_influence = 0 for uniform random cuts.
 #' Compare \code{lift} between the two, not \code{rho}: rank correlation
 #' rewards the many single-catchment cuts around environmental outliers.
 #'
@@ -417,8 +415,6 @@ plot.cut_frequency <- function(x, x_scale = c("percentile", "distance"),
                          lwd = c(2.5, 1, if (has_ref) 2, 1))
         invisible(x)
 }
-## Append to R/ensemble_diagnostics.R (the file that holds check_ensemble_size())
-
 #' Check how much each new tree adds to the ensemble
 #'
 #' Treats every partition in the ensemble as a set of \emph{boundary edges}:

@@ -26,3 +26,24 @@ test_that("STAB uses disjoint halves and handles edge cases", {
         expect_length(intersect(seen[[1]], seen[[2]]), 0L)
         expect_setequal(c(seen[[1]], seen[[2]]), 1:6)
 })
+test_that("failed STAB splits count as ARI 0 and are reported", {
+        n <- 0L
+        local_mocked_bindings(.consensus_partition = function(memb, k, ...) {
+                n <<- n + 1L
+                if (n == 1L) stop("fewer than k regions")
+                list(labels = rep(1:2, length.out = nrow(memb)))
+        })
+        s <- .stability_consensus(matrix(rep(1:6, each = 10), 10, 6), 2L, B = 2L, seed = 1)
+        expect_equal(attr(s, "fail_share"), 0.5)
+        expect_equal(as.numeric(s), 0.5)
+})
+
+test_that(".null_summary() counts failed replicates against the null", {
+        null <- data.frame(rep = 1:4, final_regions = 2L, failed = c(FALSE, FALSE, TRUE, TRUE),
+                           CH_ENV = c(5, 20, NA, NA), R2_ENV = NA, STAB = NA, SIL_CA = NA,
+                           CERT = NA, EVI = NA, PAC = NA)
+        r <- .null_summary(null, data.frame(final_regions = 2L, CH_ENV = 10), list())
+        r <- r[r$criterion == "CH_ENV", ]
+        expect_equal(c(r$n_null, r$n_fail, r$fail_share), c(2, 2, 0.5))
+        expect_equal(r$p, 2 / 5)
+})

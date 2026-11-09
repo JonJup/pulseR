@@ -29,7 +29,8 @@
 #'   \eqn{\gamma}. The cut probability of an edge is proportional to its
 #'   weight raised to \eqn{\gamma}, times the size factor. \eqn{\gamma = 0}
 #'   ignores the weights, \eqn{\gamma = 1} (default) is proportional to
-#'   weight, larger values concentrate cuts on the heaviest edges.
+#'   weight, larger values concentrate cuts on the heaviest edges. γ = 0 ignores
+#'  the weights; add size_influence = 0 for uniform random cuts
 #' @param size_influence Non-negative numeric. Spread of the size-balance term
 #'   \eqn{\log(n_c (N - n_c) / N)} relative to the spread of the environmental
 #'   term \eqn{\gamma \log w}, per tree. 0 ignores piece size; the default 2
@@ -48,7 +49,7 @@
 #'   warning.
 #' @param target_edge_turnover Numeric in \eqn{[0, 1)}. Average share of the
 #'   unperturbed minimum spanning tree's edges replaced in each sampled tree.
-#'   Default 0.2 here (0.1 in \code{\link{sample_spanning_trees}}).
+#'   Default 0.1.
 #' @param tuning_strategy Character. One of \code{"grid"} (default),
 #'   \code{"sequential"}, \code{"iterative"}. See \code{\link{tune_regions}}.
 #' @param tuning_metric Character. One of \code{"borda"} (default),
@@ -57,7 +58,7 @@
 #'   \code{\link{tune_regions}}.
 #' @param stability_B Integer. Random splits for the \code{STAB} index
 #'   (split-half ensemble agreement, see \code{\link{tune_regions}}) during
-#'   tuning. 0 skips it. Default 25.
+#'   tuning. 0 skips it. Default 10.
 #' @param large_n_threshold Integer. Above this number of vertices, salso
 #'   runs on a sample of units and the rest are assigned and refined. Default
 #'   20000. See \code{\link{cluster_consensus}}.
@@ -74,8 +75,8 @@
 #' @return An object of class \code{"pulse_regions"}, a list with
 #'   \describe{
 #'     \item{\code{memberships}}{\eqn{N \times k} matrix \eqn{\Pi}. Rows sum
-#'       to 1; \code{NA} where a unit never shared a piece
-#'       (\code{fit$pi_support == 0}); all-zero for uncovered units when
+#'       to 1; filled from graph neighbours (see cluster_consensus() Details);
+#'        all-zero for uncovered units when
 #'       \code{prior_strength = Inf}.}
 #'     \item{\code{entropy}}{Row entropy of \code{memberships}.}
 #'     \item{\code{hard_clusters}}{Integer vector of consensus labels.}
@@ -127,10 +128,10 @@ get_regions <- function(graph,
                         size_influence      = 2,
                         prior_typology = NULL,
                         prior_strength = 0,
-                        target_edge_turnover = 0.2,
+                        target_edge_turnover = 0.1,
                         tuning_strategy = c("grid", "sequential", "iterative"),
                         tuning_metric   =c("borda", "ch_env", "r2_env", "stability", "silhouette_ca", "expected_vi"),
-                        stability_B      = 25L,
+                        stability_B      = 10,
                         large_n_threshold = 20000,
                         n_cores = 1,
                         trees = NULL,
@@ -511,7 +512,8 @@ sample_spanning_trees <- function(weighted_graph, n, seed = NULL, verbose = TRUE
 #'   to \eqn{\gamma}. \eqn{\gamma = 0} cuts edges uniformly at random,
 #'   \eqn{\gamma = 1} (default) cuts with probability proportional to weight, and
 #'   larger \eqn{\gamma} concentrates cuts on the heaviest edges (approaching
-#'   deterministic heaviest-edge removal as \eqn{\gamma \to \infty}).
+#'   deterministic heaviest-edge removal as \eqn{\gamma \to \infty}). 
+#'   γ = 0 ignores the weights; add size_influence = 0 for uniform random cuts.
 #' @param size_influence Non-negative numeric. Spread of the size term
 #'   \eqn{\alpha \log s_e} relative to the spread \eqn{u} of the
 #'   environmental term \eqn{\gamma \log w}, per tree. 0 ignores piece size;
@@ -629,17 +631,16 @@ compute_ensemble_memberships <- function(trees,
         ls   <- log(size_f)
         sd_w <- stats::sd(lw)
         sd_s <- stats::sd(ls)
-        ok_w <- is.finite(sd_w) && sd_w > 0
-        ok_s <- is.finite(sd_s) && sd_s > 0
-        alpha <- if (ok_w && ok_s) size_influence * sd_w / sd_s else 0
+        ok_w  <- is.finite(sd_w) && sd_w > 0
+        ok_s  <- is.finite(sd_s) && sd_s > 0
+        unit  <- if (ok_w) sd_w else log(2)      # no weight spread: one unit = one halving
+        alpha <- if (ok_s) size_influence * unit / sd_s else 0
         lp    <- lw + alpha * ls
-        
         fallback <- FALSE
-        unit     <- if (ok_w) sd_w else 0
         if (prior_strength > 0 && !is.null(within_prior)) {
                 within_prior[is.na(within_prior)] <- FALSE
                 if (any(within_prior)) {
-                        if (!ok_w) { unit <- log(2); fallback <- TRUE }
+                        fallback <- !ok_w
                         lp <- lp - prior_strength * unit * within_prior
                 }
         }
@@ -726,14 +727,15 @@ compute_ensemble_memberships <- function(trees,
                                 lp   <- weight_exponent * log(pmax(fc$gain, .Machine$double.xmin))
                                 u    <- stats::sd(lp)                 # unit: sd(gamma log g)
                                 ok_u <- is.finite(u) && u > 0
-                                if (size_influence > 0 && ok_u) {
+                                if (!ok_u) u <- log(2)
+                                if (size_influence > 0) {
                                         lh   <- log(fc$h)
                                         sd_h <- stats::sd(lh)
                                         if (is.finite(sd_h) && sd_h > 0)
                                                 lp <- lp + size_influence * u / sd_h * lh
                                 }
                                 if (!is.null(wp) && any(wp)) {
-                                        if (!ok_u) { u <- log(2); fb <- TRUE }
+                                        if (!ok_u) fb <- TRUE
                                         lp <- lp - prior_strength * u * wp
                                 }
                                 if (min_size > 1L) lp[fc$n_min < min_size] <- -Inf
@@ -910,8 +912,8 @@ compute_ensemble_memberships <- function(trees,
 #' which \eqn{i} has at least one piece-mate. Rows sum to 1 by construction,
 #' there is no tuning parameter, and a boundary unit whose pieces fall half
 #' into each of two regions gets 0.5 and 0.5 whatever the region sizes. Units
-#' with \eqn{M_i = 0} get an \code{NA} row. \eqn{\Pi} is an ensemble
-#' frequency, not a probability of class membership.
+#' with \eqn{M_i = 0} are filled from graph neighbours (see cluster_consensus()
+#'  Details).
 #'
 #' \strong{Cohesion.} Let \eqn{c_{im}} be the fraction of ensemble partitions
 #' in which \eqn{i} and \eqn{m} share a piece. The \emph{cohesion} of \eqn{i}
@@ -952,17 +954,17 @@ compute_ensemble_memberships <- function(trees,
 #'
 #' @return A \code{"fuzzy_clusters"} object with
 #'   \describe{
-#'     \item{\code{memberships}}{\eqn{N \times k} matrix \eqn{\Pi}; rows sum to 1, \code{NA} where \code{pi_support == 0}.}
+#'     \item{\code{memberships}}{\eqn{N \times k} matrix \eqn{\Pi}; rows sum to 1, filled from graph neighbours (see cluster_consensus() Details).
 #'     \item{\code{hard_clusters}}{Final labels (after contiguity repair).}
 #'     \item{\code{certainty}}{\eqn{\Pi_{i, \mathrm{hard}_i}}.}
 #'     \item{\code{margin}}{Best minus second-best entry of \eqn{\Pi}.}
-#'     \item{\code{entropy}}{Row entropy of \eqn{\Pi}, normalised by \eqn{\log k}.}
+#'     \item{\code{entropy}}{Row entropy of \eqn{\Pi}, normalized by \eqn{\log k}.}
 #'     \item{\code{pi_support}}{\eqn{M_i}, partitions in which \eqn{i} had a piece-mate.}
 #'     \item{\code{cohesion}}{Raw \eqn{A} (formerly \code{affinity}); not a probability.}
 #'     \item{\code{silhouette}, \code{avg_sil_width}}{Co-association silhouette, from cohesion.}
 #'     \item{\code{expected_vi}, \code{region_coassoc}}{Mean VI(draw, consensus); \eqn{k \times k} mean co-association.}
-#'     \item{\code{salso_a}}{The generalised-VI parameter \eqn{a} salso settled on (on the sample, if sampled).}
-#'     \item{\code{expected_loss}}{Generalised VI of the final labels at \code{salso_a}, per unit, in bits.}
+#'     \item{\code{salso_a}}{The generalized-VI parameter \eqn{a} salso settled on (on the sample, if sampled).}
+#'     \item{\code{expected_loss}}{Generalized VI of the final labels at \code{salso_a}, per unit, in bits.}
 #'     \item{\code{loss_gap}, \code{loss_alt}}{Change in total loss (bits) if the unit alone moved to \code{loss_alt}; negative means a single move would lower the loss.}
 #'     \item{\code{label_step}}{Factor: last step that changed the label (salso, merge, assign, refine, contiguity).}
 #'     \item{\code{salso_info}, \code{refine_info}}{salso's own fit summary; on the sampled path, VI-move convergence and per-round log (else \code{NULL}).}
@@ -1028,8 +1030,8 @@ cluster_consensus <- function(ensemble, k, graph = NULL,
 #' @noRd
 .finish_consensus <- function(meta, fit, k, graph = NULL,
                               enforce_contiguity = !is.null(graph),
-                              large_n_threshold = 20000, sample_size = 5000L,
-                              n_runs = 16L, n_cores = 1L,
+                              large_n_threshold = 20000, sample_size = 5000,
+                              n_runs = 16, n_cores = 1,
                               report_native = TRUE, verbose = TRUE) {
         memb <- meta$memb_mat
         N <- nrow(memb); M <- ncol(memb)
@@ -1073,14 +1075,15 @@ cluster_consensus <- function(ensemble, k, graph = NULL,
                 }
         }
         # --- memberships and per-unit summaries, all from final labels -------*
-        Pi  <- st$Pi
-        sm  <- .membership_summaries(Pi, hard)
         n_na <- sum(st$pi_support == 0L)
+        Pi   <- .fill_unsupported_pi(st$Pi, hard, graph)
+        sm   <- .membership_summaries(Pi, hard)
         if (n_na > 0L)
                 warning(sprintf(paste0(
-                        "%d unit(s) were a one-unit piece in every partition and have no ",
-                        "membership row (NA). Raise N_tree or lower regions_per_partition; ",
-                        "see `pi_support`."), n_na), call. = FALSE)
+                        "%d unit(s) were a one-unit piece in every partition (pi_support == 0). ",
+                        "Their memberships are the mean of their graph neighbours' rows, or ",
+                        "one-hot on the hard label without a graph. Raise N_tree or lower ",
+                        "regions_per_partition to reduce them."), n_na), call. = FALSE)
         
         # Co-association silhouette stays on cohesion (a co-association quantity).
         own_idx <- cbind(seq_len(N), hard)
@@ -1273,8 +1276,39 @@ sweep_native_regions <- function(trees, graph,
 
 # Steps that can set a consensus label, in pipeline order. `label_step` records
 # the LAST step that changed a unit's label.
-#.LABEL_STEPS <- c("salso", "merge", "assign", "refine", "contiguity")
 .LABEL_STEPS <- c("salso", "merge", "assign", "refine", "contiguity", "boundary")
+
+#' Fill Pi rows of units that never shared a piece
+#'
+#' A unit with pi_support == 0 gets the mean Pi row of its graph neighbours
+#' that have one, in synchronous passes outward from supported units, so the
+#' result does not depend on unit order. Units left without a filled
+#' neighbour (no graph, or no supported unit in reach) get a one-hot row on
+#' their hard label. pi_support stays 0 and flags every filled row.
+#' @keywords internal
+#' @noRd
+.fill_unsupported_pi <- function(Pi, hard, graph = NULL) {
+        miss <- which(rowSums(is.na(Pi)) > 0L)
+        if (!length(miss)) return(Pi)
+        if (!is.null(graph) && igraph::vcount(graph) == nrow(Pi)) {
+                A    <- igraph::as_adjacency_matrix(graph, sparse = TRUE, attr = NULL)[miss, , drop = FALSE]
+                done <- !(seq_len(nrow(Pi)) %in% miss)
+                repeat {
+                        todo <- which(!done[miss])
+                        if (!length(todo)) break
+                        D  <- A[todo, , drop = FALSE] %*% Matrix::Diagonal(x = as.numeric(done))
+                        nd <- Matrix::rowSums(D)
+                        if (!any(nd > 0)) break
+                        P0 <- Pi; P0[!done, ] <- 0
+                        ok <- nd > 0
+                        Pi[miss[todo[ok]], ] <- as.matrix(D[ok, , drop = FALSE] %*% P0) / nd[ok]
+                        done[miss[todo[ok]]] <- TRUE
+                }
+        }
+        left <- which(rowSums(is.na(Pi)) > 0L)
+        if (length(left)) { Pi[left, ] <- 0; Pi[cbind(left, hard[left])] <- 1 }
+        Pi
+}
 
 #' Co-labelling statistics of an ensemble against a reference labelling
 #'
@@ -1927,7 +1961,7 @@ print.spanning_trees <- function(x, ...) {
 #'   \code{"iterative"}. See Details.
 #' @param stability_B Integer. Random splits for \code{STAB} (see
 #'   Validity indices). Each split costs two consensus runs at half the
-#'   ensemble size. 0 skips it. Default 25.
+#'   ensemble size. 0 skips it. Default 10.
 #' @param voters Character. Validity columns that vote in the Borda aggregate
 #'   (\code{metric = "borda"}). Default \code{c("CH_ENV", "STAB")}. Check
 #'   \code{STAB} against \code{\link{compute_null_baseline}} before relying on it.
@@ -1983,7 +2017,7 @@ tune_regions <- function(graph,
                          weight_exponent     = 1,
                          metric = c("borda", "ch_env", "r2_env", "stability", "silhouette_ca", "expected_vi"),
                          strategy = c("grid", "sequential", "iterative"),
-                         stability_B       = 25L,
+                         stability_B       = 10,
                          voters            = c("CH_ENV", "STAB"),
                          prior_strength    = 0,
                          prior_typology    = NULL,
@@ -2134,7 +2168,7 @@ tune_regions <- function(graph,
         # Canonical column sets (kept fixed so rbind() works across batches).
         axis_cols <- .TUNE_AXES
         diag_cols <- c("P0", "N_EFF")
-        cvi_cols  <- c("CH_ENV", "R2_ENV", "STAB", "SIL_CA", "CERT", "EVI", "PAC")
+        cvi_cols  <- c("CH_ENV", "R2_ENV", "STAB", "STAB_FAIL","SIL_CA", "CERT", "EVI", "PAC")
         col_order <- c(axis_cols, diag_cols, cvi_cols)
         
         # --- Score one configuration -> one row of CVI columns ---------------*
@@ -2672,8 +2706,8 @@ print.pulse_regions <- function(x, ...) {
 compute_null_baseline <- function(graph, env = NULL, env_id = NULL, final_regions,
                                   regions_per_partition = 50, N_tree,
                                   weight_exponent = 1, size_influence = 2,
-                                  target_edge_turnover = 0.2,
-                                  B = 19L, stability_B = 25L, observed = NULL,
+                                  target_edge_turnover = 0.1,
+                                  B = 19L, stability_B = 10, observed = NULL,
                                   large_n_threshold = 20000, sample_size = 5000L,
                                   n_cores = 1, seed = NULL, verbose = TRUE) {
         stopifnot(inherits(graph, "igraph"),
@@ -2731,7 +2765,7 @@ compute_null_baseline <- function(graph, env = NULL, env_id = NULL, final_region
                                              stability_B = stability_B, stability_seed = stab_seed,
                                              large_n_threshold = large_n_threshold,
                                              sample_size = sample_size, n_cores = n_cores)
-                        cbind(data.frame(rep = b, final_regions = k), cv[, cvi_cols, drop = FALSE])
+                        cbind(data.frame(rep = b, final_regions = k, failed = is.null(res)), cv[, cvi_cols, drop = FALSE])
                 }))
         }
         null <- do.call(rbind, out)
@@ -2751,9 +2785,12 @@ compute_null_baseline <- function(graph, env = NULL, env_id = NULL, final_region
                 for (ax in names(cfg)) if (ax %in% names(observed))
                         observed <- observed[abs(observed[[ax]] - cfg[[ax]]) < 1e-9, , drop = FALSE]
         }
+        if (is.null(null$failed)) null$failed <- FALSE
         rows <- list()
         for (k in sort(unique(null$final_regions))) for (cr in names(.CVI_DIRECTION)) {
-                x   <- null[[cr]][null$final_regions == k]; x <- x[is.finite(x)]
+                at_k   <- null$final_regions == k
+                n_fail <- sum(null$failed[at_k])
+                x   <- null[[cr]][at_k & !null$failed]; x <- x[is.finite(x)]
                 sgn <- if (.CVI_DIRECTION[[cr]] == "max") 1 else -1
                 obs <- if (is.null(observed)) NA_real_ else {
                         o <- observed[[cr]][observed$final_regions == k]
@@ -2764,8 +2801,11 @@ compute_null_baseline <- function(graph, env = NULL, env_id = NULL, final_region
                         null_mean = if (length(x)) mean(x) else NA_real_,
                         null_95   = if (length(x)) unname(stats::quantile(x, if (sgn > 0) 0.95 else 0.05)) else NA_real_,
                         excess    = sgn * (obs - mean(x)),
-                        p         = if (length(x) && is.finite(obs)) (1 + sum(sgn * x >= sgn * obs)) / (length(x) + 1) else NA_real_,
-                        n_null    = length(x))
+                        p          = if (length(x) + n_fail > 0L && is.finite(obs))
+                                (1 + sum(sgn * x >= sgn * obs)) / (length(x) + n_fail + 1) else NA_real_,
+                        n_null     = length(x),
+                        n_fail     = n_fail,
+                        fail_share = n_fail / max(sum(at_k), 1L))
         }
         do.call(rbind, rows)
 }

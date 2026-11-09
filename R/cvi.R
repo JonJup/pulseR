@@ -70,7 +70,16 @@
                 if (is.null(la) || is.null(lb)) return(NA_real_)
                 .adjusted_rand_index(la, lb)
         }, numeric(1))
-        mean(aris, na.rm = TRUE)
+        
+        # A split whose half-estimate cannot give k regions has no reproducible
+        # partition for k. We count it as ARI 0. Dropping it would favour larger
+        # k.
+        fail <- is.na(aris)
+        aris[fail] <- 0
+        structure(
+                mean(aris), 
+                fail_share = mean(fail)
+        )
 }
 
 #' One row of validity columns for a fitted consensus.
@@ -97,7 +106,8 @@
                                      seed = stability_seed)
         data.frame(CH_ENV = unname(fe["CH_ENV"]),
                    R2_ENV = unname(fe["R2_ENV"]),
-                   STAB   = stab,
+                   STAB   = as.numeric(stab),
+                   STAB_FAIL = .first_non_null(attr(stab, "fail_share"), NA_real_),
                    SIL_CA = res$avg_sil_width,
                    CERT   = mean(res$certainty, na.rm = TRUE),
                    EVI    = res$expected_vi,

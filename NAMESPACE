@@ -43,7 +43,6 @@ export(hellinger_embed)
 export(js_distance_fast)
 export(local_palette)
 export(local_type_distance)
-export(merge_catchments)
 export(meta_palette)
 export(meta_region_table)
 export(mosaic_contrast)
@@ -115,7 +114,6 @@ importFrom(mclust,
 )
 importFrom(methods,as)
 importFrom(sf,
-  st_as_sf,
   st_as_sfc,
   st_bbox,
   st_cast,
@@ -134,9 +132,7 @@ importFrom(sf,
   st_make_valid,
   st_read,
   st_relate,
-  st_sfc,
-  st_touches,
-  st_union
+  st_touches
 )
 importFrom(spdep,
   mat2listw,
@@ -152,7 +148,6 @@ importFrom(stats,
   mad,
   rnorm,
   sd,
-  var,
-  weighted.mean
+  var
 )
 importFrom(utils,globalVariables)

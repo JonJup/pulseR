@@ -15,8 +15,8 @@ test_that("all-zero weights give uniform environmental propensity", {
         s <- c(1, 2, 3, 4)
         pr <- .cut_log_propensity(rep(0, 4), s)
         expect_true(all(is.finite(pr$lp)))
-        expect_equal(pr$alpha, 0)
-        expect_equal(pr$unit, 0)
+        expect_gt(pr$alpha, 0)
+        expect_equal(pr$unit, log(2))
 })
 
 test_that("the ensemble runs on a graph with zero weights", {

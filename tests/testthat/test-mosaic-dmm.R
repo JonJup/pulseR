@@ -45,7 +45,7 @@ test_that("engine/metric mismatches and missing totals fail early", {
         fx <- .dmm_fixture()
         expect_error(get_mosaic_types(fx$sig, 2:3, method = "dmm", metric = "GD5",
                                       verbose = FALSE), "needs PAM medoids")
-        expect_error(get_mosaic_types(fx$sig, 2:3, metric = "ICL", verbose = FALSE),
+        expect_error(get_mosaic_types(fx$sig, 2:3, metric = "ICL", verbose = FALSE, method = "pam"),
                      "needs a likelihood")
         expect_error(get_mosaic_types(unclass(fx$sig)[, ], 2:3, method = "dmm",
                                       verbose = FALSE), "totals")
@@ -57,7 +57,7 @@ test_that("sweep_k_order() runs for both engines (mosaic_contrast stack overflow
         fx <- .dmm_fixture(n = 12)
         expect_length(mosaic_contrast(fx$sig, fx$g), nrow(fx$sig))
         sp <- suppressMessages(sweep_k_order(fx$P, fx$g, k_range = 1:2, n_clusters = 2:3,
-                                             stability_B = 0, verbose = FALSE))
+                                             stability_B = 0, verbose = FALSE, method = "pam"))
         sd <- suppressWarnings(suppressMessages(
                 sweep_k_order(fx$P, fx$g, k_range = 1:2, n_clusters = 2:3, method = "dmm",
                               verbose = FALSE, dmm_control = list(n_start = 1))))

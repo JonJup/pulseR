@@ -13,7 +13,7 @@ tune_regions(
   weight_exponent = 1,
   metric = c("borda", "ch_env", "r2_env", "stability", "silhouette_ca", "expected_vi"),
   strategy = c("grid", "sequential", "iterative"),
-  stability_B = 25L,
+  stability_B = 10,
   voters = c("CH_ENV", "STAB"),
   prior_strength = 0,
   prior_typology = NULL,
@@ -61,7 +61,7 @@ information between ensemble columns and the consensus).}
 
 \item{stability_B}{Integer. Random splits for \code{STAB} (see
 Validity indices). Each split costs two consensus runs at half the
-ensemble size. 0 skips it. Default 25.}
+ensemble size. 0 skips it. Default 10.}
 
 \item{voters}{Character. Validity columns that vote in the Borda aggregate
 (\code{metric = "borda"}). Default \code{c("CH_ENV", "STAB")}. Check

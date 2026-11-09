@@ -15,11 +15,11 @@ get_regions(
   size_influence = 2,
   prior_typology = NULL,
   prior_strength = 0,
-  target_edge_turnover = 0.2,
+  target_edge_turnover = 0.1,
   tuning_strategy = c("grid", "sequential", "iterative"),
   tuning_metric = c("borda", "ch_env", "r2_env", "stability", "silhouette_ca",
     "expected_vi"),
-  stability_B = 25L,
+  stability_B = 10,
   large_n_threshold = 20000,
   n_cores = 1,
   trees = NULL,
@@ -56,7 +56,8 @@ trees, one partition each. Trees are sampled once at \code{max(N_tree)}.}
 \eqn{\gamma}. The cut probability of an edge is proportional to its
 weight raised to \eqn{\gamma}, times the size factor. \eqn{\gamma = 0}
 ignores the weights, \eqn{\gamma = 1} (default) is proportional to
-weight, larger values concentrate cuts on the heaviest edges.}
+weight, larger values concentrate cuts on the heaviest edges. γ = 0 ignores
+the weights; add size_influence = 0 for uniform random cuts}
 
 \item{size_influence}{Non-negative numeric. Spread of the size-balance term
 \eqn{\log(n_c (N - n_c) / N)} relative to the spread of the environmental
@@ -79,7 +80,7 @@ warning.}
 
 \item{target_edge_turnover}{Numeric in \eqn{[0, 1)}. Average share of the
 unperturbed minimum spanning tree's edges replaced in each sampled tree.
-Default 0.2 here (0.1 in \code{\link{sample_spanning_trees}}).}
+Default 0.1.}
 
 \item{tuning_strategy}{Character. One of \code{"grid"} (default),
 \code{"sequential"}, \code{"iterative"}. See \code{\link{tune_regions}}.}
@@ -91,7 +92,7 @@ Default 0.2 here (0.1 in \code{\link{sample_spanning_trees}}).}
 
 \item{stability_B}{Integer. Random splits for the \code{STAB} index
 (split-half ensemble agreement, see \code{\link{tune_regions}}) during
-tuning. 0 skips it. Default 25.}
+tuning. 0 skips it. Default 10.}
 
 \item{large_n_threshold}{Integer. Above this number of vertices, salso
 runs on a sample of units and the rest are assigned and refined. Default
@@ -115,8 +116,8 @@ caller's RNG state is restored on exit.}
 An object of class \code{"pulse_regions"}, a list with
 \describe{
 \item{\code{memberships}}{\eqn{N \times k} matrix \eqn{\Pi}. Rows sum
-to 1; \code{NA} where a unit never shared a piece
-(\code{fit$pi_support == 0}); all-zero for uncovered units when
+to 1; filled from graph neighbours (see cluster_consensus() Details);
+all-zero for uncovered units when
 \code{prior_strength = Inf}.}
 \item{\code{entropy}}{Row entropy of \code{memberships}.}
 \item{\code{hard_clusters}}{Integer vector of consensus labels.}

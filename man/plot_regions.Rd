@@ -45,9 +45,7 @@ within \code{margin} — the fuzzy boundaries themselves.}
 \eqn{\Pi}, which isolates boundaries. \code{"typicality"}: own-region
 cohesion. Cohesion shrinks with region size, so large homogeneous regions
 look uncertain; use it only to compare units within one region.
-\code{"membership"} is accepted as an alias for \code{"certainty"}.
-Units with no \eqn{\Pi} row (\code{pi_support == 0}) are drawn fully
-faded.}
+\code{"membership"} is accepted as an alias for \code{"certainty"}.}
 
 \item{which}{Integer vector of regions, for \code{what = "membership"}.}
 
