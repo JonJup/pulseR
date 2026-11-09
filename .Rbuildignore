@@ -1,3 +1,6 @@
 ^pulseR\.Rproj$
 ^\.Rproj\.user$
 ^LICENSE\.md$
+sim\.*
+round2_pulseR_pre-CRAN_review.md
+round3_pulseR — code-grounded review for CRAN and MEE.md

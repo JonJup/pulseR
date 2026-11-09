@@ -14,6 +14,7 @@ compute_all_signatures(
   drop_zero_cols = TRUE,
   block = 64L,
   digits = NULL,
+  exclude_bridges = TRUE,
   verbose = TRUE
 )
 }
@@ -40,11 +41,18 @@ memory is tight. Default 64.}
 \item{digits}{Rounding, or \code{NULL} (default) for none. Rounding is lossy
 and was only ever cosmetic.}
 
+\item{exclude_bridges}{Drop edges flagged \code{bridge == TRUE} (set by
+\code{\link{polygon_to_network}}) before building neighbourhoods, so
+neighbourhoods never cross a bridge. Default \code{TRUE}. A graph without
+a \code{bridge} edge attribute is used unchanged.}
+
 \item{verbose}{Logical.}
 }
 \value{
 Numeric \eqn{n \times \binom{c+1}{2}} matrix with \code{"a:b"} column
-names. Rows whose neighbourhood contains no edge are \code{NA}.
+names and attribute \code{"exclude_bridges"}. Rows whose neighbourhood
+contains no edge are \code{NA}; with \code{exclude_bridges = TRUE} this
+includes units joined to the rest only by bridges.
 }
 \description{
 For focal \eqn{f} the signature is the upper triangle of

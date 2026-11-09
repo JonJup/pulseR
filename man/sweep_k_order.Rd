@@ -12,6 +12,7 @@ sweep_k_order(
   n_clusters = 2:10,
   kernel = "none",
   sigma = "global",
+  exclude_bridges = TRUE,
   ...
 )
 }
@@ -26,7 +27,9 @@ sweep_k_order(
 
 \item{n_clusters}{Candidate mosaic-type counts. Default 2:10.}
 
-\item{kernel, sigma}{Passed to \code{\link{compute_all_signatures}}.}
+\item{kernel, sigma, exclude_bridges}{Passed to
+\code{\link{compute_all_signatures}}. \code{exclude_bridges} defaults to
+\code{TRUE}.}
 
 \item{...}{Passed to \code{\link{get_mosaic_types}} (\code{distance},
 \code{metric}, \code{stability_B}, \code{sample_size}, \code{seed}).}
