@@ -9,6 +9,7 @@
 #' @param n_scale Multiplier on the totals (sensitivity analysis: try 0.5 and 2).
 #' @return Numeric matrix of non-negative, possibly fractional counts, NA rows dropped.
 #' @keywords internal
+#' @noRd
 .sig_to_counts <- function(signatures, totals = attr(signatures, "totals"), n_scale = 1) {
         if (is.null(totals))
                 stop("No totals: add `attr(signatures, \"totals\") <- rs` in compute_all_signatures().",
@@ -150,6 +151,7 @@
 #'   \code{BIC}, \code{ICL} (both lower is better), \code{limit}, \code{trace},
 #'   \code{converged}.
 #' @keywords internal
+#' @noRd
 .fit_dmm <- function(X, K, n_start = 5L, max_iter = 500L, tol = 1e-5,
                      A_init = 50, alpha_min = 1e-4, A_max = 1e6, seed = NULL) {
         X <- as.matrix(X)
@@ -228,6 +230,7 @@
 #' @param X_new Count matrix with the same columns as the fitted \code{X}.
 #' @return List with \code{U}, \code{cluster}, per-row \code{logpred} and its sum \code{loglik}.
 #' @keywords internal
+#' @noRd
 .score_dmm <- function(fit, X_new) {
         X_new <- as.matrix(X_new)
         if (ncol(X_new) != ncol(fit$alpha)) stop("Column mismatch with the fitted model.", call. = FALSE)
@@ -239,6 +242,8 @@
              logpred = lse, loglik = sum(lse))
 }
 
+#' @rdname get_mosaic_types
+#' @return \code{print.pulse_dmm} returns \code{x} invisibly.
 #' @export
 print.pulse_dmm <- function(x, ...) {
         cat(sprintf("Dirichlet-multinomial mixture: K = %d, N = %d, C = %d\n",
@@ -251,4 +256,4 @@ print.pulse_dmm <- function(x, ...) {
         cat("Sizes:        ", tabulate(x$cluster, x$K), "\n")
         cat("Concentration:", signif(x$concentration, 3), "\n")
         invisible(x)
-}
+}

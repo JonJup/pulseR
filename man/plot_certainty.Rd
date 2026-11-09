@@ -48,8 +48,9 @@ A row of \eqn{k} memberships cannot fall below \eqn{1/k}, so raw certainty
 is not comparable across levels or fits with different numbers of types.
 The dotted line marks \eqn{1/k} where \eqn{k} is constant within a level;
 \code{rescale = TRUE} maps \eqn{[1/k, 1]} onto \eqn{[0, 1]} unit by unit.
-Local types are conditional on their region, so for them \eqn{k} is the
-number of local types in the unit's region.
+Local types are conditional on their region: certainty is the
+within-region type probability \eqn{z} of the assigned type, and \eqn{k}
+is the number of local types in the unit's region.
 
 Memberships do not mean the same thing at every level (ensemble composition
 at Level 1, mixture posteriors for local types and \code{method = "dmm"}

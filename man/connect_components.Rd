@@ -31,7 +31,8 @@ its \code{sfc} are treated identically.}
 \item{method}{Character; nearest-neighbour backend. One of:
 \describe{
 \item{\code{"rann"}}{kd-tree lookup via \code{\link[RANN]{nn2}}. Fastest,
-but operates on planar coordinates and ignores the CRS.}
+but operates on planar coordinates and ignores the CRS. If \pkg{RANN}
+is not installed, \code{"sf"} is used instead, with a message.}
 \item{\code{"nngeo"}}{\code{\link[nngeo]{st_nn}}; slower, but CRS-aware
 (geodesic distances for lon/lat data).}
 \item{\code{"sf"}}{Brute-force \code{\link[sf]{st_distance}}; no extra
@@ -49,7 +50,8 @@ form a single connected component. Every edge carries the logical
 attribute \code{bridge} (\code{TRUE} for added edges, \code{FALSE}
 otherwise) and the numeric attribute \code{bridge_dist} (bridge length in
 metres; \code{NA} on non-bridges). The graph attribute
-\code{bridge_dist_method} records how the length was measured. If
+\code{bridge_dist_method} records how the length was measured and
+\code{bridge_search_method} which backend chose the pairs. If
 \code{g} is already connected only the attributes are added.
 }
 \description{

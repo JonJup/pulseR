@@ -123,3 +123,20 @@ test_that("the permutation null accepts a penalised graph", {
 })
 
 
+
+test_that("without RANN, bridges fall back to sf and the backend is recorded", {
+        local_mocked_bindings(.has_pkg = function(pkg) FALSE)
+        expect_message(net <- build_network(make_island_sf(), verbose = FALSE), "RANN")
+        expect_identical(igraph::graph_attr(net$graph, "bridge_search_method"), "sf")
+        expect_identical(sum(igraph::E(net$graph)$bridge), 1L)
+})
+
+test_that("add_edge_weight() keeps the input graph's vertices, edges and attributes", {
+        net <- build_network(make_island_sf(), verbose = FALSE)
+        g   <- add_edge_weight(net, verbose = FALSE)
+        expect_identical(igraph::V(g)$polygon_id, igraph::V(net$graph)$polygon_id)
+        expect_identical(igraph::ends(g, igraph::E(g), names = FALSE),
+                         igraph::ends(net$graph, igraph::E(net$graph), names = FALSE))
+        expect_identical(igraph::E(g)$bridge, igraph::E(net$graph)$bridge)
+        expect_identical(igraph::E(g)$eid, seq_len(igraph::ecount(g)))
+})

@@ -50,7 +50,7 @@
 #' @return Mean ARI over splits, or \code{NA} if \code{M < 4}.
 #' @keywords internal
 #' @noRd
-.stability_consensus <- function(memb, k, B = 25L,
+.stability_consensus <- function(memb, k, B = 10L,
                                  large_n_threshold = 20000, sample_size = 5000L,
                                  n_runs = 4L, n_cores = 1L, seed = NULL) {
         if (B <= 0L) return(NA_real_)
@@ -94,7 +94,7 @@
 #' @keywords internal
 #' @noRd
 .consensus_cvis <- function(res, memb, env = NULL,
-                            stability_B = 25L,
+                            stability_B = 10L,
                             stability_seed = NULL, large_n_threshold = 20000,
                             sample_size = 5000L, n_cores = 1L, verbose = FALSE) {
         k <- res$k; hard <- res$hard_labels
@@ -127,7 +127,12 @@
 #' @noRd
 .BORDA_COLS <- c("CH_ENV", "STAB")
 
-# REPLACES the existing .derive_score_column()
+#' Score column of a tuning log, higher is better
+#'
+#' \code{"borda"} is minus the mean Borda rank over \code{voters}; the other
+#' metrics return their validity column (minus \code{EVI}).
+#' @keywords internal
+#' @noRd
 .derive_score_column <- function(df, metric, voters = .BORDA_COLS) {
         switch(metric,
                borda = {

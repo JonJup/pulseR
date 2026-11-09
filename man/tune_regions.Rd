@@ -138,8 +138,12 @@ configuration, with all four axis columns and all CVI columns),
 \code{candidates}, \code{active_axes}, \code{n_ensembles_built},
 \code{tuning_metric}, \code{voters}, \code{tuning_strategy}, \code{prior_strength} and
 \code{ensemble} (the winner's \eqn{N \times N_{tree}} label matrix).
-When \code{prior_strength = Inf}, the exact-prior list is returned
-instead.
+\code{n_tied} counts configurations sharing the best score,
+\code{runner_up} is the best other row of \code{tuning_log}, and
+\code{tie_rule} states how ties are broken (see Details).
+When \code{prior_strength = Inf}, the object has the same class and slots,
+with the prior as \code{best_result} (one-hot \code{memberships},
+\code{hard_labels}, \code{coverage}) and no \code{tuning_log}.
 }
 \description{
 Searches over up to four hyper-parameters -- \code{regions_per_partition},
@@ -186,6 +190,16 @@ coordinate-descent pass over the active axes in the order
 \code{final_regions}, starting from
 the median candidate on each axis. \code{"iterative"} repeats that pass until
 the incumbent configuration stops moving or \code{max_iter} is reached.
+}
+
+\section{Ties}{
+
+Several configurations can share the best score, most often under Borda,
+whose scores are mean ranks. Ties are broken, in every search strategy, by
+the fewest \code{final_regions}, then the fewest
+\code{regions_per_partition}, then the smallest \code{weight_exponent},
+then the largest \code{N_tree}. The number of tied rows and the runner-up
+are returned.
 }
 
 \section{Caveat on the ensemble-size axis}{

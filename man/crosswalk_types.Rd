@@ -106,6 +106,8 @@ settings used.}
 For a list input, a \code{"pulse_crosswalk_set"} with \code{results} (one
 \code{pulse_crosswalk} per element) and \code{by_level}, a comparison
 table. Compare levels on AMI, not NMI: NMI rises with the number of types.
+
+\code{print.pulse_crosswalk} and \code{print.pulse_crosswalk_set} return \code{x} invisibly.
 }
 \description{
 Cross-tabulates a pulseR typology (any level) against an existing typology

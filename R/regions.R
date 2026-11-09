@@ -238,10 +238,11 @@ get_regions <- function(graph,
         # drawn from the same stream so one `seed` fixes everything.
         stab_seed <- if (is.null(seed)) NULL else sample.int(.Machine$integer.max, 1L)
         
+        # Candidate sets are de-duplicated first, so c(50, 50) is one value.
         needs_tuning <-
                 length(regions_per_partition) > 1L || length(final_regions) > 1L ||
-                length(N_tree) > 1L ||
-                length(weight_exponent) > 1L
+                length(N_tree_values) > 1L ||
+                length(unique(weight_exponent)) > 1L
         
         if (needs_tuning) {
                 if (verbose) message("Tuning Level 1 configurations ...")
@@ -383,7 +384,16 @@ get_regions <- function(graph,
 #'     \item{\code{within_prior_edge}}{Logical vector length |E| flagging
 #'       within-prior edges, or \code{NULL}.}
 #'     \item{\code{prior_strength}}{As supplied.}
+#'     \item{\code{noise_scale}, \code{eta}}{Base unit of the weight
+#'       perturbation (MAD of the edge weights, see Details) and the calibrated
+#'       multiplier; the noise standard deviation is their product.}
 #'   }
+#'
+#' @details The perturbation unit is the median absolute deviation (MAD) of
+#'   the edge weights. When more than half of the weights are equal, the MAD
+#'   is 0 and would remove all perturbation; the unit then falls back to
+#'   \code{IQR / 1.349}, then the standard deviation, then 1 (all weights
+#'   equal), with a warning.
 #'
 #' @seealso \code{\link{get_regions}} for the full one-call pipeline.
 #'
@@ -472,7 +482,7 @@ sample_spanning_trees <- function(graph, n, seed = NULL, verbose = TRUE,
         # --- Sample the trees ---- *---- *---- *---- *---- *---- *---- *---- *---- *---- *--
         if (verbose) message(sprintf("Sampling %d spanning trees ...", n))
         tick <- if (verbose) .make_progress(n, "Spanning trees") else function(i) NULL
-        edge_mad <- stats::mad(edge_w)
+        edge_mad <- .noise_scale(edge_w, warn = target_edge_turnover > 0)
         eta_emp <- .calibrate_eta_empirical(graph  = graph, 
                                             w      = edge_w, 
                                             s      = edge_mad,
@@ -496,7 +506,9 @@ sample_spanning_trees <- function(graph, n, seed = NULL, verbose = TRUE,
                         seed              = seed,
                         prior_labels      = prior_labels, 
                         within_prior_edge = within_prior_edge,
-                        prior_strength    = prior_strength
+                        prior_strength    = prior_strength,
+                        noise_scale       = edge_mad,
+                        eta               = eta_emp
                 ),
                 class = "pulse_trees"
         )
@@ -621,21 +633,16 @@ compute_ensemble <- function(trees,
         )
         if (verbose) message(sprintf("  Done in %s", .format_duration(proc.time()[["elapsed"]] - t0)))
         
-        structure(
-                list(
-                        memberships         = memb,
-                        N_tree                = as.integer(N_tree),
-                        regions_per_partition = as.integer(regions_per_partition),
-                        n_members           = ncol(memb),
-                        weight_exponent     = weight_exponent,
-                        n_vertices          = trees$n_vertices,
-                        prior_strength      = prior_strength,
-                        chance_coassoc      = .chance_coassoc_by_col(memb),
-                        cut_rule            = cut_rule,
-                        min_size            = as.integer(min_size)
-                ),
-                class = "pulse_ensemble"
-        )
+        # One constructor for every ensemble, so objects from tune_regions()
+        # and from here have the same fields and types.
+        .new_ensemble(memb,
+                      N_tree                = N_tree,
+                      regions_per_partition = regions_per_partition,
+                      weight_exponent       = weight_exponent,
+                      prior_strength        = prior_strength,
+                      n_vertices            = trees$n_vertices,
+                      cut_rule              = cut_rule,
+                      min_size              = min_size)
 }
 
 # -------------------------------------------------------------------------*
@@ -1012,7 +1019,7 @@ compute_ensemble <- function(trees,
 #'
 #' @return A \code{"pulse_consensus"} object with
 #'   \describe{
-#'     \item{\code{memberships}}{\eqn{N \times k} matrix \eqn{\Pi}; rows sum to 1, filled from graph neighbours (see compute_consensus() Details).
+#'     \item{\code{memberships}}{\eqn{N \times k} matrix \eqn{\Pi}; rows sum to 1; rows of units with \code{pi_support == 0} are filled from graph neighbours (see Details).}
 #'     \item{\code{hard_labels}}{Final labels (after contiguity repair).}
 #'     \item{\code{certainty}}{\eqn{\Pi_{i, \mathrm{hard}_i}}.}
 #'     \item{\code{margin}}{Best minus second-best entry of \eqn{\Pi}.}
@@ -1029,7 +1036,10 @@ compute_ensemble <- function(trees,
 #'     \item{\code{salso_native}}{\code{NULL}, or a list: \code{k}, the
 #'       region count salso picks under VI with \eqn{a = 1} and no target;
 #'       \code{labels}, its partition (length N, \code{NA} for units outside
-#'       the sample, no contiguity repair); \code{sampled}; \code{n_units}.
+#'       the sample, no contiguity repair); \code{sampled}; \code{n_units};
+#'       \code{capped}, \code{TRUE} when \code{k} reached the largest piece
+#'       count among the ensemble partitions, the most salso searches, so
+#'       \code{k} is a lower bound.
 #'       This count can depend strongly on \code{regions_per_partition}; check
 #'       with \code{\link{check_native_regions}} before reading it as a
 #'       property of the landscape.}
@@ -1185,7 +1195,8 @@ compute_consensus <- function(ensemble, final_regions, graph = NULL,
                         "  salso without a target k (VI, a = 1): %d regions%s; requested k = %d ",
                         "(regions_per_partition = %s). See check_native_regions()."),
                         native$k,
-                        if (native$sampled) sprintf(" on a %d-unit sample", native$n_units) else "",
+                        paste0(if (native$sampled) sprintf(" on a %d-unit sample", native$n_units) else "",
+                               if (native$capped) " (at salso's cluster cap: a lower bound)" else ""),
                         k, format(meta$regions_per_partition)))
         }
         
@@ -1226,12 +1237,24 @@ compute_consensus <- function(ensemble, final_regions, graph = NULL,
 #' @noRd
 .salso_native <- function(memb, idx = seq_len(nrow(memb)), n_runs = 16L, n_cores = 1L) {
         draws <- t(memb[idx, , drop = FALSE]); storage.mode(draws) <- "integer"
-        est <- as.integer(salso::salso(draws, loss = salso::VI(),
-                                       nRuns = n_runs, nCores = n_cores))
+        # salso searches at most as many clusters as the largest draw has and
+        # warns when its estimate reaches that cap. The count is then a lower
+        # bound; record that as `capped` instead of passing the warning on.
+        capped <- FALSE
+        est <- withCallingHandlers(
+                as.integer(salso::salso(draws, loss = salso::VI(),
+                                        nRuns = n_runs, nCores = n_cores)),
+                warning = function(w) {
+                        if (grepl("maximum possible number of clusters", conditionMessage(w))) {
+                                capped <<- TRUE
+                                invokeRestart("muffleWarning")
+                        }
+                })
         lab <- rep(NA_integer_, nrow(memb))
         lab[idx] <- match(est, sort(unique(est)))
         list(k = length(unique(est)), labels = lab,
-             sampled = length(idx) < nrow(memb), n_units = length(idx))
+             sampled = length(idx) < nrow(memb), n_units = length(idx),
+             capped = capped)
 }
 
 #' Region count salso chooses on its own, across ensemble settings
@@ -1256,7 +1279,8 @@ compute_consensus <- function(ensemble, final_regions, graph = NULL,
 #'   is a lower bound when \code{sample_size < N}. Compare rows with each other,
 #'   not with the full-data count.
 #' @return A data frame with \code{regions_per_partition}, \code{N_tree},
-#'   \code{n_eff}, \code{native_regions},
+#'   \code{n_eff}, \code{native_regions}, \code{capped} (\code{TRUE} when
+#'   salso hit its cluster cap, so \code{native_regions} is a lower bound),
 #'   \code{ratio} (\code{native_regions / regions_per_partition}) and
 #'   \code{seconds}.
 #' @examples
@@ -1304,13 +1328,15 @@ check_native_regions <- function(trees, graph,
                 for (nt in N_vals) {
                         cols <- seq_len(nt)
                         t0   <- proc.time()[["elapsed"]]
-                        k_nat <- .salso_native(memb_s[, cols, drop = FALSE],
-                                               n_runs = n_runs, n_cores = n_cores)$k
+                        nat   <- .salso_native(memb_s[, cols, drop = FALSE],
+                                               n_runs = n_runs, n_cores = n_cores)
+                        k_nat <- nat$k
                         sec  <- proc.time()[["elapsed"]] - t0
                         r <- r + 1L
                         rows[[r]] <- data.frame(regions_per_partition = R, N_tree = nt,
                                                 n_eff = 1 / mean(p0[cols]),
                                                 native_regions = k_nat,
+                                                capped = nat$capped,
                                                 ratio = k_nat / R, seconds = sec)
                         if (verbose) message(sprintf(
                                 "  regions_per_partition = %d, N_tree = %d: %d regions (%.1f s)",
@@ -1333,6 +1359,16 @@ check_native_regions <- function(trees, graph,
                      prior_strength        = ensemble$prior_strength,
                      chance_coassoc        = mean(ensemble$chance_coassoc))
         } else if (is.matrix(ensemble)) {
+                if (!is.numeric(ensemble) || anyNA(ensemble) ||
+                    any(ensemble != round(ensemble)))
+                        stop("A bare `ensemble` matrix must hold whole-number labels without NA.",
+                             call. = FALSE)
+                # Labels index sparse-matrix columns downstream, so they must
+                # start at 1 (e.g. 0-based labels from other software).
+                if (min(ensemble) < 1)
+                        ensemble <- matrix(apply(ensemble, 2L, function(v) match(v, sort(unique(v)))),
+                                           nrow = nrow(ensemble))
+                storage.mode(ensemble) <- "integer"
                 list(memb_mat              = ensemble,
                      regions_per_partition = NA_integer_,
                      N_tree                = NA_integer_,
@@ -1814,7 +1850,7 @@ check_native_regions <- function(trees, graph,
                         regions_per_partition  = as.integer(regions_per_partition),
                         n_members             = ncol(memb),
                         weight_exponent       = as.numeric(weight_exponent),
-                        n_vertices            = n_vertices,
+                        n_vertices            = as.integer(n_vertices),   # vcount() is double in igraph >= 2.0
                         prior_strength        = prior_strength,
                         chance_coassoc        = p0_by_col,
                         cut_rule              = cut_rule,
@@ -1928,6 +1964,26 @@ print.pulse_trees <- function(x, ...) {
 #' @noRd
 .ENSEMBLE_AXES <- c("regions_per_partition", "weight_exponent")
 
+#' Row of the best score, with an explicit tie-break
+#'
+#' Used by the final selection and by the coordinate-descent sweeps, so every
+#' strategy breaks ties the same way.
+#' @param log Data frame with the four axis columns.
+#' @param score Score per row, higher is better.
+#' @return Row index, or \code{NA_integer_} if every score is \code{NA}.
+#' @keywords internal
+#' @noRd
+.pick_best <- function(log, score = log$score) {
+        if (all(is.na(score))) return(NA_integer_)
+        top <- which(score >= max(score, na.rm = TRUE) - .TIE_TOL)
+        if (length(top) == 1L) return(top)
+        top[order(log$final_regions[top], log$regions_per_partition[top],
+                  log$weight_exponent[top], -log$N_tree[top])[1L]]
+}
+.TIE_TOL  <- 1e-12
+.TIE_RULE <- paste("fewest final_regions, then fewest regions_per_partition,",
+                   "then smallest weight_exponent, then largest N_tree")
+
 #' Canonical key for one hyper-parameter configuration
 #'
 #' Numeric axes are formatted at full double precision so that floating-point
@@ -1986,6 +2042,14 @@ print.pulse_trees <- function(x, ...) {
 #' \code{final_regions}, starting from
 #' the median candidate on each axis. \code{"iterative"} repeats that pass until
 #' the incumbent configuration stops moving or \code{max_iter} is reached.
+#'
+#' @section Ties:
+#' Several configurations can share the best score, most often under Borda,
+#' whose scores are mean ranks. Ties are broken, in every search strategy, by
+#' the fewest \code{final_regions}, then the fewest
+#' \code{regions_per_partition}, then the smallest \code{weight_exponent},
+#' then the largest \code{N_tree}. The number of tied rows and the runner-up
+#' are returned.
 #'
 #' @section Caveat on the ensemble-size axis:
 #' Most validity indices drift monotonically with \code{N_tree} (Monte Carlo
@@ -2085,8 +2149,12 @@ print.pulse_trees <- function(x, ...) {
 #'   \code{candidates}, \code{active_axes}, \code{n_ensembles_built},
 #'   \code{tuning_metric}, \code{voters}, \code{tuning_strategy}, \code{prior_strength} and
 #'   \code{ensemble} (the winner's \eqn{N \times N_{tree}} label matrix).
-#'   When \code{prior_strength = Inf}, the exact-prior list is returned
-#'   instead.
+#'   \code{n_tied} counts configurations sharing the best score,
+#'   \code{runner_up} is the best other row of \code{tuning_log}, and
+#'   \code{tie_rule} states how ties are broken (see Details).
+#'   When \code{prior_strength = Inf}, the object has the same class and slots,
+#'   with the prior as \code{best_result} (one-hot \code{memberships},
+#'   \code{hard_labels}, \code{coverage}) and no \code{tuning_log}.
 #'
 #' @export
 tune_regions <- function(graph, 
@@ -2143,7 +2211,27 @@ tune_regions <- function(graph,
                         stop("`prior_strength = Inf` requires `prior_typology`.", call. = FALSE)
                 }
                 prior_labels <- .resolve_prior_typology(graph, prior_typology)
-                return(.exact_prior_result(prior_labels, verbose = verbose))
+                pr <- .exact_prior_result(prior_labels, verbose = verbose)
+                K  <- ncol(pr$memberships)
+                # Same class and slots as a tuned result, so get_local_types(),
+                # as_mosaic_input() and crosswalk_types() accept it.
+                best <- list(memberships = pr$memberships, hard_labels = pr$hard_labels,
+                             coverage = pr$coverage, class_levels = pr$class_levels,
+                             k = K)
+                cfg <- data.frame(regions_per_partition = K, weight_exponent = NA_real_,
+                                  N_tree = NA_integer_, final_regions = K)
+                return(structure(list(
+                        best_result = best, best_config = cfg,
+                        best_regions_per_partition = K, best_final_regions = K,
+                        best_weight_exponent = NA_real_, best_N_tree = NA_integer_,
+                        best_score = NA_real_, n_tied = NA_integer_, runner_up = NULL,
+                        tie_rule = NA_character_, tuning_log = NULL, candidates = NULL,
+                        active_axes = character(0), n_ensembles_built = 0L,
+                        tuning_metric = tuning_metric, voters = voters,
+                        tuning_strategy = tuning_strategy, prior_strength = Inf,
+                        cut_rule = NA_character_, refine_boundary = NA,
+                        min_size = NA_integer_, ensemble = NULL),
+                        class = "pulse_regions_tuning"))
         }
         
         # --- Normalize candidate sets ----------------------------------------*
@@ -2353,7 +2441,7 @@ tune_regions <- function(graph,
                 if (length(idx) == 0L) return(cur[[axis]])
                 sc <- tuning_log$score[idx]
                 if (all(is.na(sc))) return(cur[[axis]])
-                tuning_log[[axis]][idx][which.max(sc)]
+                tuning_log[[axis]][idx][.pick_best(tuning_log[idx, , drop = FALSE], sc)]
         }
         
         sweep_axis <- function(axis, label) {
@@ -2438,10 +2526,18 @@ tune_regions <- function(graph,
                      "check the tuning_metric and inputs.", call. = FALSE)
         }
         
-        best_idx <- which.max(tuning_log$score)
+        best_idx <- .pick_best(tuning_log)
         best_cfg <- tuning_log[best_idx, axis_cols, drop = FALSE]
         rownames(best_cfg) <- NULL
         best_sc  <- tuning_log$score[best_idx]
+        n_tied   <- sum(tuning_log$score >= best_sc - .TIE_TOL, na.rm = TRUE)
+        rest     <- tuning_log[-best_idx, , drop = FALSE]
+        runner_up <- if (nrow(rest) && any(!is.na(rest$score))) {
+                ru <- rest[.pick_best(rest), , drop = FALSE]; rownames(ru) <- NULL; ru
+        } else NULL
+        if (verbose && n_tied > 1L)
+                message(sprintf("  %d configurations tie on the %s score; tie broken by: %s.",
+                                n_tied, tuning_metric, .TIE_RULE))
         
         if (verbose) {
                 message(sprintf(paste0(
@@ -2482,6 +2578,9 @@ tune_regions <- function(graph,
                         best_weight_exponent      = best_cfg$weight_exponent,
                         best_N_tree                 = best_cfg$N_tree,
                         best_score                = best_sc,
+                        n_tied                    = as.integer(n_tied),
+                        runner_up                 = runner_up,
+                        tie_rule                  = .TIE_RULE,
                         tuning_log                = tuning_log,
                         candidates                = cand,
                         active_axes               = active_axes,
@@ -2699,6 +2798,10 @@ tune_regions <- function(graph,
 }
 
 
+#' @rdname get_regions
+#' @param x An object of class \code{"pulse_regions"}.
+#' @param ... Unused.
+#' @return \code{print.pulse_regions} returns \code{x} invisibly.
 #' @export
 print.pulse_regions <- function(x, ...) {
         cat(sprintf("<pulse_regions>  %d units x %d regions | %s\n",
@@ -2718,6 +2821,26 @@ print.pulse_regions <- function(x, ...) {
         invisible(x)
 }
 
+#' Robust scale of the edge weights, the base unit of the tree perturbation
+#'
+#' MAD, falling back to IQR / 1.349, then sd, then 1 when a scale is 0, so a
+#' graph where most neighbour pairs are identical still gets diverse trees.
+#' @keywords internal
+#' @noRd
+.noise_scale <- function(w, warn = TRUE) {
+        s <- stats::mad(w)
+        if (is.finite(s) && s > 0) return(s)
+        cand <- c(`IQR / 1.349` = stats::IQR(w) / 1.349, sd = stats::sd(w), `1` = 1)
+        use  <- names(cand)[which(is.finite(cand) & cand > 0)[1L]]
+        if (warn)
+                warning(sprintf(paste0(
+                        "The MAD of the edge weights is 0 (more than half are equal), which ",
+                        "would make every tree the same minimum spanning tree. Using %s ",
+                        "(= %.4g) as the perturbation unit instead."), use, cand[[use]]),
+                        call. = FALSE)
+        cand[[use]]
+}
+
 .turnover <- function(t0_ids, t1_ids) 1 - length(intersect(t0_ids, t1_ids)) / length(t0_ids)
 .calibrate_eta_empirical <- function(graph,
                                      w,
@@ -2735,7 +2858,10 @@ print.pulse_regions <- function(x, ...) {
         measure <- function(eta) {
                 mean(replicate(n_probe, {
                         wp <- w + eta * s * stats::rnorm(length(w))
-                        t1 <- igraph::E(igraph::mst(graph, weights = pmax(wp, 0)))$eid
+                        # Not clamped at 0: the MST depends only on the weight
+                        # order, and the sampler does not clamp either, so eta
+                        # is calibrated on the trees that are actually drawn.
+                        t1 <- igraph::E(igraph::mst(graph, weights = wp))$eid
                         .turnover(t0, t1)
                 }))
         }
@@ -2930,6 +3056,10 @@ compute_null_baseline <- function(graph, env = NULL, env_id = NULL, final_region
         do.call(rbind, rows)
 }
 
+#' @rdname compute_null_baseline
+#' @param x An object of class \code{"pulse_null"}.
+#' @param ... Unused.
+#' @return \code{print.pulse_null} returns \code{x} invisibly.
 #' @export
 print.pulse_null <- function(x, ...) {
         cat(sprintf("<pulse_null>  %d replicates | regions_per_partition = %d | N_tree = %d | weight_exponent = %g\n",

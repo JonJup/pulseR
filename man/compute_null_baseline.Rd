@@ -2,6 +2,7 @@
 % Please edit documentation in R/regions.R
 \name{compute_null_baseline}
 \alias{compute_null_baseline}
+\alias{print.pulse_null}
 \title{Permutation null baseline for the Level 1 validity criteria}
 \usage{
 compute_null_baseline(
@@ -26,6 +27,8 @@ compute_null_baseline(
   seed = NULL,
   verbose = TRUE
 )
+
+\method{print}{pulse_null}(x, ...)
 }
 \arguments{
 \item{graph, env, env_id}{As in \code{\link{tune_regions}}. \code{env}
@@ -54,6 +57,10 @@ Rows are matched on the ensemble configuration when those columns exist.}
 \item{seed}{Optional integer seed; the caller's RNG state is restored.}
 
 \item{verbose}{Logical.}
+
+\item{x}{An object of class \code{"pulse_null"}.}
+
+\item{...}{Unused.}
 }
 \value{
 An object of class \code{"pulse_null"}: \code{null} (one row per
@@ -63,6 +70,8 @@ observed minus null mean with the sign set so positive is better than the
 null, and the empirical \code{p}), \code{config}, and \code{B}.
 \code{settings} holds \code{cut_rule}, \code{refine_boundary} and
 \code{min_size}.
+
+\code{print.pulse_null} returns \code{x} invisibly.
 }
 \description{
 Shuffles the rows of \code{env} among units, recomputes every edge weight

@@ -13,6 +13,7 @@ check_k_order(
   kernel = "none",
   sigma = "global",
   exclude_bridges = TRUE,
+  verbose = TRUE,
   ...
 )
 }
@@ -30,6 +31,10 @@ check_k_order(
 \item{kernel, sigma, exclude_bridges}{Passed to
 \code{\link{compute_all_signatures}}. \code{exclude_bridges} defaults to
 \code{TRUE}.}
+
+\item{verbose}{Logical. Report progress and the per-order summary.
+Passed on to \code{\link{compute_all_signatures}} and
+\code{\link{get_mosaic_types}}. Default \code{TRUE}.}
 
 \item{...}{Passed to \code{\link{get_mosaic_types}} (\code{distance},
 \code{metric}, \code{stability_B}, \code{sample_size}, \code{seed}).}

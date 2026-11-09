@@ -73,6 +73,9 @@ length N), or \code{NULL}.}
 \item{\code{within_prior_edge}}{Logical vector length |E| flagging
 within-prior edges, or \code{NULL}.}
 \item{\code{prior_strength}}{As supplied.}
+\item{\code{noise_scale}, \code{eta}}{Base unit of the weight
+perturbation (MAD of the edge weights, see Details) and the calibrated
+multiplier; the noise standard deviation is their product.}
 }
 
 \code{print.pulse_trees} returns \code{x} invisibly.
@@ -82,6 +85,13 @@ Draws \code{n} spanning trees from a weighted, connected \code{igraph}
 object; a disconnected graph is an error. The trees, together with the parent graph's edge
 weights/endpoints and any resolved prior-typology information, are bundled
 into a \code{"pulse_trees"} object that the rest of the pipeline consumes.
+}
+\details{
+The perturbation unit is the median absolute deviation (MAD) of
+the edge weights. When more than half of the weights are equal, the MAD
+is 0 and would remove all perturbation; the unit then falls back to
+\code{IQR / 1.349}, then the standard deviation, then 1 (all weights
+equal), with a warning.
 }
 \examples{
 \dontrun{

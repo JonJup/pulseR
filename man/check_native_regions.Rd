@@ -70,7 +70,8 @@ keeps the sweep fast; confirm a final value with the default 16.}
 }
 \value{
 A data frame with \code{regions_per_partition}, \code{N_tree},
-\code{n_eff}, \code{native_regions},
+\code{n_eff}, \code{native_regions}, \code{capped} (\code{TRUE} when
+salso hit its cluster cap, so \code{native_regions} is a lower bound),
 \code{ratio} (\code{native_regions / regions_per_partition}) and
 \code{seconds}.
 }

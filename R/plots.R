@@ -870,8 +870,7 @@ mosaic_palette <- function(x, method = "auto", chroma = 60, luminance = 60,
 
 #' Unit count of a fitted object
 #'
-#' REPLACES the version in the level-1/2 plotting file. A mosaic fit is sized by
-#' its \code{valid} vector, not by its membership matrix, because the clustering
+#' A mosaic fit is sized by its \code{valid} vector, not by its membership matrix, because the clustering
 #' saw only the complete-case rows.
 #' @keywords internal
 #' @noRd

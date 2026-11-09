@@ -2,6 +2,7 @@
 % Please edit documentation in R/ensemble_diagnostics.R
 \name{check_cut_frequency}
 \alias{check_cut_frequency}
+\alias{print.pulse_cut_frequency}
 \alias{plot.pulse_cut_frequency}
 \title{Check how often edges are cut against their environmental distance}
 \usage{
@@ -12,6 +13,8 @@ check_cut_frequency(
   reference = NULL,
   n_bins = 20L
 )
+
+\method{print}{pulse_cut_frequency}(x, ...)
 
 \method{plot}{pulse_cut_frequency}(x, x_scale = c("percentile", "distance"), n_points = 3000L, ...)
 }
@@ -29,6 +32,10 @@ bridge edges to \code{NA} to keep their penalty off the axis.}
 
 \item{n_bins}{Integer. Number of equal-count distance bins. Default 20.}
 
+\item{x}{An object of class \code{"pulse_cut_frequency"}.}
+
+\item{...}{Unused.}
+
 \item{x_scale}{\code{"percentile"} (default, rank of distance, robust to
 skew) or \code{"distance"} (raw values, bin medians).}
 
@@ -41,6 +48,10 @@ per edge: \code{distance}, \code{percentile}, \code{cut_freq},
 \code{distance}, \code{mean}, \code{q90}, \code{ref_mean}),
 \code{summary} (\code{rho}, \code{lift}, \code{mean}, \code{never_cut},
 and the same for the reference) and \code{M}. Plot it with \code{plot()}.
+
+\code{print.pulse_cut_frequency} returns \code{x} invisibly.
+
+\code{plot.pulse_cut_frequency} returns \code{x} invisibly.
 }
 \description{
 For every graph edge, the share of ensemble partitions in which its two

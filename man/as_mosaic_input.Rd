@@ -2,6 +2,7 @@
 % Please edit documentation in R/mosaic.R
 \name{as_mosaic_input}
 \alias{as_mosaic_input}
+\alias{print.pulse_mosaic_input}
 \title{Membership matrix for the mosaic level}
 \usage{
 as_mosaic_input(
@@ -11,6 +12,8 @@ as_mosaic_input(
   normalise = FALSE,
   drop_empty = TRUE
 )
+
+\method{print}{pulse_mosaic_input}(x, ...)
 }
 \arguments{
 \item{x}{One of:
@@ -45,11 +48,15 @@ a neutral one, and it interacts with the distance kernel. Default
 
 \item{drop_empty}{Drop classes with no mass anywhere. They contribute only
 zero bins and inflate the signature dimension. Default \code{TRUE}.}
+
+\item{...}{Unused (print method).}
 }
 \value{
 An object of class \code{"pulse_mosaic_input"}: a list with \code{P},
 \code{labels}, \code{region_of} (parent region per column, \code{NA} where
 the class has none) and \code{level}.
+
+\code{print.pulse_mosaic_input} returns \code{x} invisibly.
 }
 \description{
 Adapts the output of any earlier level into the \eqn{n \times c} class

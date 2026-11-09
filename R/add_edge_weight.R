@@ -22,9 +22,12 @@
 #' @param files Character vector of parquet file paths providing environmental
 #'   variables. Required when \code{chunked = TRUE}, ignored otherwise. The
 #'   concatenated row order must match the graph vertex order.
-#' @param id_col Character vector of ID column names to exclude before
-#'   weighting. Only used when \code{variables} is \code{NULL}. Default
-#'   \code{NULL}.
+#' @param id_col Character vector of further ID column names to exclude
+#'   before weighting. Only used when \code{variables} is \code{NULL}. A
+#'   column named \code{ID} or \code{id} (the column \code{build_network()}
+#'   stores as \code{polygon_id}) is always excluded; name it in
+#'   \code{variables} to use it. Other columns that look like IDs (integer,
+#'   all distinct) only trigger a warning. Default \code{NULL}.
 #' @param variables Character vector of column names to use for environmental
 #'   dissimilarity. If \code{NULL} (default), all non-geometry, non-\code{id_col}
 #'   columns are used. If supplied, \code{id_col} is ignored. In chunked mode,
@@ -33,8 +36,8 @@
 #' @param scale Logical scalar. Standardize variables (subtract mean, divide by
 #'   SD) before computing distances. Default \code{TRUE}. Set to \code{FALSE}
 #'   when variables are already on a comparable scale.
-#' @param prior Numeric or character vector with type memberships to priori 
-#'   typology systems.
+#' @param prior Optional vector, one prior-typology label per vertex, stored
+#'   as the vertex attribute \code{prior}.
 #' @param bridge_scale Length scale \eqn{\lambda} of the bridge penalty, in
 #'   metres (see \emph{Bridge penalty}). \code{NULL} (default) uses the graph
 #'   attribute \code{bridge_scale_default} set by
@@ -43,11 +46,12 @@
 #'   \code{\link{tune_regions}} does not vary it.
 #' @param verbose Logical. Report edge and vertex counts.
 #'
-#' @return An undirected \code{igraph} object whose edge \code{weight} attribute
-#'   is the Euclidean distance between neighbouring nodes in (optionally scaled)
-#'   environmental space. Vertex names from \code{g$graph} are preserved, all
-#'   input vertices are retained (including isolated ones), and each undirected
-#'   edge appears exactly once (no multi-edges). The graph attribute
+#' @return \code{g$graph} with edge attribute \code{weight}, the Euclidean
+#'   distance between neighbouring nodes in (optionally scaled) environmental
+#'   space. Vertices, edges and their order are those of \code{g$graph}, and
+#'   every existing attribute (for example \code{polygon_id}) is kept; vertices
+#'   are named \code{"1"}, \code{"2"}, ... if unnamed. \code{eid} is set to
+#'   the edge position. The graph attribute
 #'   \code{env} holds the numeric matrix the distances were computed from
 #'   (after dropping constant columns and, if \code{scale = TRUE},
 #'   standardising), one row per vertex. \code{\link{tune_regions}} and
@@ -79,34 +83,22 @@
 #'
 #' @section Node ordering:
 #' This function assumes that the i-th row of the environmental data corresponds
-#' to the i-th vertex of \code{g$graph} (i.e. the order returned by
-#' \code{igraph::as_adjacency_matrix()}). This contract is \emph{not} verified
+#' to the i-th vertex of \code{g$graph}. This contract is \emph{not} verified
 #' by content, only by count: the function errors if the number of environmental
 #' rows differs from the number of vertices, but it cannot detect a same-length
 #' \emph{re-ordering}. Ensure \code{g$polygons} / the stacked parquet rows are
 #' built in the same order as the graph vertices.
 #'
 #' @details
-#' Both modes share the following pipeline:
-#' \enumerate{
-#'   \item Extract the adjacency structure from \code{g$graph}.
-#'   \item Convert it to an \pkg{spdep} neighbours list via
-#'     \code{\link[spdep]{mat2listw}}.
-#'   \item Acquire environmental variables (from \code{g$polygons} or by
-#'     reading and stacking \code{files}).
-#'   \item Coerce all variables to numeric and, if \code{scale = TRUE},
-#'     standardize them. Zero-variance and non-numeric columns are handled
-#'     defensively (see below).
-#'   \item Compute neighbour Euclidean distances via
-#'     \code{\link[spdep]{nbcosts}}.
-#'   \item Build an undirected \pkg{igraph} object with these distances as
-#'     edge weights, preserving vertex names and de-duplicating reciprocal
-#'     edges.
-#' }
+#' Both modes acquire the environmental variables (from \code{g$polygons} or
+#' by reading and stacking \code{files}), coerce them to numeric, optionally
+#' standardise them, and compute the Euclidean distance for every edge of
+#' \code{g$graph}, in \code{E(g$graph)} order. A graph with loops or multiple
+#' edges is simplified first, with a warning.
 #'
 #' Variable selection precedence: if \code{variables} is supplied, it takes
 #' precedence and \code{id_col} is ignored; otherwise all columns except those
-#' in \code{id_col} (and common geometry-like columns such as \code{Shape},
+#' in \code{id_col}, \code{ID}/\code{id} (and common geometry-like columns such as \code{Shape},
 #' \code{Shape_Length}, \code{Shape_Area}, \code{geom}, \code{geometry}) are
 #' used.
 #'
@@ -120,9 +112,7 @@
 #' Isolated vertices (degree 0) are retained in the output as isolated nodes but
 #' contribute no edges; a warning is emitted when any are present.
 #'
-#' @seealso
-#' \code{\link[spdep]{nbcosts}} for neighbour cost calculation,
-#' \code{\link[igraph]{graph_from_data_frame}} for graph construction.
+#' @seealso \code{\link{build_network}}, \code{\link{sample_spanning_trees}}.
 #'
 #' @examples
 #' \dontrun{
@@ -140,8 +130,7 @@
 #' )
 #' }
 #'
-#' @importFrom igraph as_adjacency_matrix graph_from_data_frame edge_attr graph_attr set_graph_attr ends
-#' @importFrom spdep mat2listw nbcosts
+#' @importFrom igraph edge_attr graph_attr set_graph_attr ends vcount ecount degree vertex_attr is_directed is_simple simplify
 #' @importFrom sf st_drop_geometry
 #' @importFrom stats sd
 #'
@@ -208,36 +197,31 @@ add_edge_weight <- function(g,
                 }
         }
         
-        # ---- Neighbour list from graph (shared by both modes) ---------------------
-        # Sparse adjacency keeps memory bounded on large continental graphs.
-        # `names = TRUE` carries the vertex names through, which we use both to map
-        # neighbour indices back to IDs and to preserve all vertices in the output.
-        adj_matrix <- igraph::as_adjacency_matrix(
-                graph  = g$graph,
-                type   = "both",
-                names  = TRUE,
-                sparse = TRUE
-        )
-        
-        # Vertex names define both the row order of the environmental data and the
-        # labelling of the output graph. Fall back to positional labels if unnamed.
-        vertex_names <- rownames(adj_matrix)
-        if (is.null(vertex_names)) {
-                vertex_names <- as.character(seq_len(nrow(adj_matrix)))
+        graph <- g$graph
+        if (igraph::is_directed(graph))
+                stop("`g$graph` must be undirected.", call. = FALSE)
+        if (!igraph::is_simple(graph)) {
+                warning("`g$graph` has loops or multiple edges; simplifying (first ",
+                        "attribute value kept).", call. = FALSE)
+                graph <- igraph::simplify(graph, edge.attr.comb = "first")
         }
-        n_vertices <- length(vertex_names)
-        
-        # style = "B" (binary) is irrelevant here -- we only consume the neighbour
-        # structure ($neighbours), not the spatial weights -- but it avoids spdep
-        # row-standardizing and is the clearest declaration of intent.
-        listw_object <- spdep::mat2listw(adj_matrix, style = "B")
-        nb_object    <- listw_object$neighbours
+        n_vertices   <- igraph::vcount(graph)
+        vertex_names <- igraph::vertex_attr(graph, "name")
+        if (is.null(vertex_names)) vertex_names <- as.character(seq_len(n_vertices))
         
         # ---- Acquire environmental variables --------------------------------------
+        # A unit identifier column (`ID` or `id`, the columns build_network() reads
+        # for `polygon_id`) never enters the distance unless named in `variables`.
+        id_auto <- if (chunked) c("ID", "id") else .id_col(g$polygons)
+        id_drop <- unique(c(id_col, id_auto[!is.na(id_auto)]))
+        if (verbose && is.null(variables) && !chunked && !is.na(id_auto) &&
+            !id_auto %in% id_col)
+                message(sprintf(paste0("  Excluding identifier column `%s` from the distance; ",
+                                       "name it in `variables` to include it."), id_auto))
         env_data <- if (chunked) {
-                .env_from_parquet(files, variables = variables, id_col = id_col)
+                .env_from_parquet(files, variables = variables, id_col = id_drop)
         } else {
-                .env_from_polygons(g$polygons, variables = variables, id_col = id_col)
+                .env_from_polygons(g$polygons, variables = variables, id_col = id_drop)
         }
         
         # Alignment guard: the i-th environmental row must be the i-th vertex. We can
@@ -254,8 +238,6 @@ add_edge_weight <- function(g,
         }
         
         # ---- Coerce to numeric, validate, optionally scale ------------------------
-        # A shape-stable numeric matrix (unlike apply(..., as.numeric), which drops
-        # to a vector for single-row inputs) is what scale() and nbcosts() expect.
         env_matrix <- .coerce_numeric_matrix(env_data)
         
         # Columns that are entirely NA after coercion were non-numeric to begin with
@@ -283,88 +265,41 @@ add_edge_weight <- function(g,
                 stop("No usable (numeric, non-constant) environmental variables remain.")
         }
         
-        # Partial missingness propagates to NA edge weights, which silently breaks a
-        # downstream MST/SKATER step -- warn loudly so the user imputes/removes first.
+        # Partial missingness propagates to NA edge weights, which stop
+        # sample_spanning_trees() -- warn so the user imputes/removes first.
         if (anyNA(env_matrix)) {
                 warning("Environmental data contain missing values; affected edges will ",
                         "receive NA weights. Impute or remove NAs before clustering.")
         }
         
+        # Other integer, all-distinct columns only warn: an integer-valued
+        # predictor (e.g. elevation in metres) can look the same.
         .warn_id_like(env_matrix, "`id_col` or `variables`")
         
-        if (isTRUE(scale))  env_matrix <- base::scale(env_matrix)
+        if (isTRUE(scale)) env_matrix <- base::scale(env_matrix)
         
-        
-        # ---- Neighbor Euclidean costs --------------------------------------------
-        # Identify isolated vertices: spdep encodes a no-neighbor region as a single
-        # element equal to 0L. These are excluded from edge construction below but
-        # retained as isolated vertices in the output.
-        card     <- lengths(nb_object)
-        sentinel <- card == 1L &
-                vapply(nb_object, function(x) isTRUE(x[[1L]] == 0L), logical(1))
-        isolated <- card == 0L | sentinel
+        # ---- Weights on the input graph's own edges -------------------------------
+        # Computed in E(graph) order, so every vertex, edge and graph attribute of
+        # the input (polygon_id, bridge flags, eid) is kept.
+        isolated <- igraph::degree(graph) == 0L
         if (any(isolated)) {
                 warning(sum(isolated), " vertex/vertices have no neighbours; they are ",
                         "retained as isolated nodes in the output but contribute no edges.")
         }
+        ep    <- igraph::ends(graph, igraph::E(graph), names = FALSE)
+        w_env <- unname(sqrt(rowSums((env_matrix[ep[, 1], , drop = FALSE] -
+                                      env_matrix[ep[, 2], , drop = FALSE])^2)))
+        br    <- .bridge_info(graph, bridge_scale)
+        w     <- .bridge_penalty(w_env, br$bridge, br$dist, br$scale)
         
-        netDist <- spdep::nbcosts(
-                nb     = nb_object,
-                data   = env_matrix,
-                method = "euclidean"
-        )
-        
-        # ---- Assemble weighted graph ----------------------------------------------
-        # Build the edge list only from non-isolated nodes. For these, nb_object[[i]]
-        # holds real (>= 1) neighbour indices and netDist[[i]] holds one cost per
-        # neighbour in the same order, so concatenation stays aligned.
-        kept     <- which(!isolated)
-        from_idx <- rep.int(kept, lengths(nb_object[kept]))
-        to_idx   <- unlist(nb_object[kept], use.names = FALSE)
-        weight   <- unlist(netDist[kept],   use.names = FALSE)
-        
-        # Defensive alignment guard: if these lengths ever diverge, fail loudly
-        # rather than silently pairing the wrong cost with the wrong edge.
-        stopifnot(
-                length(from_idx) == length(to_idx),
-                length(to_idx)   == length(weight)
-        )
-        
-        # A symmetric neighbour list stores each undirected edge twice (i->j and
-        # j->i). Keep only the i < j copy so the output has one edge per pair (no
-        # self-loops, no multi-edges).
-        upper <- from_idx < to_idx
-        
-        e_from <- from_idx[upper]
-        e_to   <- to_idx[upper]
-        e_w    <- weight[upper]
-        
-        # ---- Bridge flag and penalty ----------------------------------------------
-        # The rebuild below goes through adjacency -> nb, which reorders edges and
-        # drops attributes, so the bridge flag is matched by vertex pair, not by
-        # position.
-        br <- .bridge_info(g$graph, e_from, e_to, bridge_scale)
-        e_w_env <- e_w
-        e_w     <- .bridge_penalty(e_w_env, br$bridge, br$dist, br$scale)
-        
-        edges_df <- data.frame(
-                from        = vertex_names[e_from],
-                to          = vertex_names[e_to],
-                weight      = e_w,
-                weight_env  = e_w_env,
-                bridge      = br$bridge,
-                bridge_dist = br$dist,
-                stringsAsFactors = FALSE
-        )
-        
-        # Passing an explicit vertex table preserves vertex names AND retains every
-        # input vertex (including isolated ones, which never appear in `edges_df`).
-        out.graph <- igraph::graph_from_data_frame(
-                d        = edges_df,
-                directed = FALSE,
-                vertices = data.frame(name = vertex_names, stringsAsFactors = FALSE)
-        )
-        igraph::E(out.graph)$eid <- seq_len(igraph::ecount(out.graph))
+        out.graph <- graph
+        if (is.null(igraph::vertex_attr(out.graph, "name")))
+                igraph::V(out.graph)$name <- vertex_names
+        igraph::E(out.graph)$weight      <- w
+        igraph::E(out.graph)$weight_env  <- w_env
+        igraph::E(out.graph)$bridge      <- br$bridge
+        igraph::E(out.graph)$bridge_dist <- br$dist
+        igraph::E(out.graph)$eid         <- seq_len(igraph::ecount(out.graph))
         
         # The matrix behind the weights, in vertex order. Validity indices and
         # the permutation null default to it (tune_regions(),
@@ -372,9 +307,7 @@ add_edge_weight <- function(g,
         rownames(env_matrix) <- vertex_names
         out.graph <- igraph::set_graph_attr(out.graph, "env", env_matrix)
         out.graph <- igraph::set_graph_attr(out.graph, "bridge_scale", br$scale)
-        dm <- igraph::graph_attr(g$graph, "bridge_dist_method")
-        if (!is.null(dm))
-                out.graph <- igraph::set_graph_attr(out.graph, "bridge_dist_method", dm)
+        dm <- igraph::graph_attr(graph, "bridge_dist_method")
         
         if (verbose) {
                 message(sprintf("  %d edges, %d vertices.",
@@ -394,10 +327,13 @@ add_edge_weight <- function(g,
         }
         
         # Adding the prior typology if provided.
-        if (!is.null(prior)){
+        if (!is.null(prior)) {
+                if (length(prior) != n_vertices)
+                        stop(sprintf("`prior` has length %d but the graph has %d vertices.",
+                                     length(prior), n_vertices), call. = FALSE)
                 igraph::V(out.graph)$prior <- prior
         }
-        return(out.graph)
+        out.graph
 }
 
 
@@ -405,17 +341,16 @@ add_edge_weight <- function(g,
 # Internal helpers
 #
 
-#' Bridge flag, length and scale for the edges of the rebuilt graph
+#' Bridge flag, length and scale for the edges of a graph
 #'
 #' @param graph The input \pkg{igraph} (\code{g$graph}).
-#' @param e_from,e_to Integer vertex indices of the output edges (i < j).
 #' @param bridge_scale User value or \code{NULL}.
 #' @return List with \code{bridge} (logical), \code{dist} (numeric, NA on
-#'   non-bridges), both aligned with \code{e_from}, and \code{scale}.
+#'   non-bridges), both in \code{E(graph)} order, and \code{scale}.
 #' @keywords internal
 #' @noRd
-.bridge_info <- function(graph, e_from, e_to, bridge_scale) {
-        n_e    <- length(e_from)
+.bridge_info <- function(graph, bridge_scale) {
+        n_e    <- igraph::ecount(graph)
         out    <- list(bridge = rep(FALSE, n_e), dist = rep(NA_real_, n_e),
                        scale  = Inf)
         flag   <- igraph::edge_attr(graph, "bridge")
@@ -430,15 +365,9 @@ add_edge_weight <- function(g,
                 return(out)
         }
         
-        ep   <- igraph::ends(graph, idx, names = FALSE)
-        key  <- function(a, b) paste(pmin(a, b), pmax(a, b), sep = "-")
-        pos  <- match(key(ep[, 1], ep[, 2]), key(e_from, e_to))
-        if (anyNA(pos))
-                stop("Internal error: a bridge edge is missing from the weighted graph.",
-                     call. = FALSE)
         d    <- igraph::edge_attr(graph, "bridge_dist")
-        out$bridge[pos] <- TRUE
-        out$dist[pos]   <- if (is.null(d)) NA_real_ else d[idx]
+        out$bridge[idx] <- TRUE
+        out$dist[idx]   <- if (is.null(d)) NA_real_ else d[idx]
         
         if (is.null(bridge_scale)) {
                 bridge_scale <- igraph::graph_attr(graph, "bridge_scale_default")

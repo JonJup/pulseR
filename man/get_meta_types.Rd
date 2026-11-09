@@ -2,6 +2,7 @@
 % Please edit documentation in R/meta_types.R
 \name{get_meta_types}
 \alias{get_meta_types}
+\alias{print.pulse_meta_types}
 \title{Merge local types into cross-cutting meta-types}
 \usage{
 get_meta_types(
@@ -15,6 +16,8 @@ get_meta_types(
     "centroid", "ward.D2"),
   distance = NULL
 )
+
+\method{print}{pulse_meta_types}(x, ...)
 }
 \arguments{
 \item{local}{A \code{"pulse_local_types"} object.}
@@ -38,6 +41,10 @@ single linkage would.}
 
 \item{distance}{Optional precomputed \code{dist} over local types, in place of
 recomputing one.}
+
+\item{x}{An object of class \code{"pulse_meta_types"}.}
+
+\item{...}{Unused.}
 }
 \value{
 An object of class \code{"pulse_meta_types"}:
@@ -45,6 +52,8 @@ An object of class \code{"pulse_meta_types"}:
 \item{\code{memberships}}{N x n_meta_types matrix. Rows sum to one, exactly, by
 summing local-type columns.}
 \item{\code{hard_labels}, \code{certainty}}{Row argmax and its value.}
+\item{\code{entropy}}{Row entropy of \code{memberships}, normalised by
+\eqn{\log} \code{n_meta_types}.}
 \item{\code{key}}{Local type, its region, and its meta-type.}
 \item{\code{crossing}}{Regions represented in each meta-type, and the ARI
 between the meta-type and region labellings OF THE LOCAL TYPES. Low ARI
@@ -56,7 +65,11 @@ silhouette, and whether it passes. \code{NULL} for a single value
 outside 2 to (number of local types - 1).}
 \item{\code{rule}}{How \code{n_meta_types} was chosen.}
 \item{\code{hclust}, \code{distance}}{The tree and the distance used.}
+\item{\code{method}}{Distance method used.}
+\item{\code{parent}}{The local-type key of \code{local}.}
 }
+
+\code{print.pulse_meta_types} returns \code{x} invisibly.
 }
 \description{
 Groups the local types of all regions by how much their fitted densities

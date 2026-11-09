@@ -38,7 +38,9 @@
                 fit <- local$models[[r]]
                 if (is.null(fit$parameters$mean))
                         stop(sprintf("Model for region %d has no parameters.", r), call. = FALSE)
-                M <- as.matrix(fit$parameters$mean)                 # d x G
+                ## d x G. With one predictor mclust stores the means as a
+                ## length-G vector, which as.matrix() would turn into G x 1.
+                M <- matrix(fit$parameters$mean, nrow = length(local$variables))
                 V <- fit$parameters$variance
                 G <- ncol(M)
                 for (g in seq_len(G)) {
@@ -56,10 +58,16 @@
 #' @keywords internal
 #' @noRd
 .mclust_sigma <- function(V, g, d) {
-        if (!is.null(V$sigma)) return(matrix(V$sigma[, , g], d, d))
-        if (!is.null(V$Sigma)) return(matrix(V$Sigma, d, d))        # shared across G
-        if (!is.null(V$cholsigma)) {
-                R <- V$cholsigma[, , g]; return(crossprod(R))
+        ## [[ ]] instead of $: `V$sigma` partially matches `sigmasq`, the slot
+        ## mclust uses for one-predictor fits.
+        if (!is.null(V[["sigma"]])) return(matrix(V[["sigma"]][, , g], d, d))
+        if (!is.null(V[["Sigma"]])) return(matrix(V[["Sigma"]], d, d))  # shared across G
+        if (!is.null(V[["cholsigma"]])) {
+                R <- V[["cholsigma"]][, , g]; return(crossprod(R))
+        }
+        if (!is.null(V[["sigmasq"]])) {                    # univariate "E" / "V"
+                s2 <- V[["sigmasq"]]
+                return(matrix(if (length(s2) == 1L) s2 else s2[g], 1L, 1L))
         }
         stop("Unsupported mclust variance structure; refit with model_name = \"VVV\".",
              call. = FALSE)
@@ -191,6 +199,8 @@ compute_local_type_distance <- function(local,
 #'     \item{\code{memberships}}{N x n_meta_types matrix. Rows sum to one, exactly, by
 #'       summing local-type columns.}
 #'     \item{\code{hard_labels}, \code{certainty}}{Row argmax and its value.}
+#'     \item{\code{entropy}}{Row entropy of \code{memberships}, normalised by
+#'       \eqn{\log} \code{n_meta_types}.}
 #'     \item{\code{key}}{Local type, its region, and its meta-type.}
 #'     \item{\code{crossing}}{Regions represented in each meta-type, and the ARI
 #'       between the meta-type and region labellings OF THE LOCAL TYPES. Low ARI
@@ -202,6 +212,8 @@ compute_local_type_distance <- function(local,
 #'       outside 2 to (number of local types - 1).}
 #'     \item{\code{rule}}{How \code{n_meta_types} was chosen.}
 #'     \item{\code{hclust}, \code{distance}}{The tree and the distance used.}
+#'     \item{\code{method}}{Distance method used.}
+#'     \item{\code{parent}}{The local-type key of \code{local}.}
 #'   }
 #' @importFrom stats hclust cutree as.dist
 #' @importFrom cluster silhouette
@@ -315,6 +327,10 @@ get_meta_types <- function(local,
         structure(out, class = "pulse_meta_types")
 }
 
+#' @rdname get_meta_types
+#' @param x An object of class \code{"pulse_meta_types"}.
+#' @param ... Unused.
+#' @return \code{print.pulse_meta_types} returns \code{x} invisibly.
 #' @export
 print.pulse_meta_types <- function(x, ...) {
         cat(sprintf("<pulse_meta_types>  %d local types -> %d meta-types (%s, %s linkage)\n",

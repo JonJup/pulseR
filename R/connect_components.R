@@ -5,7 +5,7 @@
 # (integer ids 1..n in feature order, no name-based matching) and is called
 # either with `polygons=` (in-memory path) or `centroids=` (chunked path).
 #
-# Relies on these package-internal utilities defined in build_network.R:
+# Relies on these package-internal utilities defined in utils.r:
 #   .log(), .need(), .assert_flag(), .warn_if_longlat()
 # =============================================================================
 
@@ -31,7 +31,8 @@
 #' @param method Character; nearest-neighbour backend. One of:
 #'   \describe{
 #'     \item{\code{"rann"}}{kd-tree lookup via \code{\link[RANN]{nn2}}. Fastest,
-#'       but operates on planar coordinates and ignores the CRS.}
+#'       but operates on planar coordinates and ignores the CRS. If \pkg{RANN}
+#'       is not installed, \code{"sf"} is used instead, with a message.}
 #'     \item{\code{"nngeo"}}{\code{\link[nngeo]{st_nn}}; slower, but CRS-aware
 #'       (geodesic distances for lon/lat data).}
 #'     \item{\code{"sf"}}{Brute-force \code{\link[sf]{st_distance}}; no extra
@@ -47,7 +48,8 @@
 #'   attribute \code{bridge} (\code{TRUE} for added edges, \code{FALSE}
 #'   otherwise) and the numeric attribute \code{bridge_dist} (bridge length in
 #'   metres; \code{NA} on non-bridges). The graph attribute
-#'   \code{bridge_dist_method} records how the length was measured. If
+#'   \code{bridge_dist_method} records how the length was measured and
+#'   \code{bridge_search_method} which backend chose the pairs. If
 #'   \code{g} is already connected only the attributes are added.
 #'
 #' @details
@@ -106,6 +108,13 @@ connect_components <- function(g,
         }
         .assert_flag(verbose, "verbose")
         method <- match.arg(method)
+        # RANN is in Suggests; locked-down machines and HPC nodes often lack it.
+        if (method == "rann" && !.has_pkg("RANN")) {
+                message("Package 'RANN' is not installed; using method = \"sf\" for bridges ",
+                        "(approximate for components above 500 units). Install RANN for ",
+                        "exact nearest pairs.")
+                method <- "sf"
+        }
         
         if (is.null(polygons) && is.null(centroids)) {
                 stop("Either `polygons` or `centroids` must be supplied.", call. = FALSE)
@@ -128,6 +137,8 @@ connect_components <- function(g,
                 return(g)
         }
         g <- igraph::set_graph_attr(g, "bridge_dist_method", dist_method)
+        # Which backend chose the bridges: "sf" may pick other pairs than "rann".
+        g <- igraph::set_graph_attr(g, "bridge_search_method", method)
         
         # ---- Derive / normalise centroids -----------------------------------------
         # `centroids` wins over `polygons` when both are given. Reduce to a geometry

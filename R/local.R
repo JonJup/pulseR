@@ -33,13 +33,13 @@
                 stop("Region weights must be numeric.", call. = FALSE)
         if (anyNA(W))
                 stop(sprintf(paste0(
-                        "Region weights contain NA in %d row(s)%s; ",
-                        "Level 2 handling for them is not yet defined. ",
-                        "Remove or fill those rows before calling get_local_types()."),
+                        "Region weights contain NA in %d row(s); Level 2 handling for them ",
+                        "is not defined. %s"),
                         sum(rowSums(is.na(W)) > 0),
-                        if (bare) "" else paste0(
-                                ". These are units with pi_support == 0 (a one-unit ",
-                                "piece in every ensemble partition)")), call. = FALSE)
+                        if (bare) "Remove or fill those rows before calling get_local_types()."
+                        else paste0("Current fits fill the rows of units with pi_support == 0 ",
+                                    "from graph neighbours; refit the regions with get_regions().")),
+                        call. = FALSE)
         if (any(W < 0))
                 stop("Region weights must be non-negative.", call. = FALSE)
         W
@@ -130,7 +130,9 @@
 .global_scale_prior <- function(prior, V, model, G) {
         if (!is.null(prior$scale)) return(prior)
         d <- ncol(V)
-        prior$scale <- switch(model,
+        ## EXPR named: the first case label `E` would otherwise partially
+        ## match switch()'s EXPR argument (R CMD check NOTE).
+        prior$scale <- switch(EXPR = model,
                 E = , V = V[1, 1] / G^2,
                 EII = , VII = , EEI = , EVI = , VEI = , VVI = (1 / G)^(2 / d) * sum(diag(V)) / d,
                 (1 / G)^(2 / d) * V)
@@ -225,9 +227,16 @@
 #'   by default: weighted EM for equal-volume models can need ~40x more
 #'   iterations than \code{"VVV"}. With a single predictor the names are
 #'   mapped to \code{"E"}/\code{"V"}.
-#' @param scale Boolean indicating whether predictor variables should be sacled 
-#'   or not. If predictors are not scaled the families VVI and VII are not 
-#'   available.
+#' @param scale Logical. Standardise every predictor over all units before
+#'   fitting (default \code{TRUE}), so results do not depend on predictor
+#'   units. With \code{FALSE}, models whose fit depends on units
+#'   (\code{"VVI"}, \code{"VII"} and the other diagonal or spherical
+#'   families) are dropped from \code{model_name}.
+#' @param hc_max_units Integer \eqn{\ge 2}. Largest number of core units
+#'   passed to \code{\link[mclust]{hc}} per region. Larger cores are thinned
+#'   to this many units, evenly spaced in unit order, because \code{hc()}
+#'   needs quadratic memory; the other units start EM from a flat row.
+#'   Default 2000, the \pkg{mclust} default \code{subset} size.
 #' @param hc_use Character scalar passed to \code{\link[mclust]{hc}} as
 #'   \code{use}. Set explicitly (default \code{"VARS"}) because the
 #'   \pkg{mclust} default has changed between versions.
@@ -304,6 +313,7 @@ get_local_types <- function(env,
                             model_name     = c("VVV", "EEE", "VVI", "VII"),
                             scale          = TRUE,
                             hc_use         = "VARS",
+                            hc_max_units   = 2000L,
                             drop_constant  = FALSE,
                             weight_eps     = 1e-6,
                             prior          = mclust::priorControl(),
@@ -312,9 +322,12 @@ get_local_types <- function(env,
         
         weights <- match.arg(weights)
         user_models <- !missing(model_name)
-        if (!is.logical(scale) || length(scale) != 1L || is.na(scale)){
-                stop("scale must be set to TRUE or FALSE", call. = "FALSE")
-        }
+        if (!is.logical(scale) || length(scale) != 1L || is.na(scale))
+                stop("`scale` must be a single TRUE/FALSE value.", call. = FALSE)
+        if (!is.numeric(hc_max_units) || length(hc_max_units) != 1L ||
+            is.na(hc_max_units) || hc_max_units < 2)
+                stop("`hc_max_units` must be a single number >= 2.", call. = FALSE)
+        hc_max_units <- as.integer(hc_max_units)
         
         
         ## ---- 0. Input validation -------------------------------------------*
@@ -345,8 +358,8 @@ get_local_types <- function(env,
         
         if (!is.null(variables) && !is.character(variables))
                 stop("`variables` must be a character vector or NULL.", call. = FALSE)
-        ## FIX: `cutoff` was never range-checked, and core must be a subset of the
-        ## fitted set or `match(core, act)` below produces NA row indices.
+        ## The core must be a subset of the fitted set, or `match(core, act)`
+        ## below produces NA row indices.
         if (!is.numeric(cutoff) || length(cutoff) != 1L || is.na(cutoff) ||
             cutoff <= 0 || cutoff > 1)
                 stop("`cutoff` must be a single number in (0, 1].", call. = FALSE)
@@ -377,13 +390,9 @@ get_local_types <- function(env,
         } else rep(list(n_local_types), n_regions)
         G_all <- sort(unique(unlist(G_list)))
         ## ---- 2. Predictors --------------------------------------------------*
-        ## FIX: `inherits()` rather than `"sf" %in% class()`.
         if (inherits(env, "sf")) env <- sf::st_drop_geometry(env)
         
-        ## FIX: the old code built `drop_cols <- setdiff(names(env), variables)`, so
-        ## the default `variables = NULL` dropped EVERY column and the function
-        ## always died on its own "no predictor columns" error. Default now means
-        ## "all numeric columns except the identifiers".
+        ## Default: all numeric columns except the identifiers.
         if (is.null(variables)) {
                 cand      <- setdiff(names(env), non_value_cols)
                 is_num    <- vapply(env[cand], is.numeric, logical(1))
@@ -392,7 +401,6 @@ get_local_types <- function(env,
                         message(sprintf("Using %d numeric predictor(s): %s",
                                         length(variables), paste(variables, collapse = ", ")))
         } else {
-                ## FIX: a typo'd or absent variable used to be silently dropped.
                 missing_v <- setdiff(variables, names(env))
                 if (length(missing_v))
                         stop("`variables` not found in `env`: ",
@@ -404,9 +412,7 @@ get_local_types <- function(env,
         
         Xdata <- env[, variables, drop = FALSE]
         
-        ## FIX: `apply(Xdata, 2, is.numeric)` coerced the frame to one matrix first,
-        ## so a single character column flagged every predictor and an all-numeric
-        ## frame flagged none — the check could never do its job.
+        ## vapply() over columns: apply() would coerce the frame to one matrix.
         non_num <- !vapply(Xdata, is.numeric, logical(1))
         if (any(non_num))
                 stop(sprintf("Predictor(s) %s is/are non-numeric.",
@@ -426,8 +432,6 @@ get_local_types <- function(env,
         act  <- lapply(re, function(r) which(W[, r] > weight_eps))
         core <- lapply(re, function(r) which(W[, r] >= cutoff))
         
-        ## FIX: the old empty-core check closed sprintf() before its argument, so it
-        ## always failed with "too few arguments" instead of reporting the region.
         empty <- which(lengths(core) == 0L)
         if (length(empty))
                 stop(sprintf("Region(s) %s have an empty core: no unit reaches cutoff = %g.",
@@ -520,7 +524,14 @@ get_local_types <- function(env,
                 w_r  <- W[a_r, r]
                 X_r  <- Xdata[a_r, , drop = FALSE]
                 ## core is a subset of act because cutoff > weight_eps (checked above).
-                c_in_a <- match(c_r, a_r)
+                ## hc() is quadratic in memory and roughly cubic in time, so it
+                ## runs on at most `hc_max_units` core units, evenly spaced in
+                ## unit order (deterministic, no RNG). Core units outside the
+                ## subset start from a flat 1/G row, like non-core units.
+                h_r <- if (length(c_r) > hc_max_units)
+                        c_r[unique(round(seq(1, length(c_r), length.out = hc_max_units)))]
+                else c_r
+                h_in_a <- match(h_r, a_r)
                 n_eff  <- sum(w_r)
                 prior_r <- if (any(const[, r]))
                         function(m, G) .global_scale_prior(prior, V_all, m, G)
@@ -543,20 +554,20 @@ get_local_types <- function(env,
                 ## Initialisation: full-covariance hc needs more core units than
                 ## predictors; below that, spherical hc is always defined. One hc
                 ## per region, shared by every candidate model.
-                hc_model <- if (length(c_r) > d) "VVV" else "EII"
-                hcf <- tryCatch(mclust::hc(Xdata[c_r, , drop = FALSE],
+                hc_model <- if (length(h_r) > d) "VVV" else "EII"
+                hcf <- tryCatch(mclust::hc(Xdata[h_r, , drop = FALSE],
                                            modelName = hc_model, use = hc_use),
                                 error = function(e) e)
                 if (inherits(hcf, "error") && hc_model != "EII") {
                         hc_model <- "EII"
-                        hcf <- tryCatch(mclust::hc(Xdata[c_r, , drop = FALSE],
+                        hcf <- tryCatch(mclust::hc(Xdata[h_r, , drop = FALSE],
                                                    modelName = hc_model, use = hc_use),
                                         error = function(e) e)
                 }
                 if (inherits(hcf, "error"))
                         stop(sprintf("mclust::hc() failed for region %d: %s",
                                      r, conditionMessage(hcf)), call. = FALSE)
-                cls <- mclust::hclass(hcf, G_r)          # length(c_r) x length(G_r)
+                cls <- mclust::hclass(hcf, G_r)          # length(h_r) x length(G_r)
                 
                 if (verbose)
                         message(sprintf("Region %d/%d: %d core, %d fitted, n_eff = %.1f, hc = %s, G in {%s}",
@@ -566,7 +577,7 @@ get_local_types <- function(env,
                 for (j in seq_along(G_r)) {
                         G  <- G_r[j]
                         z0 <- matrix(1 / G, nrow = length(a_r), ncol = G)
-                        z0[c_in_a, ] <- mclust::unmap(cls[, j], groups = seq_len(G))
+                        z0[h_in_a, ] <- mclust::unmap(cls[, j], groups = seq_len(G))
                         
                         for (m in models) {
                                 ## Feasibility: BIC is meaningless with more parameters
@@ -618,7 +629,7 @@ get_local_types <- function(env,
                 ## candidate's z: O(1) rather than O(|G| x |models|) z matrices.
                 G  <- best[[r]]$G
                 z0 <- matrix(1 / G, nrow = length(a_r), ncol = G)
-                z0[c_in_a, ] <- mclust::unmap(cls[, best[[r]]$j], groups = seq_len(G))
+                z0[h_in_a, ] <- mclust::unmap(cls[, best[[r]]$j], groups = seq_len(G))
                 fit <- mclust::me.weighted(data = X_r, modelName = best[[r]]$model,
                                            z = z0, weights = w_r,
                                            prior = prior_r(best[[r]]$model, G))
@@ -655,8 +666,6 @@ get_local_types <- function(env,
         rs <- rowSums(Zw)
         U  <- Zw / pmax(rs, .Machine$double.eps)
         
-        ## FIX / OPT: max.col() once, instead of three separate apply(., 1, which.max)
-        ## passes over an N x total matrix (and one whose result was discarded).
         hard <- max.col(U, ties.method = "first")
         idx  <- cbind(seq_len(N), hard)
         

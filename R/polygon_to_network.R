@@ -88,11 +88,10 @@
 #' @details
 #' Neighbour detection within a chunk (and in memory) uses
 #' \code{spdep::poly2nb()} with the requested \code{queen} rule and \code{snap}
-#' tolerance. Cross-chunk neighbours use the matching \pkg{sf} predicate so the
-#' two phases agree: \code{sf::st_touches()} for Queen contiguity, and
-#' \code{sf::st_relate()} with the DE-9IM pattern \code{"F***1****"}
-#' (shared 1-dimensional boundary) for Rook contiguity. The resulting graph is
-#' undirected, since spatial contiguity is symmetric.
+#' tolerance. Cross-chunk neighbours use the same \code{poly2nb()} rule and
+#' \code{snap}, run on the units of each chunk pair that lie near the other
+#' chunk, so the two phases agree. The resulting graph is undirected, since
+#' spatial contiguity is symmetric.
 #'
 #' In chunked mode the function operates in three phases:
 #' \enumerate{
@@ -182,7 +181,7 @@
 #'   \code{\link[igraph]{make_empty_graph}} for graph construction.
 #'
 #' @importFrom spdep poly2nb
-#' @importFrom sf st_make_valid st_is_empty st_centroid st_geometry st_bbox st_touches st_relate st_length st_intersection st_collection_extract st_crs st_is_longlat
+#' @importFrom sf st_make_valid st_is_empty st_centroid st_geometry st_bbox st_intersects st_as_sfc st_length st_intersection st_collection_extract st_crs st_is_longlat
 #' @importFrom igraph make_empty_graph add_edges set_vertex_attr vcount ecount components simplify ends set_graph_attr E
 #'
 #' @export
@@ -197,13 +196,8 @@ build_network <- function(polygons,
                                bbox_buffer              = 0.01,
                                verbose                  = TRUE) {
   
-  # ---- Hard dependency checks ---- *
-  # spdep is required for both modes; the heavy I/O packages (sfarrow, arrow)
-  # are only needed for chunked mode and are checked there so they can live in
-  # Suggests rather than Imports.
-  .need("spdep")
-  .need("sf")
-  .need("igraph")
+  # spdep, sf and igraph are Imports. The heavy I/O packages (sfarrow, arrow)
+  # are only needed for chunked mode and are checked there (Suggests).
   
   # ---- Scalar argument validation ---- *-
   # Fail fast and informatively rather than letting a malformed value surface as
@@ -477,19 +471,10 @@ build_network <- function(polygons,
       .log(verbose, "Checking cross-chunk edges: %d x %d", i, j)
       polys_j <- .load_chunk(chunk_meta[[j]]$path, chunk_meta[[j]]$control_path)
       
-      sgbp <- if (queen) {
-        sf::st_touches(polys_i, polys_j)
-      } else {
-        sf::st_relate(polys_i, polys_j, pattern = "F***1****")
-      }
-      
-      sgbp   <- unclass(sgbp)
-      counts <- lengths(sgbp)
-      pairs  <- if (sum(counts) > 0L) {
-        data.frame(row = rep.int(seq_along(sgbp), counts),
-                   col = as.integer(unlist(sgbp, use.names = FALSE)))
-      } else
-        NULL
+      # Same rule and snap tolerance as within a chunk (poly2nb), so a
+      # near-touching pair on a chunk border is a neighbour, not a bridge.
+      pairs <- .cross_chunk_pairs(polys_i, polys_j, queen = queen, snap = snap,
+                                  buffer = bbox_buffer)
       
       if (!is.null(pairs) && nrow(pairs) > 0) {
         if (min_shared_length > 0) {
@@ -503,7 +488,7 @@ build_network <- function(polygons,
                                                             to   = chunk_meta[[j]]$global_idx[pairs$col])
         }
       }
-      rm(polys_j, sgbp, pairs)
+      rm(polys_j, pairs)
     }
     rm(polys_i)
     gc(verbose = FALSE)
@@ -676,6 +661,40 @@ build_network <- function(polygons,
                    bridge_dist = igraph::E(g)$bridge_dist[br]))
 }
 
+
+#' Contiguity pairs between two chunks, by the within-chunk rule
+#'
+#' Runs \code{spdep::poly2nb()} with the same \code{queen} and \code{snap} as
+#' the within-chunk phase on the units of each chunk that reach the other
+#' chunk's bounding box (widened by \code{buffer + snap}), and keeps the pairs
+#' that join the two chunks.
+#'
+#' @param polys_i,polys_j \pkg{sf} polygon chunks in one CRS.
+#' @param queen,snap As in \code{build_network()}.
+#' @param buffer Bounding-box buffer in CRS units.
+#' @return Data frame with \code{row} (index into \code{polys_i}) and
+#'   \code{col} (index into \code{polys_j}), or \code{NULL}.
+#' @keywords internal
+#' @noRd
+.cross_chunk_pairs <- function(polys_i, polys_j, queen, snap, buffer) {
+  near <- function(a, b) {
+    bb <- sf::st_bbox(b)
+    d  <- buffer + snap
+    bb[c("xmin", "ymin")] <- bb[c("xmin", "ymin")] - d
+    bb[c("xmax", "ymax")] <- bb[c("xmax", "ymax")] + d
+    which(lengths(sf::st_intersects(sf::st_geometry(a), sf::st_as_sfc(bb))) > 0L)
+  }
+  ia <- near(polys_i, polys_j)
+  ib <- near(polys_j, polys_i)
+  if (!length(ia) || !length(ib)) return(NULL)
+  both <- c(sf::st_geometry(polys_i)[ia], sf::st_geometry(polys_j)[ib])
+  nb   <- suppressWarnings(spdep::poly2nb(both, queen = queen, snap = snap))
+  el   <- nb_to_edgelist(nb)                      # from < to
+  na   <- length(ia)
+  x    <- el$from <= na & el$to > na
+  if (!any(x)) return(NULL)
+  data.frame(row = ia[el$from[x]], col = ib[el$to[x] - na])
+}
 
 #' Do two bounding boxes touch or overlap (with a buffer)?
 #'

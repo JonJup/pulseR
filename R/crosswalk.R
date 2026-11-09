@@ -272,13 +272,16 @@ crosswalk_types <- function(x, external, label, units, id = NULL, weights = NULL
 #' @keywords internal
 #' @noRd
 .cw_pulse_side <- function(x) {
-        if (inherits(x, "pulse_regions_tuning")) {
+        ## best_result is a "pulse_consensus" (or, for prior_strength = Inf, a
+        ## plain list), so it is read as regions without a class check.
+        from_tuning <- inherits(x, "pulse_regions_tuning")
+        if (from_tuning) {
                 x <- x$best_result
                 if (is.null(x)) stop("`pulse_regions_tuning` object carries no `$best_result`.",
                                      call. = FALSE)
         }
         region_of_type <- NULL
-        if (inherits(x, "pulse_regions")) {
+        if (from_tuning || inherits(x, "pulse_regions")) {
                 U     <- .first_non_null(x$memberships, x$fit$memberships)
                 hard  <- .first_non_null(x$hard_labels, x$fit$hard_labels)
                 level <- "regions"
@@ -309,7 +312,11 @@ crosswalk_types <- function(x, external, label, units, id = NULL, weights = NULL
         K    <- ncol(U)
         if (length(hard) != nrow(U))
                 stop("Hard labels and membership rows differ in length.", call. = FALSE)
-        if (anyNA(hard) || any(hard < 1L | hard > K))
+        ## Units without a usable type -- NA hard label (uncovered under an exact
+        ## prior), NA or all-zero membership row -- are untyped: they are left
+        ## out of every table and counted in `coverage$n_no_pulse_type`.
+        untyped <- is.na(hard) | rowSums(is.na(U)) > 0L | !(rowSums(U, na.rm = TRUE) > 0)
+        if (any(hard[!untyped] < 1L | hard[!untyped] > K))
                 stop("Hard labels must index membership columns 1..", K, ".", call. = FALSE)
         
         labels <- if (level == "local") as.character(x$key$name) else colnames(U)
@@ -325,6 +332,7 @@ crosswalk_types <- function(x, external, label, units, id = NULL, weights = NULL
         } else {
                 row_of_unit <- seq_len(nrow(U))
         }
+        row_of_unit[row_of_unit %in% which(untyped)] <- NA_integer_
         list(U = U, hard = hard, labels = labels, level = level,
              row_of_unit = row_of_unit, region_of_type = region_of_type)
 }
@@ -663,6 +671,7 @@ crosswalk_types <- function(x, external, label, units, id = NULL, weights = NULL
 
 #' @rdname crosswalk_types
 #' @param ... Unused.
+#' @return \code{print.pulse_crosswalk} and \code{print.pulse_crosswalk_set} return \code{x} invisibly.
 #' @export
 print.pulse_crosswalk <- function(x, ...) {
         cv <- x$coverage

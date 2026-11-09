@@ -16,6 +16,7 @@ get_local_types(
   model_name = c("VVV", "EEE", "VVI", "VII"),
   scale = TRUE,
   hc_use = "VARS",
+  hc_max_units = 2000L,
   drop_constant = FALSE,
   weight_eps = 1e-06,
   prior = mclust::priorControl(),
@@ -72,13 +73,21 @@ by default: weighted EM for equal-volume models can need ~40x more
 iterations than \code{"VVV"}. With a single predictor the names are
 mapped to \code{"E"}/\code{"V"}.}
 
-\item{scale}{Boolean indicating whether predictor variables should be sacled
-or not. If predictors are not scaled the families VVI and VII are not
-available.}
+\item{scale}{Logical. Standardise every predictor over all units before
+fitting (default \code{TRUE}), so results do not depend on predictor
+units. With \code{FALSE}, models whose fit depends on units
+(\code{"VVI"}, \code{"VII"} and the other diagonal or spherical
+families) are dropped from \code{model_name}.}
 
 \item{hc_use}{Character scalar passed to \code{\link[mclust]{hc}} as
 \code{use}. Set explicitly (default \code{"VARS"}) because the
 \pkg{mclust} default has changed between versions.}
+
+\item{hc_max_units}{Integer \eqn{\ge 2}. Largest number of core units
+passed to \code{\link[mclust]{hc}} per region. Larger cores are thinned
+to this many units, evenly spaced in unit order, because \code{hc()}
+needs quadratic memory; the other units start EM from a flat row.
+Default 2000, the \pkg{mclust} default \code{subset} size.}
 
 \item{drop_constant}{Logical. How to handle a predictor that is constant
 within one region's core or active set, which would give that region a

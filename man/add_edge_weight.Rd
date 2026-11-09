@@ -35,9 +35,12 @@ order.}
 variables. Required when \code{chunked = TRUE}, ignored otherwise. The
 concatenated row order must match the graph vertex order.}
 
-\item{id_col}{Character vector of ID column names to exclude before
-weighting. Only used when \code{variables} is \code{NULL}. Default
-\code{NULL}.}
+\item{id_col}{Character vector of further ID column names to exclude
+before weighting. Only used when \code{variables} is \code{NULL}. A
+column named \code{ID} or \code{id} (the column \code{build_network()}
+stores as \code{polygon_id}) is always excluded; name it in
+\code{variables} to use it. Other columns that look like IDs (integer,
+all distinct) only trigger a warning. Default \code{NULL}.}
 
 \item{variables}{Character vector of column names to use for environmental
 dissimilarity. If \code{NULL} (default), all non-geometry, non-\code{id_col}
@@ -49,8 +52,8 @@ which can substantially reduce memory use on wide parquet files.}
 SD) before computing distances. Default \code{TRUE}. Set to \code{FALSE}
 when variables are already on a comparable scale.}
 
-\item{prior}{Numeric or character vector with type memberships to priori
-typology systems.}
+\item{prior}{Optional vector, one prior-typology label per vertex, stored
+as the vertex attribute \code{prior}.}
 
 \item{bridge_scale}{Length scale \eqn{\lambda} of the bridge penalty, in
 metres (see \emph{Bridge penalty}). \code{NULL} (default) uses the graph
@@ -62,11 +65,12 @@ This is a fixed modelling choice, not a tuning parameter:
 \item{verbose}{Logical. Report edge and vertex counts.}
 }
 \value{
-An undirected \code{igraph} object whose edge \code{weight} attribute
-is the Euclidean distance between neighbouring nodes in (optionally scaled)
-environmental space. Vertex names from \code{g$graph} are preserved, all
-input vertices are retained (including isolated ones), and each undirected
-edge appears exactly once (no multi-edges). The graph attribute
+\code{g$graph} with edge attribute \code{weight}, the Euclidean
+distance between neighbouring nodes in (optionally scaled) environmental
+space. Vertices, edges and their order are those of \code{g$graph}, and
+every existing attribute (for example \code{polygon_id}) is kept; vertices
+are named \code{"1"}, \code{"2"}, ... if unnamed. \code{eid} is set to
+the edge position. The graph attribute
 \code{env} holds the numeric matrix the distances were computed from
 (after dropping constant columns and, if \code{scale = TRUE},
 standardising), one row per vertex. \code{\link{tune_regions}} and
@@ -90,26 +94,15 @@ and a chunked mode where they are read from one or more parquet files and
 stacked in input order.
 }
 \details{
-Both modes share the following pipeline:
-\enumerate{
-\item Extract the adjacency structure from \code{g$graph}.
-\item Convert it to an \pkg{spdep} neighbours list via
-\code{\link[spdep]{mat2listw}}.
-\item Acquire environmental variables (from \code{g$polygons} or by
-reading and stacking \code{files}).
-\item Coerce all variables to numeric and, if \code{scale = TRUE},
-standardize them. Zero-variance and non-numeric columns are handled
-defensively (see below).
-\item Compute neighbour Euclidean distances via
-\code{\link[spdep]{nbcosts}}.
-\item Build an undirected \pkg{igraph} object with these distances as
-edge weights, preserving vertex names and de-duplicating reciprocal
-edges.
-}
+Both modes acquire the environmental variables (from \code{g$polygons} or
+by reading and stacking \code{files}), coerce them to numeric, optionally
+standardise them, and compute the Euclidean distance for every edge of
+\code{g$graph}, in \code{E(g$graph)} order. A graph with loops or multiple
+edges is simplified first, with a warning.
 
 Variable selection precedence: if \code{variables} is supplied, it takes
 precedence and \code{id_col} is ignored; otherwise all columns except those
-in \code{id_col} (and common geometry-like columns such as \code{Shape},
+in \code{id_col}, \code{ID}/\code{id} (and common geometry-like columns such as \code{Shape},
 \code{Shape_Length}, \code{Shape_Area}, \code{geom}, \code{geometry}) are
 used.
 
@@ -143,8 +136,7 @@ in-memory path between boundaries.
 \section{Node ordering}{
 
 This function assumes that the i-th row of the environmental data corresponds
-to the i-th vertex of \code{g$graph} (i.e. the order returned by
-\code{igraph::as_adjacency_matrix()}). This contract is \emph{not} verified
+to the i-th vertex of \code{g$graph}. This contract is \emph{not} verified
 by content, only by count: the function errors if the number of environmental
 rows differs from the number of vertices, but it cannot detect a same-length
 \emph{re-ordering}. Ensure \code{g$polygons} / the stacked parquet rows are
@@ -169,6 +161,5 @@ g_weighted <- add_edge_weight(
 
 }
 \seealso{
-\code{\link[spdep]{nbcosts}} for neighbour cost calculation,
-\code{\link[igraph]{graph_from_data_frame}} for graph construction.
+\code{\link{build_network}}, \code{\link{sample_spanning_trees}}.
 }

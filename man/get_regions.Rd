@@ -2,6 +2,7 @@
 % Please edit documentation in R/regions.R
 \name{get_regions}
 \alias{get_regions}
+\alias{print.pulse_regions}
 \title{Delineate fuzzy contiguous regions (Level 1, one-call wrapper)}
 \usage{
 get_regions(
@@ -30,6 +31,8 @@ get_regions(
   verbose = TRUE,
   seed = NULL
 )
+
+\method{print}{pulse_regions}(x, ...)
 }
 \arguments{
 \item{graph}{A weighted \code{igraph} object, usually from
@@ -123,6 +126,10 @@ strategy. Default 10.}
 
 \item{seed}{Optional integer seed. One stream drives the whole call; the
 caller's RNG state is restored on exit.}
+
+\item{x}{An object of class \code{"pulse_regions"}.}
+
+\item{...}{Unused.}
 }
 \value{
 An object of class \code{"pulse_regions"}, a list with
@@ -155,6 +162,8 @@ loss terms and diagnostics; \code{NULL} when
 \item{\code{p0}, \code{n_eff}}{Mean chance co-association of the
 ensemble and \eqn{1 / p_0}.}
 }
+
+\code{print.pulse_regions} returns \code{x} invisibly.
 }
 \description{
 Samples spanning trees, cuts them into an ensemble of contiguous

@@ -1,28 +1,20 @@
 # =============================================================================
 # pulseR — LEVEL 3: mosaic types from fuzzy co-occurrence signatures
 #
-# What changed and why
-# --------------------
-# INPUT      Level 1 and 2 no longer return the objects this file was written
-#            against. as_mosaic_input() adapts pulse_regions / pulse_local_types /
-#            bare matrices, and records which level and which class labels the
-#            signatures are built from.
-# SPEED      The per-focal R loop is replaced by one sparse product over EDGES.
-#            The signature of focal f is the sum of per-edge class-pair outer
+# INPUT      as_mosaic_input() adapts pulse_regions / pulse_local_types /
+#            pulse_meta_types / bare matrices, and records which level and
+#            which class labels the signatures are built from.
+# SPEED      The signature of focal f is the sum of per-edge class-pair outer
 #            products over edges inside its neighbourhood, so the whole matrix
 #            is  crossprod(B, M)  with B[e, f] = w_f(u_e) w_f(v_e).
-# SCALE      Jensen-Shannon on N x N is O(N^2) and was the hard ceiling. The
-#            clustering step now samples, runs PAM on the sample, and assigns
-#            the rest by distance to medoids only (N x k).
-# METRIC     sqrt-JSD saturates at log 2 the moment two signatures have disjoint
-#            support, which is the normal case once the class count grows. Four
-#            further metrics are available; Hellinger additionally embeds
-#            isometrically in Euclidean space, and a class-aware ground kernel
-#            removes the saturation at its source.
-# FIXES      Every bug listed in the header of section 9.
+# SCALE      Distances are O(N^2), so clustering runs on a sample of
+#            `sample_size` rows and assigns the rest by the fitted model
+#            (DMM) or by distance to medoids (PAM).
+# METRIC     sqrt-JSD saturates at log 2 when two signatures have disjoint
+#            support; Hellinger, total variation, Bray-Curtis and Euclidean
+#            are also available.
 #
-# Requires: Matrix, igraph, cluster, stats. Optional: philentropy (not needed —
-# the JS distance is computed directly here).
+# Requires: Matrix, igraph, cluster, stats.
 # =============================================================================
 
 
@@ -105,9 +97,8 @@ as_mosaic_input <- function(x,
                 reg <- as.integer(x$key$region)
                 
                 if (level == "region") {
-                        ## FIX: force numeric order. split() on an integer vector groups by
-                        ## as.character(), so regions 10 and 11 sorted before region 2 and
-                        ## column j stopped meaning region j.
+                        ## Numeric factor levels: split() on an integer vector would
+                        ## group by as.character() and put region 10 before region 2.
                         lv  <- sort(unique(reg))
                         idx <- split(seq_len(ncol(P)), factor(reg, levels = lv))
                         P   <- vapply(idx, function(j) rowSums(P[, j, drop = FALSE]),
@@ -549,9 +540,10 @@ compute_signature_distance <- function(signatures, method = c("js", "hellinger",
         ## Jensen-Shannon, computed directly (no philentropy dependency, and the
         ## previous call rebuilt an N x N object twice over).
         if (is.null(signatures_ref)) {
-                d <- stats::dist(Sn)                    # placeholder to inherit attributes
-                d[] <- .js_pairwise(Sn)
-                return(d)
+                # Built directly: no Euclidean dist as an attribute placeholder.
+                return(structure(.js_pairwise(Sn), Size = nrow(Sn), Labels = rownames(Sn),
+                                 Diag = FALSE, Upper = FALSE, method = "js",
+                                 class = "dist"))
         }
         Rn <- as.matrix(signatures_ref); Rn <- (Rn + eps) / rowSums(Rn + eps)
         .js_cross(Sn, Rn)
@@ -654,13 +646,15 @@ embed_hellinger <- function(signatures) {
 #' @param d A \code{dist}.
 #' @param k Integer \eqn{\ge 2}.
 #' @param fuzziness Numeric \eqn{> 1}. Default 2.
+#' @param Dm Optional full matrix of \code{d}, reused across candidates
+#'   instead of rebuilding it per call.
 #' @return List with \code{memberships}, \code{pam_result}, \code{d_to_medoids},
 #'   \code{medoid_dist}, \code{fuzziness}.
 #' @importFrom cluster pam
 #' @importFrom stats as.dist
 #' @keywords internal
 #' @noRd
-.pam_memberships <- function(d, k, fuzziness = 2) {
+.pam_memberships <- function(d, k, fuzziness = 2, Dm = NULL) {
         if (!inherits(d, "dist")) d <- stats::as.dist(d)
         if (length(k) != 1L || is.na(k) || k < 2 || k != as.integer(k))
                 stop("`k` must be a single integer >= 2.", call. = FALSE)
@@ -668,7 +662,7 @@ embed_hellinger <- function(signatures) {
                 stop("`fuzziness` must be a single number > 1.", call. = FALSE)
         
         pam_res <- cluster::pam(d, k = as.integer(k), diss = TRUE)
-        Dm <- as.matrix(d)
+        if (is.null(Dm)) Dm <- as.matrix(d)
         d_med <- Dm[, pam_res$id.med, drop = FALSE]
         list(memberships  = .memberships_from_medoids(d_med, fuzziness),
              pam_result   = pam_res,
@@ -690,11 +684,12 @@ embed_hellinger <- function(signatures) {
 #'   \code{method = "dmm"} it must carry the \code{"totals"} attribute, which
 #'   subsetting or \code{rbind()} drops.
 #' @param n_mosaic_types Candidate counts, all \eqn{\ge 2}. Default 2:10.
-#' @param method \code{"dmm"} (default): Dirichlet-multinomial mixture on the 
-#'   signatures converted back to edge pseudo-counts (Holmes et al. 2012). 
-#'   code{"pam"}: fuzzy PAM on a signature distance. Memberships are then
-#'   posterior type probabilities ("which type, and how confidently") rather
-#'   than distance-based fuzzy degrees.
+#' @param method \code{"dmm"} (default): Dirichlet-multinomial mixture on the
+#'   signatures converted back to edge pseudo-counts (Holmes et al. 2012).
+#'   Memberships are posterior type probabilities ("which type, and how
+#'   confidently"). \code{"pam"}: fuzzy PAM on a signature distance;
+#'   memberships are distance-based fuzzy degrees that depend on
+#'   \code{fuzziness}.
 #' @param distance Metric; see \code{\link{compute_signature_distance}}. With
 #'   \code{method = "dmm"} it is used only for saturation (estimated on at most
 #'   2000 rows) and, when the metric needs them, silhouettes. The full
@@ -708,7 +703,10 @@ embed_hellinger <- function(signatures) {
 #'   \code{"GD5"}, \code{"FS"} and \code{"stability"} need medoids (PAM only);
 #'   \code{"ICL"} and \code{"BIC"} need a likelihood (DMM only).
 #' @param fuzziness Numeric \eqn{> 1}. Default 2. PAM only.
-#' @param stability_B Bootstrap replicates. 0 skips. PAM only.
+#' @param stability_B PAM refits on 80\% subsamples of the same distance
+#'   matrix for \code{STAB}. 0 skips. PAM only. \code{STAB} measures how
+#'   sensitive PAM is to the sample, not whether new data would give the same
+#'   types. Default 10.
 #' @param sample_size Objects clustered exactly. Above this the routine samples,
 #'   fits on the sample and assigns the remainder (PAM: nearest medoid; DMM:
 #'   posterior under the fitted mixture). \code{Inf} forces the exact path.
@@ -739,7 +737,7 @@ get_mosaic_types <- function(signatures,
                                              "stability", "silhouette_fuzzy", "silhouette",
                                              "ICL", "BIC"),
                              fuzziness   = 2,
-                             stability_B = 25L,
+                             stability_B = 10L,
                              sample_size = 5000,
                              dmm_control = list(),
                              seed        = NULL,
@@ -824,7 +822,7 @@ get_mosaic_types <- function(signatures,
         for (i in seq_along(n_mosaic_types)) {
                 nc <- n_mosaic_types[i]
                 if (method == "pam") {
-                        fz <- .pam_memberships(d, nc, fuzziness)
+                        fz <- .pam_memberships(d, nc, fuzziness, Dm = D_full)
                         if (crisp) {
                                 U <- matrix(0, nrow(fz$memberships), nc)
                                 U[cbind(seq_len(nrow(U)), fz$pam_result$clustering)] <- 1
@@ -912,6 +910,10 @@ get_mosaic_types <- function(signatures,
                   class = "pulse_mosaic_types")
 }
 
+#' @rdname get_mosaic_types
+#' @param x An object of class \code{"pulse_mosaic_types"}.
+#' @param ... Unused.
+#' @return \code{print.pulse_mosaic_types} returns \code{x} invisibly.
 #' @export
 print.pulse_mosaic_types <- function(x, ...) {
         cat(sprintf("<pulse_mosaic_types>  %d units x %d mosaic types | %s | distance = %s%s\n",
@@ -994,17 +996,14 @@ print.pulse_mosaic_types <- function(x, ...) {
 #' @param fz Output of \code{.pam_memberships()}.
 #' @param signatures Signature matrix on the SAME rows as \code{fz$memberships}.
 #' @param D_full Full dissimilarity matrix PAM was run on.
-#' @param stability_B Bootstrap replicates.
+#' @param stability_B PAM refits on 80\% subsamples.
 #' @param seed Optional seed.
 #' @return One-row data frame.
 #' @keywords internal
 #' @noRd
-.mosaic_cvis <- function(fz, signatures, D_full, stability_B = 25L, seed = NULL) {
+.mosaic_cvis <- function(fz, signatures, D_full, stability_B = 10L, seed = NULL) {
         U <- fz$memberships; N <- nrow(U); k <- ncol(U); m <- fz$fuzziness
         med <- fz$pam_result$id.med
-        ## FIX: the call site used to pass the FULL signature matrix while U held
-        ## complete cases only, so this assertion fired whenever any polygon had an
-        ## NA signature — i.e. whenever the coverage had an isolated unit.
         if (nrow(signatures) != N)
                 stop(sprintf("`signatures` has %d rows but the partition has %d; pass the ",
                              "complete-case subset.", nrow(signatures), N), call. = FALSE)
@@ -1028,8 +1027,6 @@ print.pulse_mosaic_types <- function(x, ...) {
         
         STAB <- .stability_pam_diss(D_full, fz$pam_result$clustering, k,
                                     B = stability_B, seed = seed)
-        ## FIX: the call carried a trailing comma (`.fuzzy_silhouette(D=,U=,)`),
-        ## an empty-argument parse error that made every fuzzy run abort.
         SILF <- .fuzzy_silhouette(D = D_full, U = U)
         
         data.frame(k = k, R2_JS = R2_JS, CH_JS = CH_JS, FS = FS, GD5 = GD5,
@@ -1072,8 +1069,6 @@ print.pulse_mosaic_types <- function(x, ...) {
 #' @keywords internal
 #' @noRd
 .mosaic_score <- function(df, metric) {
-        ## FIX: match.arg() used to admit "FCH" and "FH", which then hit the switch's
-        ## stop(); and "CH_JS", "R2_JS", "silhouette_fuzzy" were unreachable.
         switch(metric,
                R2_JS            = df$R2_JS,
                CH_JS            = df$CH_JS,
@@ -1108,6 +1103,9 @@ print.pulse_mosaic_types <- function(x, ...) {
 #' @param kernel,sigma,exclude_bridges Passed to
 #'   \code{\link{compute_all_signatures}}. \code{exclude_bridges} defaults to
 #'   \code{TRUE}.
+#' @param verbose Logical. Report progress and the per-order summary.
+#'   Passed on to \code{\link{compute_all_signatures}} and
+#'   \code{\link{get_mosaic_types}}. Default \code{TRUE}.
 #' @param ... Passed to \code{\link{get_mosaic_types}} (\code{distance},
 #'   \code{metric}, \code{stability_B}, \code{sample_size}, \code{seed}).
 #' @details \code{k} is bounded on both sides: too small and the signatures are
@@ -1129,20 +1127,22 @@ print.pulse_mosaic_types <- function(x, ...) {
 #'   \code{n_mosaic_types}.
 #' @export
 check_k_order <- function(mosaic_input, graph, coords = NULL, k_order = 1:5, n_mosaic_types = 2:10,
-                          kernel = "none", sigma = "global", exclude_bridges = TRUE, ...) {
+                          kernel = "none", sigma = "global", exclude_bridges = TRUE,
+                          verbose = TRUE, ...) {
         if (!igraph::is_igraph(graph)) stop("`graph` must be an igraph object.", call. = FALSE)
+        .assert_flag(verbose, "verbose")
         k_order <- sort(unique(as.integer(k_order)))
         
         out <- vector("list", length(k_order))
         for (i in seq_along(k_order)) {
                 k <- k_order[i]
-                message("\n=== Neighbourhood order k = ", k, " ===")
+                if (verbose) message("\n=== Neighbourhood order k = ", k, " ===")
                 signatures <- compute_all_signatures(mosaic_input, graph, k, coords = coords,
                                                kernel = kernel, sigma = sigma,
-                                               exclude_bridges = exclude_bridges, verbose = TRUE)
-                cl <- get_mosaic_types(signatures, n_mosaic_types = n_mosaic_types, ...)
-                ## FIX: the old version built a frame with no `silhouette` column and
-                ## then selected on it, and it indexed cl$validity by column position.
+                                               exclude_bridges = exclude_bridges,
+                                               verbose = verbose)
+                cl <- get_mosaic_types(signatures, n_mosaic_types = n_mosaic_types,
+                                       verbose = verbose, ...)
                 out[[i]] <- data.frame(k_order    = k,
                                        n_mosaic_types = cl$validity$k,
                                        R2_JS      = cl$validity$R2_JS,
@@ -1162,13 +1162,13 @@ check_k_order <- function(mosaic_input, graph, coords = NULL, k_order = 1:5, n_m
         by_order <- results[results$n_mosaic_types == results$n_selected,
                             c("k_order", "n_selected", "R2_JS", "SAT", "contrast"), drop = FALSE]
         rownames(by_order) <- NULL
-        message("\n=== Per order at its own n_mosaic_types (score is within-order only; ",
+        if (verbose) message("\n=== Per order at its own n_mosaic_types (score is within-order only; ",
                 "orders are not ranked) ===\n",
                 paste(sprintf("  k_order %d: n_selected = %d, R2_JS = %.3f, SAT = %.2f, contrast = %.3f",
                               by_order$k_order, by_order$n_selected, by_order$R2_JS,
                               by_order$SAT, by_order$contrast), collapse = "\n"))
         hi <- by_order$k_order[is.finite(by_order$SAT) & by_order$SAT > 0.3]
-        if (length(hi))
+        if (verbose && length(hi))
                 message("Saturation > 0.3 at k_order = ", paste(hi, collapse = ", "),
                         ": signatures there carry little information.")
         attr(results, "by_order") <- by_order
@@ -1255,6 +1255,9 @@ compute_mosaic_contrast <- function(signatures, graph) {
                   class = "pulse_mosaic_input")
 }
 
+#' @rdname as_mosaic_input
+#' @param ... Unused (print method).
+#' @return \code{print.pulse_mosaic_input} returns \code{x} invisibly.
 #' @export
 print.pulse_mosaic_input <- function(x, ...) {
         cat(sprintf("<pulse_mosaic_input>  %d units x %d classes | level = %s\n",

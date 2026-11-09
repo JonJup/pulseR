@@ -2,6 +2,7 @@
 % Please edit documentation in R/ensemble_diagnostics.R
 \name{check_ensemble_size}
 \alias{check_ensemble_size}
+\alias{print.pulse_ensemble_size}
 \title{Check whether the ensemble has enough trees (split-half convergence)}
 \usage{
 check_ensemble_size(
@@ -18,6 +19,8 @@ check_ensemble_size(
   seed = NULL,
   verbose = TRUE
 )
+
+\method{print}{pulse_ensemble_size}(x, ...)
 }
 \arguments{
 \item{ensemble}{An \code{"pulse_ensemble"} object or an integer
@@ -42,12 +45,18 @@ counts as flat. Default 0.01.}
 \item{seed}{Optional integer; the caller's RNG state is restored.}
 
 \item{verbose}{Logical.}
+
+\item{x}{An object of class \code{"pulse_ensemble_size"}.}
+
+\item{...}{Unused.}
 }
 \value{
 Object of class \code{"pulse_ensemble_size"}: \code{replicates}
 (one row per size and replicate), \code{summary} (per size: mean, min
 and max ARI, gain over the previous size), \code{search_floor},
 \code{converged}, \code{k}, \code{n_members}.
+
+\code{print.pulse_ensemble_size} returns \code{x} invisibly.
 }
 \description{
 Draws two disjoint sets of \code{m} ensemble columns, builds a consensus

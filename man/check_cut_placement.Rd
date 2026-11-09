@@ -2,6 +2,7 @@
 % Please edit documentation in R/ensemble_diagnostics.R
 \name{check_cut_placement}
 \alias{check_cut_placement}
+\alias{print.pulse_cut_placement}
 \title{Check whether cut placement follows the environment}
 \usage{
 check_cut_placement(
@@ -13,6 +14,8 @@ check_cut_placement(
   N_tree = NULL,
   seed = NULL
 )
+
+\method{print}{pulse_cut_placement}(x, ...)
 }
 \arguments{
 \item{trees}{A \code{"pulse_trees"} object.}
@@ -29,6 +32,10 @@ added (it is the ceiling reference).}
 \item{N_tree}{Number of trees to use. Default \code{min(100, n_trees)}.}
 
 \item{seed}{Optional integer; the caller's RNG state is restored.}
+
+\item{x}{An object of class \code{"pulse_cut_placement"}.}
+
+\item{...}{Unused.}
 }
 \value{
 Object of class \code{"pulse_cut_placement"}: \code{summary} (one row per
@@ -37,6 +44,8 @@ median, \code{mean_pct}, \code{env_retained}, \code{singleton_share} share
 of cuts that split off one unit, \code{median_small_piece}),
 \code{cuts} (one row per cut: setting, tree, percentile, small-piece
 size) and \code{config}.
+
+\code{print.pulse_cut_placement} returns \code{x} invisibly.
 }
 \description{
 For a sweep of \code{size_influence}, cuts every tree as the ensemble does

@@ -12,10 +12,17 @@ test_that("add_edge_weight() stores the matrix behind the weights", {
                      unname(sqrt(rowSums((E[ep[, 1], ] - E[ep[, 2], ])^2))))
 })
 
-test_that("ID-like columns trigger a warning", {
+test_that("an ID/id column is excluded by default; other ID-like columns warn", {
         x <- make_grid_sf()
         net <- suppressMessages(build_network(x, verbose = FALSE))
-        expect_warning(add_edge_weight(net, verbose = FALSE), "look like unit IDs")
+        g0 <- expect_silent(add_edge_weight(net, verbose = FALSE))
+        expect_identical(colnames(igraph::graph_attr(g0, "env")), c("temp", "prec"))
+        expect_equal(igraph::E(g0)$weight,
+                     igraph::E(add_edge_weight(net, id_col = "ID", verbose = FALSE))$weight)
+        net2 <- net; names(net2$polygons)[names(net2$polygons) == "ID"] <- "unit_no"
+        expect_warning(add_edge_weight(net2, verbose = FALSE), "look like unit IDs")
+        g1 <- suppressWarnings(add_edge_weight(net, variables = c("ID", "temp"), verbose = FALSE))
+        expect_identical(colnames(igraph::graph_attr(g1, "env")), c("ID", "temp"))
         X <- cbind(id = 1:20, v = stats::rnorm(20))
         expect_warning(.warn_id_like(X, "`env_id`"), "id")
         expect_silent(.warn_id_like(X[, "v", drop = FALSE], "`env_id`"))

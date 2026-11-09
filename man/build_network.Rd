@@ -109,11 +109,10 @@ files sequentially to handle datasets too large to fit in memory.
 \details{
 Neighbour detection within a chunk (and in memory) uses
 \code{spdep::poly2nb()} with the requested \code{queen} rule and \code{snap}
-tolerance. Cross-chunk neighbours use the matching \pkg{sf} predicate so the
-two phases agree: \code{sf::st_touches()} for Queen contiguity, and
-\code{sf::st_relate()} with the DE-9IM pattern \code{"F***1****"}
-(shared 1-dimensional boundary) for Rook contiguity. The resulting graph is
-undirected, since spatial contiguity is symmetric.
+tolerance. Cross-chunk neighbours use the same \code{poly2nb()} rule and
+\code{snap}, run on the units of each chunk pair that lie near the other
+chunk, so the two phases agree. The resulting graph is undirected, since
+spatial contiguity is symmetric.
 
 In chunked mode the function operates in three phases:
 \enumerate{

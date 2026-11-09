@@ -2,10 +2,13 @@
 % Please edit documentation in R/ensemble_diagnostics.R
 \name{check_tree_novelty}
 \alias{check_tree_novelty}
+\alias{print.pulse_tree_novelty}
 \alias{plot.pulse_tree_novelty}
 \title{Check how much each new tree adds to the ensemble}
 \usage{
 check_tree_novelty(ensemble, graph)
+
+\method{print}{pulse_tree_novelty}(x, ...)
 
 \method{plot}{pulse_tree_novelty}(x, log_x = FALSE, ...)
 }
@@ -14,6 +17,10 @@ check_tree_novelty(ensemble, graph)
 matrix (units x partitions), rows in vertex order of \code{graph}.}
 
 \item{graph}{The \code{igraph} the ensemble was built on.}
+
+\item{x}{An object of class \code{"pulse_tree_novelty"}.}
+
+\item{...}{Unused.}
 
 \item{log_x}{Logical. Log-scale the tree axis. Default \code{FALSE}.}
 }
@@ -24,6 +31,10 @@ row per tree: \code{n_boundary}, \code{new_edges}, \code{share_new},
 share new, by number of trees), \code{summary} (\code{S_obs},
 \code{S_chao2}, \code{coverage}, \code{Q1}, \code{Q2}) and \code{M}.
 Plot it with \code{plot()}.
+
+\code{print.pulse_tree_novelty} returns \code{x} invisibly.
+
+\code{plot.pulse_tree_novelty} returns \code{x} invisibly.
 }
 \description{
 Treats every partition in the ensemble as a set of \emph{boundary edges}:

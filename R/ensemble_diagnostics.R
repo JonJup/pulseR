@@ -121,6 +121,10 @@ check_cut_placement <- function(trees, regions_per_partition,
                   class = "pulse_cut_placement")
 }
 
+#' @rdname check_cut_placement
+#' @param x An object of class \code{"pulse_cut_placement"}.
+#' @param ... Unused.
+#' @return \code{print.pulse_cut_placement} returns \code{x} invisibly.
 #' @export
 print.pulse_cut_placement <- function(x, ...) {
         cat(sprintf("<pulse_cut_placement>  N_tree = %d | R = %d | weight_exponent = %g | N = %d\n",
@@ -238,6 +242,10 @@ check_ensemble_size <- function(ensemble, k, graph = NULL, sizes = NULL,
                   class = "pulse_ensemble_size")
 }
 
+#' @rdname check_ensemble_size
+#' @param x An object of class \code{"pulse_ensemble_size"}.
+#' @param ... Unused.
+#' @return \code{print.pulse_ensemble_size} returns \code{x} invisibly.
 #' @export
 print.pulse_ensemble_size <- function(x, ...) {
         cat(sprintf("<pulse_ensemble_size>  k = %d | ensemble = %d partitions | tol = %g\n",
@@ -362,6 +370,10 @@ check_cut_frequency <- function(ensemble, graph, distance = NULL,
                 class = "pulse_cut_frequency")
 }
 
+#' @rdname check_cut_frequency
+#' @param x An object of class \code{"pulse_cut_frequency"}.
+#' @param ... Unused.
+#' @return \code{print.pulse_cut_frequency} returns \code{x} invisibly.
 #' @export
 print.pulse_cut_frequency <- function(x, ...) {
         s <- x$summary$main
@@ -378,6 +390,7 @@ print.pulse_cut_frequency <- function(x, ...) {
 #' @param x_scale \code{"percentile"} (default, rank of distance, robust to
 #'   skew) or \code{"distance"} (raw values, bin medians).
 #' @param n_points Integer. Edges drawn as background points. Default 3000.
+#' @return \code{plot.pulse_cut_frequency} returns \code{x} invisibly.
 #' @rdname check_cut_frequency
 #' @export
 plot.pulse_cut_frequency <- function(x, x_scale = c("percentile", "distance"),
@@ -532,6 +545,10 @@ check_tree_novelty <- function(ensemble, graph) {
                 class = "pulse_tree_novelty")
 }
 
+#' @rdname check_tree_novelty
+#' @param x An object of class \code{"pulse_tree_novelty"}.
+#' @param ... Unused.
+#' @return \code{print.pulse_tree_novelty} returns \code{x} invisibly.
 #' @export
 print.pulse_tree_novelty <- function(x, ...) {
         s <- x$summary
@@ -546,6 +563,7 @@ print.pulse_tree_novelty <- function(x, ...) {
 }
 
 #' @param log_x Logical. Log-scale the tree axis. Default \code{FALSE}.
+#' @return \code{plot.pulse_tree_novelty} returns \code{x} invisibly.
 #' @rdname check_tree_novelty
 #' @export
 plot.pulse_tree_novelty <- function(x, log_x = FALSE, ...) {

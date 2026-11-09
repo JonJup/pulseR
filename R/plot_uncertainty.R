@@ -17,8 +17,9 @@
 #' is not comparable across levels or fits with different numbers of types.
 #' The dotted line marks \eqn{1/k} where \eqn{k} is constant within a level;
 #' \code{rescale = TRUE} maps \eqn{[1/k, 1]} onto \eqn{[0, 1]} unit by unit.
-#' Local types are conditional on their region, so for them \eqn{k} is the
-#' number of local types in the unit's region.
+#' Local types are conditional on their region: certainty is the
+#' within-region type probability \eqn{z} of the assigned type, and \eqn{k}
+#' is the number of local types in the unit's region.
 #'
 #' Memberships do not mean the same thing at every level (ensemble composition
 #' at Level 1, mixture posteriors for local types and \code{method = "dmm"}
@@ -175,15 +176,35 @@ plot_margin <- function(regions = NULL, local = NULL, meta = NULL, mosaic = NULL
         U  <- x$memberships
         N  <- nrow(U)
         t2 <- .top_two(U)
+        marg <- t2$first - t2$second
         switch(slot,
                regions = {
                        cert <- .confidence_vec(x, "certainty")
                        k    <- rep(ncol(U), N)
                },
                local = {
-                       cert <- t2$first
-                       G    <- tabulate(match(x$key$region, unique(x$key$region)))
-                       k    <- G[match(x$key$region[x$hard_labels], unique(x$key$region))]
+                       ## Within-region type probability z of the assigned
+                       ## region: the region's columns of `weighted` (= w * z),
+                       ## renormalised. Certainty and margin then have the
+                       ## 1/k and 0 floors with k = types in that region.
+                       reg  <- x$key$region
+                       Zw   <- if (is.null(x$weighted)) U else x$weighted
+                       r_i  <- reg[x$hard_labels]
+                       cert <- marg <- rep(NA_real_, N)
+                       k    <- rep(NA_integer_, N)
+                       for (r in unique(reg)) {
+                               cols <- which(reg == r)
+                               rows <- which(r_i == r)
+                               if (!length(rows)) next
+                               Z <- as.matrix(Zw[rows, cols, drop = FALSE])
+                               s <- rowSums(Z)
+                               Z <- Z / ifelse(s > 0, s, NA_real_)
+                               t2r <- .top_two(Z)
+                               cert[rows] <- Z[cbind(seq_along(rows),
+                                                     match(x$hard_labels[rows], cols))]
+                               marg[rows] <- t2r$first - t2r$second
+                               k[rows]    <- length(cols)
+                       }
                },
                meta = {
                        cert <- x$certainty
@@ -195,7 +216,7 @@ plot_margin <- function(regions = NULL, local = NULL, meta = NULL, mosaic = NULL
                })
         data.frame(level     = .UNCERTAINTY_LEVELS[[slot]],
                    certainty = cert,
-                   margin    = t2$first - t2$second,
+                   margin    = marg,
                    k         = as.integer(k),
                    stringsAsFactors = FALSE)
 }

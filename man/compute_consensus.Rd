@@ -67,7 +67,7 @@ configuration and on for the winner.}
 \value{
 A \code{"pulse_consensus"} object with
 \describe{
-\item{\code{memberships}}{\eqn{N \times k} matrix \eqn{\Pi}; rows sum to 1, filled from graph neighbours (see compute_consensus() Details).
+\item{\code{memberships}}{\eqn{N \times k} matrix \eqn{\Pi}; rows sum to 1; rows of units with \code{pi_support == 0} are filled from graph neighbours (see Details).}
 \item{\code{hard_labels}}{Final labels (after contiguity repair).}
 \item{\code{certainty}}{\eqn{\Pi_{i, \mathrm{hard}_i}}.}
 \item{\code{margin}}{Best minus second-best entry of \eqn{\Pi}.}
@@ -84,7 +84,10 @@ A \code{"pulse_consensus"} object with
 \item{\code{salso_native}}{\code{NULL}, or a list: \code{k}, the
 region count salso picks under VI with \eqn{a = 1} and no target;
 \code{labels}, its partition (length N, \code{NA} for units outside
-the sample, no contiguity repair); \code{sampled}; \code{n_units}.
+the sample, no contiguity repair); \code{sampled}; \code{n_units};
+\code{capped}, \code{TRUE} when \code{k} reached the largest piece
+count among the ensemble partitions, the most salso searches, so
+\code{k} is a lower bound.
 This count can depend strongly on \code{regions_per_partition}; check
 with \code{\link{check_native_regions}} before reading it as a
 property of the landscape.}
