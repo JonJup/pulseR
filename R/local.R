@@ -616,7 +616,7 @@ get_local_types <- function(env,
         BIC <- apply(BIC_all, c(1L, 3L), function(v)
                 if (all(is.na(v))) NA_real_ else max(v, na.rm = TRUE))
         BIC <- matrix(BIC, nrow = length(G_all),
-                      dimnames = list(as.character(n_local_types), paste0("Region", re)))
+                      dimnames = list(as.character(G_all), paste0("Region", re)))
         
         ## ---- 5. Assemble ----------------------------------------------------*
         Gs     <- vapply(best, function(b) b$G, integer(1))
