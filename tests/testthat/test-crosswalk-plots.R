@@ -75,6 +75,7 @@ test_that("plane draws within-region satellites", {
 })
 
 test_that("every figure renders", {
+        skip_if_not_installed("ggplot2")
         .local_seed(5)
         g  <- make_grid_sf(6L, 6L)
         h  <- ifelse(g$temp > stats::median(g$temp), 1L, 2L)

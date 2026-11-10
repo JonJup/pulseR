@@ -289,3 +289,18 @@ utils::globalVariables(".data")
         }
         invisible(X)
 }
+## ARI on a mass-weighted contingency table. `wt` = soft unit count per
+## element (local type), so a type holding 1% of units counts 1%, not 1/C.
+## choose(x, 2) generalised to real x as x(x-1)/2.
+.weighted_ari <- function(a, b, wt) {
+        stopifnot(length(a) == length(b), length(a) == length(wt))
+        tab <- tapply(wt, list(a, b), sum, default = 0)
+        c2  <- function(x) sum(x * (x - 1) / 2)
+        n <- sum(tab)
+        if (n < 2) return(NA_real_)
+        s_ij <- c2(tab); s_a <- c2(rowSums(tab)); s_b <- c2(colSums(tab))
+        expected <- s_a * s_b / (n * (n - 1) / 2)
+        denom <- 0.5 * (s_a + s_b) - expected
+        if (abs(denom) < 1e-12) return(1)
+        (s_ij - expected) / denom
+}

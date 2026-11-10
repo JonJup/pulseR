@@ -21,10 +21,11 @@ get_regions(
   prior_strength = 0,
   target_edge_turnover = 0.1,
   tuning_strategy = c("grid", "sequential", "iterative"),
-  tuning_metric = c("borda", "ch_env", "r2_env", "stability", "silhouette_ca",
+  tuning_metric = c("borda", "ch_fit", "r2_fit", "stability", "silhouette_ca",
     "expected_vi"),
   stability_B = 10,
   large_n_threshold = 20000,
+  sample_size = 5000,
   n_cores = 1,
   trees = NULL,
   max_iter = 10,
@@ -40,8 +41,8 @@ get_regions(
 attribute (finite, non-negative).}
 
 \item{env}{Optional data frame or matrix, one row per vertex of
-\code{graph} in vertex order, for the validity indices \code{CH_ENV} and
-\code{R2_ENV} during tuning. \code{NULL} (default) uses the matrix
+\code{graph} in vertex order, for the validity indices \code{CH_FIT} and
+\code{R2_FIT} during tuning. \code{NULL} (default) uses the matrix
 \code{\link{add_edge_weight}} stored on \code{graph}, so the indices are
 computed in the space of the edge weights. A supplied \code{env} is used
 as given: non-numeric columns are dropped and nothing is scaled.}
@@ -112,7 +113,7 @@ Default 0.1.}
 \code{"sequential"}, \code{"iterative"}. See \code{\link{tune_regions}}.}
 
 \item{tuning_metric}{Character. One of \code{"borda"} (default),
-\code{"ch_env"}, \code{"r2_env"}, \code{"stability"},
+\code{"ch_fit"}, \code{"r2_fit"}, \code{"stability"},
 \code{"silhouette_ca"}, \code{"expected_vi"}. See
 \code{\link{tune_regions}}.}
 
@@ -123,6 +124,8 @@ tuning. 0 skips it. Default 10.}
 \item{large_n_threshold}{Integer. Above this number of vertices, salso
 runs on a sample of units and the rest are assigned and refined. Default
 20000. See \code{\link{compute_consensus}}.}
+
+\item{sample_size}{As in \code{\link{tune_regions}}.}
 
 \item{n_cores}{Integer. Cores passed to \code{salso::salso()}. Default 1.}
 

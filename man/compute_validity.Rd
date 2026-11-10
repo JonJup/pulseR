@@ -31,8 +31,8 @@ it, so pass it if and only if \code{x} was fitted with contiguity.}
 \code{compute_null_baseline()}.}
 }
 \value{
-A one-row data frame: \code{final_regions}, \code{CH_ENV},
-\code{R2_ENV}, \code{STAB}, \code{STAB_FAIL}, \code{SIL_CA}, \code{CERT},
+A one-row data frame: \code{final_regions}, \code{CH_FIT},
+\code{R2_FIT}, \code{STAB}, \code{STAB_FAIL}, \code{SIL_CA}, \code{CERT},
 \code{EVI}, \code{PAC}.
 }
 \description{

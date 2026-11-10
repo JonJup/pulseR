@@ -133,6 +133,29 @@ so spanning-tree cuts strongly prefer it. Note that the chunked path of
 in-memory path between boundaries.
 }
 
+\section{Correlated predictors}{
+
+Euclidean distance on standardised columns weights every column equally,
+so \eqn{p} near-duplicate predictors (for example several temperature
+summaries) act as one predictor weighted \eqn{p} times. The edge weights,
+the trees and \code{CH_FIT}/\code{R2_FIT} all inherit this, because they
+use the same matrix. Rotating to principal components changes nothing,
+since Euclidean distance is rotation-invariant, and keeping only the
+leading components leaves the redundant axis dominant. To re-weight:
+(a) whiten the leading component scores (shown below; truncation limits
+noise amplification), (b) keep one variable per correlated group, or
+(c) use GDM I-spline-transformed predictors, which weight each variable
+by its fitted contribution to turnover.
+\preformatted{
+X   <- as.data.frame(g$polygons)[, vars]
+pc  <- stats::prcomp(X, scale. = TRUE)
+m   <- which(cumsum(pc$sdev^2) / sum(pc$sdev^2) >= 0.9)[1]
+pcs <- paste0("PC", seq_len(m))
+g$polygons[pcs] <- pc$x[, seq_len(m)]
+gw  <- add_edge_weight(g, variables = pcs, scale = TRUE)  # scale = whitening
+}
+}
+
 \section{Node ordering}{
 
 This function assumes that the i-th row of the environmental data corresponds

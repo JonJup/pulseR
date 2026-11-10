@@ -79,6 +79,7 @@
 #' @param large_n_threshold Integer. Above this number of vertices, salso
 #'   runs on a sample of units and the rest are assigned and refined. Default
 #'   20000. See \code{\link{compute_consensus}}.
+#' @param sample_size As in \code{\link{tune_regions}}.
 #' @param n_cores Integer. Cores passed to \code{salso::salso()}. Default 1.
 #' @param trees Optional \code{"pulse_trees"} object from
 #'   \code{\link{sample_spanning_trees}}. If supplied, no trees are sampled
@@ -154,6 +155,7 @@ get_regions <- function(graph,
                         tuning_metric   =c("borda", "ch_fit", "r2_fit", "stability", "silhouette_ca", "expected_vi"),
                         stability_B      = 10,
                         large_n_threshold = 20000,
+                        sample_size = 5000,
                         n_cores = 1,
                         trees = NULL,
                         max_iter = 10,
@@ -280,7 +282,8 @@ get_regions <- function(graph,
                         size_influence = size_influence,
                         cut_rule = cut_rule,
                         refine_boundary = refine_boundary,
-                        min_size = min_size
+                        min_size = min_size,
+                        sample_size = sample_size
                 )
                 return(.new_pulse_regions(
                         fit               = tr$best_result,
@@ -320,7 +323,8 @@ get_regions <- function(graph,
                         refine_boundary = refine_boundary,
                         min_size = min_size,
                         n_cores = n_cores, 
-                        verbose = verbose
+                        verbose = verbose,
+                        sample_size = sample_size
                 )
                 .new_pulse_regions(
                         fit      = fit,

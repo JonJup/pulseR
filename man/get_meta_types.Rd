@@ -9,6 +9,7 @@ get_meta_types(
   local,
   n_meta_types = 2:12,
   max_confined = 0.2,
+  sensitivity = c(0.1, 0.2, 0.3),
   method = c("bhattacharyya", "wasserstein", "empirical"),
   env = NULL,
   n_sample = 20000L,
@@ -33,6 +34,13 @@ largest one does.}
 
 \item{max_confined}{Threshold for candidate selection, in \eqn{[0, 1]}.
 Default 0.2. Some confinement is real, so 0 is usually too strict.}
+
+\item{sensitivity}{Thresholds at which the selection is re-read from
+\code{selection}, without refitting. Default \code{c(0.1, 0.2, 0.3)}.
+\item{\code{sensitivity}}{Per threshold: chosen n_meta_types, confined mass,
+unweighted and mass-weighted ARI, silhouette. Attribute \code{stable}
+is TRUE if every threshold picks the same cut. \code{NULL} if
+\code{n_meta_types} was fixed.}}
 
 \item{method, env, n_sample, seed}{Passed to \code{\link{compute_local_type_distance}}.}
 

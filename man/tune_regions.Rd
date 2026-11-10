@@ -11,11 +11,11 @@ tune_regions(
   regions_per_partition = 50,
   final_regions,
   weight_exponent = 1,
-  tuning_metric = c("borda", "ch_env", "r2_env", "stability", "silhouette_ca",
+  tuning_metric = c("borda", "ch_fit", "r2_fit", "stability", "silhouette_ca",
     "expected_vi"),
   tuning_strategy = c("grid", "sequential", "iterative"),
   stability_B = 10,
-  voters = c("CH_ENV", "STAB"),
+  voters = c("CH_FIT", "STAB"),
   prior_strength = 0,
   prior_typology = NULL,
   max_iter = 10,
@@ -54,8 +54,8 @@ Candidate cut-probability exponent(s) \eqn{\gamma}. Default 1.}
 
 \item{tuning_metric}{Character. Selection criterion, higher is better:
 \code{"borda"} (default; mean rank over \code{voters}),
-\code{"ch_env"} (\code{CH_ENV}, pseudo-F of the hard labels on
-\code{env}), \code{"r2_env"} (\code{R2_ENV}), \code{"stability"}
+\code{"ch_fit"} (\code{CH_FIT}, pseudo-F of the hard labels on
+\code{env}), \code{"r2_fit"} (\code{R2_FIT}), \code{"stability"}
 (\code{STAB}), \code{"silhouette_ca"} (\code{SIL_CA}, co-association
 silhouette) or \code{"expected_vi"} (minus \code{EVI}, mean variation of
 information between ensemble columns and the consensus).}
@@ -68,7 +68,7 @@ Validity indices). Each split costs two consensus runs at half the
 ensemble size. 0 skips it. Default 10.}
 
 \item{voters}{Character. Validity columns that vote in the Borda aggregate
-(\code{tuning_metric = "borda"}). Default \code{c("CH_ENV", "STAB")}. Check
+(\code{tuning_metric = "borda"}). Default \code{c("CH_FIT", "STAB")}. Check
 \code{STAB} against \code{\link{compute_null_baseline}} before relying on it.}
 
 \item{prior_strength}{Non-negative numeric scalar \eqn{\lambda}. Lowers the
@@ -108,7 +108,7 @@ Default 20000.}
 \item{n_cores}{Integer. Cores passed to \code{salso::salso()}. Default 1.}
 
 \item{env}{Optional data frame or matrix, one row per vertex of
-\code{graph}, for the validity indices \code{CH_ENV} and \code{R2_ENV}.
+\code{graph}, for the validity indices \code{CH_FIT} and \code{R2_FIT}.
 \code{NULL} (default) uses the matrix \code{\link{add_edge_weight}}
 stored on \code{graph} (graph attribute \code{env}), so the indices are
 computed in the space of the edge weights. A supplied \code{env} is used
@@ -212,8 +212,16 @@ just be the largest candidate. Choose it by convergence, not by tuning.
 
 \section{Validity indices}{
 
-\code{CH_ENV} and \code{R2_ENV}: pseudo-F and \eqn{R^2} of the hard labels
-on \code{env}. \code{STAB}: split-half ensemble agreement. The ensemble
+\code{CH_FIT} and \code{R2_FIT}: pseudo-F and \eqn{R^2} of the hard labels
+on \code{env}. By default \code{env} is the matrix the edge weights were
+computed from, so these are internal fit indices: they measure how well
+the regions summarise the space the trees were cut in, not agreement with
+independent data. Every column adds to the sums of squares, so \eqn{p}
+near-duplicate predictors carry about \eqn{p} times the weight of one
+independent predictor; see \code{\link{add_edge_weight}}. The former
+names \code{CH_ENV}, \code{R2_ENV}, \code{"ch_env"} and \code{"r2_env"}
+are still accepted in \code{voters} and \code{tuning_metric}, with a
+warning. \code{STAB}: split-half ensemble agreement. The ensemble
 columns are split at random into two disjoint halves, the consensus is
 computed at the same \code{final_regions} on each half, and the ARI
 between the two partitions is averaged over \code{stability_B} splits.

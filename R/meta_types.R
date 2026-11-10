@@ -198,6 +198,12 @@ compute_local_type_distance <- function(local,
 #'   largest one does.
 #' @param max_confined Threshold for candidate selection, in \eqn{[0, 1]}.
 #'   Default 0.2. Some confinement is real, so 0 is usually too strict.
+#' @param sensitivity Thresholds at which the selection is re-read from
+#'   \code{selection}, without refitting. Default \code{c(0.1, 0.2, 0.3)}.
+#'     \item{\code{sensitivity}}{Per threshold: chosen n_meta_types, confined mass,
+#'       unweighted and mass-weighted ARI, silhouette. Attribute \code{stable}
+#'       is TRUE if every threshold picks the same cut. \code{NULL} if
+#'       \code{n_meta_types} was fixed.}
 #' @param method,env,n_sample,seed Passed to \code{\link{compute_local_type_distance}}.
 #' @param linkage Passed to \code{\link[stats]{hclust}}. Default
 #'   \code{"average"}, which merges on mean overlap and does not chain the way
@@ -231,6 +237,7 @@ compute_local_type_distance <- function(local,
 get_meta_types <- function(local,
                            n_meta_types     = 2:12,
                            max_confined = 0.2,
+                           sensitivity  = c(0.1, 0.2, 0.3),
                            method     = c("bhattacharyya", "wasserstein", "empirical"),
                            env        = NULL,
                            n_sample   = 20000L,
@@ -270,9 +277,25 @@ get_meta_types <- function(local,
                            mean_regions_per_meta = mean(nr),
                            min_regions_per_meta = min(nr),
                            ari_with_region = .adjusted_rand_index(cl, reg),
+                           ari_with_region_w = .weighted_ari(cl, reg, w * nrow(local$memberships)),
                            silhouette = mean(cluster::silhouette(cl, d)[, 3]))
         }))
         if (!is.null(sel)) sel$passes <- sel$mass_confined <= max_confined + 1e-9
+        
+        .pick <- function(t) {
+                p <- sel$mass_confined <= t + 1e-9
+                if (any(p)) max(sel$n_meta_types[p])
+                else max(sel$n_meta_types[sel$mass_confined <= min(sel$mass_confined) + 1e-12])
+        }
+        sens <- if (auto && !is.null(sel)) {
+                s <- data.frame(max_confined = sort(unique(c(sensitivity, max_confined))))
+                s$n_meta_types <- vapply(s$max_confined, .pick, numeric(1))
+                s <- merge(s, sel[, c("n_meta_types", "mass_confined", "ari_with_region",
+                                      "ari_with_region_w", "silhouette")], by = "n_meta_types")
+                s <- s[order(s$max_confined), ]
+                attr(s, "stable") <- length(unique(s$n_meta_types)) == 1L
+                s
+        } else NULL
         
         if (auto) {
                 if (length(unique(reg)) < 2L)
@@ -328,8 +351,10 @@ get_meta_types <- function(local,
                 n_meta_types       = M,
                 crossing     = list(regions_per_meta = nr,
                                     ari_with_region  = .adjusted_rand_index(cl, reg),
+                                    ari_with_region_w = .weighted_ari(cl, reg, w * nrow(U)),
                                     frac_single_region = mean(nr == 1)),
                 selection    = sel,
+                sensitivity  = sens,
                 rule         = rule,
                 hclust       = hc,
                 distance     = d,
@@ -358,6 +383,10 @@ print.pulse_meta_types <- function(x, ...) {
                     "  reproducing the region map.\n")
         cat(sprintf("  n_meta_types chosen by %s\n", x$rule))
         cat(sprintf("  mean certainty = %.3f\n", mean(x$certainty)))
+        if (!is.null(x$sensitivity) && !isTRUE(attr(x$sensitivity, "stable")))
+                cat(sprintf("  Choice depends on max_confined: n_meta_types = %s across %s\n",
+                            paste(x$sensitivity$n_meta_types, collapse = "/"),
+                            paste(x$sensitivity$max_confined, collapse = "/")))
         invisible(x)
 }
 

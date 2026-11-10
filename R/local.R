@@ -39,7 +39,7 @@
                         if (bare) "Remove or fill those rows before calling get_local_types()."
                         else paste0("Current fits fill the rows of units with pi_support == 0 ",
                                     "from graph neighbours; refit the regions with get_regions().")),
-                        call. = FALSE)
+                     call. = FALSE)
         if (any(W < 0))
                 stop("Region weights must be non-negative.", call. = FALSE)
         W
@@ -78,16 +78,31 @@
         h
 }
 
+#' Weighted log-likelihood of one me.weighted() fit, recomputed from its
+#' parameters: sum(w * log f(x)).
+#'
+#' Do NOT use `fit$loglik`: its scale depends on the mclust version.
+#' mclust <= 6.0.x returns sum(w * log f); mclust >= 6.1.x returns
+#' sum(w * log f) / mean(w), i.e. rescaled to the unweighted n. Pairing the
+#' 6.1.x value with a log(n_eff) penalty inflates the likelihood term by
+#' 1 / mean(w) and biases selection toward larger G.
+#'
+#' @keywords internal
+#' @noRd
+.weighted_loglik <- function(fit, X, w) {
+        ldens <- tryCatch(
+                do.call(mclust::dens, c(list(data = as.matrix(X), logarithm = TRUE), fit)),
+                error = function(e) NULL)
+        if (is.null(ldens) || length(ldens) != length(w)) return(NA_real_)
+        sum(w * ldens)
+}
+
 #' Weighted BIC of one me.weighted() fit.
 #'
 #' 2 * (weighted log-likelihood) - npar * log(n_eff), with n_eff = sum(weights).
-#'
-#' NOTE: this assumes `me.weighted()$loglik` is already the WEIGHTED
-#' log-likelihood, which is the mclust convention. The previous version applied
-#' a further `* mean(weights)` to the likelihood term but not to the penalty,
-#' which changes the balance between them and therefore changes which G wins —
-#' it is not a harmless rescaling. If you ever need the unweighted-scale
-#' likelihood, rescale BOTH terms.
+#' Pass the value from .weighted_loglik(), never `fit$loglik` (see above). Both
+#' terms must be on the same (weighted) scale, otherwise the balance between
+#' them shifts and a different G wins.
 #'
 #' @keywords internal
 #' @noRd
@@ -148,9 +163,9 @@
         ## EXPR named: the first case label `E` would otherwise partially
         ## match switch()'s EXPR argument (R CMD check NOTE).
         prior$scale <- switch(EXPR = model,
-                E = , V = V[1, 1] / G^2,
-                EII = , VII = , EEI = , EVI = , VEI = , VVI = (1 / G)^(2 / d) * sum(diag(V)) / d,
-                (1 / G)^(2 / d) * V)
+                              E = , V = V[1, 1] / G^2,
+                              EII = , VII = , EEI = , EVI = , VEI = , VVI = (1 / G)^(2 / d) * sum(diag(V)) / d,
+                              (1 / G)^(2 / d) * V)
         prior
 }
 
@@ -614,7 +629,8 @@ get_local_types <- function(env,
                                 if (is.null(fit) || is.null(fit$loglik) || !is.finite(fit$loglik))
                                         next
                                 
-                                bic <- .weighted_bic(fit$loglik, m, d, G, n_eff)
+                                bic <- .weighted_bic(.weighted_loglik(fit, X_r, w_r),
+                                                     m, d, G, n_eff)
                                 BIC_all[as.character(G), m, r] <- bic
                                 
                                 ## Keep only the incumbent's identity; its z is
