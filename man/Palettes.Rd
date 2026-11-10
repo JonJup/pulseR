@@ -2,6 +2,9 @@
 % Please edit documentation in R/plots.R
 \name{pulse_palette}
 \alias{pulse_palette}
+\alias{local_palette}
+\alias{meta_palette}
+\alias{mosaic_palette}
 \title{Similarity-ordered colours for the regions of a fit}
 \usage{
 pulse_palette(
@@ -13,9 +16,21 @@ pulse_palette(
   luminance = 65,
   hue_range = c(10, 340)
 )
+
+local_palette(x, region_colours, l_range = c(80, 38))
+
+meta_palette(x, method = "auto", chroma = 65, luminance = 65, hue_offset = 40)
+
+mosaic_palette(
+  x,
+  method = "auto",
+  chroma = 60,
+  luminance = 60,
+  hue_offset = 200
+)
 }
 \arguments{
-\item{x}{A \code{"pulse_regions"} object.}
+\item{x}{A \code{"pulse_mosaic_types"} object.}
 
 \item{method}{\code{"auto"} (default), \code{"ramp1d"}, \code{"hue2d"} or
 \code{"qualitative"}. \code{"auto"} uses \code{"qualitative"} for
@@ -35,9 +50,22 @@ when the fit carries no co-association matrix.}
 luminance of the palette. Defaults 65 and 65 print and project acceptably.}
 
 \item{hue_range}{Numeric length 2, degrees, for \code{"ramp1d"}.}
+
+\item{region_colours}{Character vector of region colours, normally from
+\code{\link{pulse_palette}} on the parent \code{"pulse_regions"} object.}
+
+\item{l_range}{Numeric length 2. Luminance span within a region.}
+
+\item{method, chroma, luminance, hue_offset}{Passed to the palette builder.}
 }
 \value{
 Character vector of \code{k} hex colours, named by region index.
+
+Character vector of hex colours, one per column of \code{x$memberships}.
+
+Named character vector of \code{n_meta_types} hex colours.
+
+Named character vector of \code{n_mosaic_types} hex colours.
 }
 \description{
 Regions are embedded in one or two dimensions from a between-region
@@ -45,4 +73,17 @@ dissimilarity and the embedding is mapped into HCL space, so perceptually
 close colours mean ecologically close regions. Compute this once and pass it
 to every plotting call for the fit; the default palette in each function is
 this same call, so figures agree unless you deliberately override.
+
+Every local type keeps its parent region's hue and varies in luminance, so a
+local-type map still reads as the region map at a glance. Without this the
+two levels look like unrelated results.
+
+Ordered by average between-meta-type distance in the space the merge was
+computed in, so environmentally similar meta-types get neighboring hues.
+Offset in hue from the region palette by default, because a meta-type map
+that resembled the region map would mean the merge had not decoupled class
+from location.
+
+Ordered by the distance between the medoid signatures, in the same metric the
+fit used.
 }

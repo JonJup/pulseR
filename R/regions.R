@@ -186,8 +186,9 @@ get_regions <- function(graph,
         .local_seed(seed)
         
         # Upper-bound check before doing any sampling work.
-        if (any(regions_per_partition > igraph::vcount(graph))) {
-                stop("`regions_per_partition` cannot exceed the number of vertices (", igraph::vcount(graph), ").", call. = FALSE)
+        if (any(regions_per_partition >= igraph::vcount(graph))) {
+                stop("`regions_per_partition` must be smaller than the number of vertices (",
+                     igraph::vcount(graph), ").", call. = FALSE)
         }
         
         
@@ -382,6 +383,12 @@ get_regions <- function(graph,
 #'   the minimum spanning tree. Default 0.1.
 #' @param prior_strength Numeric. Stored in the result for
 #'   \code{\link{compute_ensemble}}; not used for sampling.
+#' @param eta \code{NULL} (default) or one non-negative number. The noise
+#'   multiplier: noise sd = \code{eta} times the perturbation unit (see
+#'   Details). \code{NULL} calibrates it to \code{target_edge_turnover};
+#'   a number skips the calibration and \code{target_edge_turnover} is not
+#'   used for it. \code{compute_null_baseline()} uses this to calibrate once
+#'   for all replicates.
 #'
 #' @return An object of class \code{"pulse_trees"} — a list with:
 #'   \describe{
@@ -423,12 +430,12 @@ get_regions <- function(graph,
 #' print(trees)
 #' }
 #'
-#' @importFrom igraph sample_spanning_tree E ends vcount vertex_attr vertex_attr_names edge_attr components
+#' @importFrom igraph E ends vcount vertex_attr vertex_attr_names edge_attr components
 #' @importFrom stats mad rnorm
 #' @export
 sample_spanning_trees <- function(graph, n, seed = NULL, verbose = TRUE,
                                   prior_typology = NULL, target_edge_turnover = .1, 
-                                  prior_strength = 0) {
+                                  prior_strength = 0, eta = NULL) {
         
         # --- Argument validation ---- *--- *
         stopifnot(
@@ -500,10 +507,16 @@ sample_spanning_trees <- function(graph, n, seed = NULL, verbose = TRUE,
         if (verbose) message(sprintf("Sampling %d spanning trees ...", n))
         tick <- if (verbose) .make_progress(n, "Spanning trees") else function(i) NULL
         edge_mad <- .noise_scale(edge_w, warn = target_edge_turnover > 0)
-        eta_emp <- .calibrate_eta_empirical(graph  = graph, 
-                                            w      = edge_w, 
-                                            s      = edge_mad,
-                                            target = target_edge_turnover)
+        eta_emp <- if (is.null(eta)) {
+                .calibrate_eta_empirical(graph  = graph, 
+                                         w      = edge_w, 
+                                         s      = edge_mad,
+                                         target = target_edge_turnover)
+        } else {
+                if (!is.numeric(eta) || length(eta) != 1L || !is.finite(eta) || eta < 0)
+                        stop("`eta` must be NULL or one finite number >= 0.", call. = FALSE)
+                as.numeric(eta)
+        }
         n_v      <- igraph::vcount(graph)
         edge_ids <- matrix(0L, nrow = n_v - 1L, ncol = n)
         for (j in seq_len(n)) {
@@ -551,8 +564,10 @@ sample_spanning_trees <- function(graph, n, seed = NULL, verbose = TRUE,
 #' @param N_tree Integer scalar. Number of spanning trees to use
 #'   (must be \code{<= trees$n_trees}).
 #' @param graph The parent \code{igraph} object the trees were sampled from.
-#'   Needed only to re-resolve tree edges on older igraph versions; always
-#'   supplied for safety.
+#'   Read only when \code{cut_rule = "ssd"}, which needs the scaled
+#'   environment matrix \code{graph_attr(graph, "env")} stored by
+#'   \code{\link{add_edge_weight}}. Tree edges and weights are taken from
+#'   \code{trees}; \code{graph} is not checked against \code{trees}.
 #' @param regions_per_partition Integer scalar \eqn{\ge 2}. Number of regions per tree;
 #'   must not exceed the number of vertices.
 #' @param prior_strength Non-negative numeric scalar \eqn{\lambda}. Lowers the
@@ -596,6 +611,9 @@ sample_spanning_trees <- function(graph, n, seed = NULL, verbose = TRUE,
 #'   \code{\link{add_edge_weight}} stores on the graph.
 #' @param min_size Integer \eqn{\ge 1}. Smallest allowed piece. Used only by
 #'   \code{cut_rule = "ssd"}, where cuts are sequential. Default 1.
+#' @param seed Optional integer seed. One stream drives the whole call; the
+#'   caller's RNG state is restored on exit. \code{NULL} (default) uses the
+#'   current stream, so \code{set.seed()} before the call still works.
 #'
 #' @return An object of class \code{"pulse_ensemble"} — a list with:
 #'   \describe{
@@ -615,24 +633,33 @@ sample_spanning_trees <- function(graph, n, seed = NULL, verbose = TRUE,
 #' @importFrom igraph E ends make_graph components
 #' @export
 compute_ensemble <- function(trees, 
-                                         N_tree, 
-                                         graph, 
-                                         regions_per_partition, 
-                                         prior_strength = 0, 
-                                         weight_exponent = 1, 
-                                         verbose = TRUE,
-                                         size_influence = 2,
-                                         cut_rule = c("propensity", "ssd"),
-                                         min_size = 1L) {
+                             N_tree, 
+                             graph, 
+                             regions_per_partition, 
+                             prior_strength = 0, 
+                             weight_exponent = 1, 
+                             verbose = TRUE,
+                             size_influence = 2,
+                             cut_rule = c("propensity", "ssd"),
+                             min_size = 1L,
+                             seed = NULL) {
         
         stopifnot(inherits(trees, "pulse_trees"))
         cut_rule <- match.arg(cut_rule)
-        stopifnot(length(N_tree) == 1L, N_tree >= 2, N_tree <= trees$n_trees)
-        stopifnot(length(regions_per_partition) == 1L, regions_per_partition >= 2, regions_per_partition <= trees$n_vertices)
+        stopifnot(
+                length(N_tree) == 1L,
+                N_tree >= 2,
+                N_tree <= trees$n_trees
+        )
+        stopifnot(
+                length(regions_per_partition) == 1L,
+                regions_per_partition >= 2,
+                regions_per_partition < trees$n_vertices
+        )
         stopifnot(is.numeric(prior_strength), length(prior_strength) == 1L, prior_strength >= 0)
         stopifnot(is.numeric(weight_exponent), length(weight_exponent) == 1L, is.finite(weight_exponent), weight_exponent >= 0)
         if (is.infinite(prior_strength))  stop("`prior_strength = Inf` is not supported here; use the exact-prior ", "short-circuit in get_regions()/tune_regions().", call. = FALSE)
-        
+        .local_seed(seed)
         if (verbose) {
                 msg <- sprintf(
                         "Computing ensemble memberships (N_tree = %d, regions_per_partition = %d",
@@ -741,7 +768,8 @@ compute_ensemble <- function(trees,
 #' resulting connected components. One cut-set, and one column, per tree.
 #' Cut propensities come from \code{.cut_log_propensity()}.
 #'
-#' @param graph Parent \code{igraph} (kept for interface stability).
+#' @param graph Parent \code{igraph}; read only for \code{cut_rule = "ssd"}
+#'   (\code{graph_attr(graph, "env")}).
 #' @param trees A \code{"pulse_trees"} object.
 #' @param N_tree Number of trees to use.
 #' @param regions_per_partition Number of regions per cut-set.
@@ -792,6 +820,14 @@ compute_ensemble <- function(trees,
         
         ep_all   <- trees$edge_endpoints
         memb_mat <- matrix(0L, nrow = n_v, ncol = n_use)
+        if (identical(cut_rule, "ssd")) {
+                X <- igraph::graph_attr(graph, "env")
+                if (is.null(X))
+                        stop("cut_rule 'ssd' needs graph_attr(graph, 'env').", call. = FALSE)
+                if (anyNA(X))
+                        stop("cut_rule 'ssd' needs complete graph_attr(graph, 'env'); ",
+                             "impute or drop rows with NA first.", call. = FALSE)
+        }
         for (j in seq_len(n_use)) {
                 edge_ids <- .tree_edge_ids(trees, j)
                 w        <- trees$edge_weights[edge_ids]
@@ -803,40 +839,17 @@ compute_ensemble <- function(trees,
                              call. = FALSE)
                 
                 if (identical(cut_rule, "ssd")) {
-                        X <- igraph::graph_attr(graph, "env")
-                        if (is.null(X)) stop("cut_rule 'ssd' needs graph_attr(graph, 'env').")
-                        ep <- ep_all[edge_ids, , drop = FALSE]
                         wp <- if (prior_strength > 0 && !is.null(wpe)) wpe[edge_ids] else NULL
                         if (!is.null(wp)) wp[is.na(wp)] <- FALSE
-                        fb <- FALSE
-                        for (s in seq_len(n_to_cut)) {
-                                fc <- .forest_cut_gains(ep, X)
-                                lp   <- weight_exponent * log(pmax(fc$gain, .Machine$double.xmin))
-                                u    <- stats::sd(lp)                 # unit: sd(gamma log g)
-                                ok_u <- is.finite(u) && u > 0
-                                if (!ok_u) u <- log(2)
-                                if (size_influence > 0 && ok_u) {
-                                        lh   <- log(fc$h)
-                                        sd_h <- stats::sd(lh)
-                                        if (is.finite(sd_h) && sd_h > 0)
-                                                lp <- lp + size_influence * u / sd_h * lh
-                                }
-                                if (!is.null(wp) && any(wp)) {
-                                        if (!ok_u) fb <- TRUE
-                                        lp <- lp - prior_strength * u * wp
-                                }
-                                if (min_size > 1L) lp[fc$n_min < min_size] <- -Inf
-                                if (!any(is.finite(lp)))
-                                        stop(sprintf(paste0(
-                                                "Tree %d: no cut keeps both sides >= min_size (%d) ",
-                                                "at cut %d of %d. Lower min_size or regions_per_partition."),
-                                                j, min_size, s, n_to_cut), call. = FALSE)
-                                drop <- which.min(log(stats::rexp(nrow(ep))) - lp)
-                                ep   <- ep[-drop, , drop = FALSE]
-                                if (!is.null(wp)) wp <- wp[-drop]
-                        }
-                        n_fallback <- n_fallback + fb
-                        memb_mat[, j] <- .labels_from_edges(ep, n_v)
+                        cut <- .ssd_cut_tree(ep_all[edge_ids, , drop = FALSE], X, n_to_cut,
+                                             weight_exponent = weight_exponent,
+                                             size_influence  = size_influence,
+                                             prior_strength  = prior_strength,
+                                             within_prior    = wp,
+                                             min_size        = min_size,
+                                             tree            = j)
+                        n_fallback <- n_fallback + cut$fallback
+                        memb_mat[, j] <- cut$labels
                         next
                 }
                 
@@ -924,47 +937,146 @@ compute_ensemble <- function(trees,
         n_c
 }
 
+# Rooted-forest state for Ward SSD cut gains.
+#
+# One DFS (igraph, compiled) gives each vertex a preorder position `pre` and
+# its subtree size, so every subtree is one contiguous block of the preorder.
+# Subtree sums of X then come from prefix sums, with no interpreted traversal.
+# In a forest every edge is a DFS tree edge, so the parent of an edge is the
+# endpoint with the smaller preorder position.
+#
+# ep: m x 2 integer edge matrix of a forest; X: n x p numeric matrix in vertex
+# order, no NA. Returns a list of plain vectors (see .ssd_cut_tree()).
+.ssd_forest_init <- function(ep, X) {
+        X   <- as.matrix(X)
+        n_v <- nrow(X); n_e <- nrow(ep); p <- ncol(X)
+        # Gains depend on differences of means only. Centring keeps the
+        # prefix sums small, so subtree sums lose no precision at large n.
+        X   <- X - rep(colMeans(X), each = n_v)
+        a   <- as.integer(ep[, 1]); b <- as.integer(ep[, 2])
+        g   <- igraph::make_graph(as.vector(rbind(a, b)), n = n_v, directed = FALSE)
+        d   <- igraph::dfs(g, root = 1L, mode = "all", unreachable = TRUE,
+                           order = TRUE, order.out = TRUE)
+        ord  <- as.integer(d$order)
+        post <- integer(n_v); post[as.integer(d$order.out)] <- seq_len(n_v)
+        pre  <- integer(n_v); pre[ord] <- seq_len(n_v)
+        child  <- ifelse(pre[a] > pre[b], a, b)
+        parent <- integer(n_v); parent[child] <- ifelse(pre[a] > pre[b], b, a)
+        pedge  <- integer(n_v); pedge[child] <- seq_len(n_e)
+        # Depth by pointer jumping: about log2(depth) vectorised steps.
+        dep <- as.integer(parent > 0L); anc <- parent
+        while (any(j <- anc > 0L)) {
+                dep[j] <- dep[j] + dep[anc[j]]
+                anc[j] <- anc[anc[j]]
+        }
+        # pre - 1 = ancestors + earlier vertices; post - 1 = earlier vertices
+        # + descendants. Hence size = descendants + 1 = post - pre + depth + 1.
+        size <- post - pre + dep + 1L
+        tot  <- rep(1L, n_v)
+        if (n_e) {
+                rs <- rowsum(size[child], parent[child])
+                ip <- as.integer(rownames(rs))
+                tot[ip] <- tot[ip] + as.integer(rs[, 1L])
+        }
+        if (anyDuplicated(child) || !identical(size, tot))
+                stop("Internal error: the cut edges do not form a forest, or ",
+                     "igraph::dfs() returned an inconsistent order.", call. = FALSE)
+        Cx <- matrix(0, n_v + 1L, p)
+        for (k in seq_len(p)) Cx[-1L, k] <- cumsum(X[ord, k])
+        S  <- Cx[pre + size, , drop = FALSE] - Cx[pre, , drop = FALSE]
+        roots <- ord[parent[ord] == 0L]                  # in preorder
+        comp  <- roots[findInterval(pre, pre[roots])]    # current component root
+        list(pre = pre, ord = ord, size0 = size, size = as.numeric(size), S = S,
+             comp = comp, child = child, pedge = pedge)
+}
+
+# Ward gain, h = n1 n2 / (n1 + n2) and min(n1, n2) of cutting the edges whose
+# lower endpoints are `v`, each within its current component.
+.ssd_edge_gains <- function(v, comp, size, S) {
+        r  <- comp[v]
+        n1 <- size[v]; n2 <- size[r] - n1
+        Sv <- S[v, , drop = FALSE]
+        d  <- Sv / n1 - (S[r, , drop = FALSE] - Sv) / n2
+        h  <- n1 * n2 / (n1 + n2)
+        list(gain = h * rowSums(d^2), h = h, n_min = pmin(n1, n2))
+}
+
 # Ward SSD reduction of cutting each edge of a forest, within its own component.
 # ep: m x 2 integer edge matrix; X: n x p matrix in vertex order.
 # Returns list: gain = h * D, h = n1 n2 / (n1 + n2), n_min = min(n1, n2),
 # all in the row order of ep.
 .forest_cut_gains <- function(ep, X) {
-        n_v <- nrow(X); n_e <- nrow(ep)
-        from <- c(ep[, 1], ep[, 2]); to <- c(ep[, 2], ep[, 1])
-        eid  <- rep(seq_len(n_e), 2L)
-        o    <- order(from); to_s <- to[o]; eid_s <- eid[o]
-        ptr  <- c(0L, cumsum(tabulate(from, n_v)))
-        parent <- integer(n_v); pedge <- integer(n_v); comp <- integer(n_v)
-        bfs <- integer(n_v); tail <- 0L; nc <- 0L; roots <- integer(0)
-        for (r in seq_len(n_v)) {
-                if (comp[r] != 0L) next
-                nc <- nc + 1L; comp[r] <- nc; roots[nc] <- r
-                tail <- tail + 1L; bfs[tail] <- r; head <- tail
-                while (head <= tail) {
-                        v <- bfs[head]; head <- head + 1L
-                        if (ptr[v + 1L] > ptr[v]) for (i in (ptr[v] + 1L):ptr[v + 1L]) {
-                                u <- to_s[i]
-                                if (comp[u] == 0L) {
-                                        comp[u] <- nc; parent[u] <- v; pedge[u] <- eid_s[i]
-                                        tail <- tail + 1L; bfs[tail] <- u
-                                }
-                        }
+        st <- .ssd_forest_init(ep, X)
+        .ssd_edge_gains(st$child, st$comp, st$size, st$S)
+}
+
+# Sequential SSD cuts of one spanning tree.
+#
+# Same race as before, draw for draw: one exponential per remaining edge, in
+# the row order of `ep` with cut rows removed. Only the gains change after a
+# cut, and only inside the component that was split: sizes and sums of the
+# cut vertex's ancestors drop by its subtree, its descendants move to a new
+# component, and every edge of the two pieces is rescored. Other components
+# keep their gains. Cost per cut is linear in the split component, with no
+# interpreted traversal.
+#
+# Returns list(labels, fallback); labels are numbered like
+# igraph::components() (by first vertex), as .labels_from_edges() does.
+.ssd_cut_tree <- function(ep, X, n_to_cut, weight_exponent = 1,
+                          size_influence = 2, prior_strength = 0,
+                          within_prior = NULL, min_size = 1L, tree = 1L) {
+        st    <- .ssd_forest_init(ep, X)
+        pre   <- st$pre; ord <- st$ord; size0 <- st$size0; child <- st$child
+        pedge <- st$pedge; size <- st$size; S <- st$S; comp <- st$comp
+        rm(st)
+        n_e   <- nrow(ep)
+        alive <- rep(TRUE, n_e)
+        fc    <- .ssd_edge_gains(child, comp, size, S)
+        gain  <- fc$gain; h <- fc$h; n_min <- fc$n_min
+        wp    <- within_prior
+        fb    <- FALSE
+        for (s in seq_len(n_to_cut)) {
+                live <- which(alive)
+                lp   <- weight_exponent * log(pmax(gain[live], .Machine$double.xmin))
+                u    <- stats::sd(lp)                 # unit: sd(gamma log g)
+                ok_u <- is.finite(u) && u > 0
+                if (!ok_u) u <- log(2)
+                if (size_influence > 0 && ok_u) {
+                        lh   <- log(h[live])
+                        sd_h <- stats::sd(lh)
+                        if (is.finite(sd_h) && sd_h > 0)
+                                lp <- lp + size_influence * u / sd_h * lh
+                }
+                if (!is.null(wp) && any(wp[live])) {
+                        if (!ok_u) fb <- TRUE
+                        lp <- lp - prior_strength * u * wp[live]
+                }
+                if (min_size > 1L) lp[n_min[live] < min_size] <- -Inf
+                if (!any(is.finite(lp)))
+                        stop(sprintf(paste0(
+                                "Tree %d: no cut keeps both sides >= min_size (%d) ",
+                                "at cut %d of %d. Lower min_size or regions_per_partition."),
+                                tree, min_size, s, n_to_cut), call. = FALSE)
+                e <- live[which.min(log(stats::rexp(length(live))) - lp)]
+                alive[e] <- FALSE
+                if (s == n_to_cut) break                  # no gains needed after the last cut
+                # --- split the component of the cut edge ---------------------*
+                v  <- child[e]; rt <- comp[v]; pv <- pre[v]
+                M  <- ord[pre[rt] + seq_len(size0[rt]) - 1L]
+                M  <- M[comp[M] == rt]                    # current component of rt
+                pM <- pre[M]
+                up <- M[pM < pv & pM + size0[M] > pv]     # ancestors of v
+                dn <- M[pM >= pv & pM < pv + size0[v]]    # v and its descendants
+                size[up] <- size[up] - size[v]
+                S[up, ]  <- S[up, , drop = FALSE] - rep(S[v, ], each = length(up))
+                comp[dn] <- v
+                re <- pedge[M]; re <- re[re > 0L]; re <- re[alive[re]]
+                if (length(re)) {
+                        fc <- .ssd_edge_gains(child[re], comp, size, S)
+                        gain[re] <- fc$gain; h[re] <- fc$h; n_min[re] <- fc$n_min
                 }
         }
-        size <- rep(1, n_v); St <- t(X)               # p x n: contiguous columns
-        for (i in n_v:1L) {
-                v <- bfs[i]; p <- parent[v]
-                if (p > 0L) { size[p] <- size[p] + size[v]; St[, p] <- St[, p] + St[, v] }
-        }
-        ch <- which(parent > 0L); rt <- roots[comp[ch]]
-        n1 <- size[ch]; n2 <- size[rt] - n1; k <- nrow(St)
-        d  <- St[, ch, drop = FALSE] / rep(n1, each = k) -
-                (St[, rt, drop = FALSE] - St[, ch, drop = FALSE]) / rep(n2, each = k)
-        gain <- h <- n_min <- numeric(n_e)
-        h[pedge[ch]]     <- n1 * n2 / (n1 + n2)
-        gain[pedge[ch]]  <- h[pedge[ch]] * colSums(d^2)
-        n_min[pedge[ch]] <- pmin(n1, n2)
-        list(gain = gain, h = h, n_min = n_min)
+        list(labels = .labels_from_edges(ep[alive, , drop = FALSE], nrow(X)), fallback = fb)
 }
 
 # Validate min_size: one integer >= 1, and k regions of that size must fit.
@@ -1173,6 +1285,9 @@ compute_consensus <- function(ensemble, final_regions, graph = NULL,
                 if (is.null(X))
                         stop("`refine_boundary = TRUE` needs graph_attr(graph, 'env'); ",
                              "build the graph with add_edge_weight().", call. = FALSE)
+                if (anyNA(X))
+                        stop("`refine_boundary = TRUE` needs complete graph_attr(graph, 'env'); ",
+                             "impute or drop rows with NA first.", call. = FALSE)
                 hard2   <- .refine_regions(hard, graph, X, min_size = min_size)$z
                 n_moved <- sum(hard2 != hard)
                 if (n_moved > 0L) {
@@ -1313,12 +1428,14 @@ compute_consensus <- function(ensemble, final_regions, graph = NULL,
 #'   \code{ratio} (\code{native_regions / regions_per_partition}) and
 #'   \code{seconds}.
 #' @examples
-#' \dontrun{
+#' g <- build_network(pulse_grid, verbose = FALSE)
+#' g <- add_edge_weight(g, id_col = "ID", variables = c("temp", "prec"),
+#' verbose = FALSE)
 #' trees <- sample_spanning_trees(g, n = 200, seed = 1)
-#' sw <- check_native_regions(trees, g, regions_per_partition = c(10, 25, 50, 100),
-#'                            N_tree = c(50, 200), seed = 1)
+#' sw <- check_native_regions(trees, g, regions_per_partition = c(5,6),
+#'                            N_tree = c(20,25), seed = 1)
 #' plot(native_regions ~ regions_per_partition, data = sw, log = "xy")
-#' }
+#' 
 #' @export
 check_native_regions <- function(trees, graph,
                                  regions_per_partition = c(10L, 25L, 50L, 100L),
@@ -2293,13 +2410,16 @@ tune_regions <- function(graph,
         # --- Normalize candidate sets ----------------------------------------*
         # weight_exponent stays double; the other four are counts.
         regions_per_partition <- sort(unique(as.integer(regions_per_partition)))
-        final_regions        <- sort(unique(as.integer(final_regions)))
-        N_tree                 <- sort(unique(as.integer(N_tree)))
-        weight_exponent      <- sort(unique(as.numeric(weight_exponent)))
+        final_regions         <- sort(unique(as.integer(final_regions)))
+        N_tree                <- sort(unique(as.integer(N_tree)))
+        weight_exponent       <- sort(unique(as.numeric(weight_exponent)))
         
         # --- Checks -----------------------------------------------------*
-        stopifnot(length(regions_per_partition) >= 1L, all(regions_per_partition >= 2),
-                  all(regions_per_partition <= trees$n_vertices))
+        stopifnot(
+                length(regions_per_partition) >= 1L,
+                all(regions_per_partition >= 2),
+                all(regions_per_partition < trees$n_vertices)
+        )
         stopifnot(length(final_regions) >= 1L, all(final_regions >= 2))
         stopifnot(length(N_tree) >= 1L, all(N_tree >= 2), all(N_tree <= trees$n_trees))
         stopifnot(length(weight_exponent) >= 1L, all(is.finite(weight_exponent)),
@@ -2781,6 +2901,10 @@ tune_regions <- function(graph,
 #'   NULL. Ignored otherwise.
 #' @param validate Logical. Run the shape assertions. TRUE except in tight
 #'   internal loops.
+#' @param ensemble N x N_tree label matrix, or NULL. Stored once: if it is
+#'   identical to \code{fit$ensemble_meta$memb_mat}, that copy is dropped
+#'   (saveRDS() would otherwise write the matrix twice); if NULL, it is taken
+#'   from there.
 #'
 #' @return An object of class "pulse_regions": a list with exactly the fields in
 #'   \code{.PULSE_REGIONS_FIELDS}.
@@ -2816,6 +2940,11 @@ tune_regions <- function(graph,
                 
                 U             <- fit$memberships
                 hard_labels <- fit$hard_labels
+                mm <- fit$ensemble_meta$memb_mat
+                if (!is.null(mm)) {
+                        if (is.null(ensemble)) ensemble <- mm
+                        if (identical(ensemble, mm)) fit$ensemble_meta$memb_mat <- NULL
+                }
         } else {
                 if (is.null(memberships) || is.null(hard_labels))
                         stop("`fit = NULL` requires `memberships` and `hard_labels`.",
@@ -2941,37 +3070,66 @@ print.pulse_regions <- function(x, ...) {
                                      target,
                                      n_probe = 20,
                                      tol = 0.02,
-                                     max_iter = 12) {
-        # if target is 0 hard code an eta of zero and exit 
-        if (target == 0){
+                                     max_iter = 12,
+                                     warn = TRUE) {
+        if (target == 0) return(0)
+        
+        # Cyclomatic number = edges that are not in any spanning tree.
+        # 0 means the graph is a tree or forest, so it has one spanning tree.
+        n_v     <- igraph::vcount(graph)
+        n_comp  <- igraph::components(graph)$no
+        n_tedge <- n_v - n_comp
+        n_cyc   <- igraph::ecount(graph) - n_tedge
+        if (n_cyc == 0L) {
+                if (warn) warning(paste0(
+                        "The graph is a tree (no cycles), so it has exactly one spanning ",
+                        "tree: every sampled tree is identical and the ensemble varies ",
+                        "only through its cuts. target_edge_turnover is ignored (eta = 0). ",
+                        "Add adjacency (e.g. bridges or a wider contiguity rule) if tree ",
+                        "diversity is needed."), call. = FALSE)
                 return(0)
         }
+        # Each swapped tree edge needs a non-tree edge to replace it.
+        max_turn <- min(1, n_cyc / n_tedge)
         
         t0 <- igraph::E(igraph::mst(graph, weights = w))$eid
         measure <- function(eta) {
                 mean(replicate(n_probe, {
-                        wp <- w + eta * s * stats::rnorm(length(w))
                         # Not clamped at 0: the MST depends only on the weight
-                        # order, and the sampler does not clamp either, so eta
-                        # is calibrated on the trees that are actually drawn.
+                        # order, and the sampler does not clamp either.
+                        wp <- w + eta * s * stats::rnorm(length(w))
                         t1 <- igraph::E(igraph::mst(graph, weights = wp))$eid
                         .turnover(t0, t1)
                 }))
         }
+        
         lo <- 1e-4
         hi <- 1000
-        
+        best_eta <- NA_real_
+        best_tm  <- NA_real_
         for (i in seq_len(max_iter)) {
                 mid <- sqrt(lo * hi)
-                tm <- measure(mid)
-                if (abs(tm - target) < tol)
-                        return(mid)
-                if (tm < target)
-                        lo <- mid
-                else
-                        hi <- mid
+                tm  <- measure(mid)
+                if (is.na(best_tm) || abs(tm - target) < abs(best_tm - target)) {
+                        best_eta <- mid
+                        best_tm  <- tm
+                }
+                if (abs(tm - target) < tol) return(mid)
+                if (tm < target) lo <- mid else hi <- mid
         }
-        return(mid)
+        
+        if (warn) {
+                why <- if (target > max_turn)
+                        sprintf(paste0("The graph has only %d edge(s) outside a spanning tree, ",
+                                       "so turnover cannot exceed %.3f."), n_cyc, max_turn)
+                else
+                        "Try a lower target_edge_turnover, or raise n_probe / max_iter."
+                warning(sprintf(paste0(
+                        "eta calibration did not reach target_edge_turnover = %.3f ",
+                        "(closest: %.3f at eta = %.3g, after %d steps). %s"),
+                        target, best_tm, best_eta, max_iter, why), call. = FALSE)
+        }
+        best_eta
 }
 
 
@@ -3003,11 +3161,18 @@ print.pulse_regions <- function(x, ...) {
 #'   The shuffle also removes spatial autocorrelation in \code{env}. Smooth
 #'   but ecologically meaningless gradients therefore count as signal here.
 #'
+#'   The tree noise multiplier \eqn{\eta} is calibrated to
+#'   \code{target_edge_turnover} on the first replicate and reused for the
+#'   others. Replicates are exchangeable permutations of the same matrix, so
+#'   one calibration serves all of them; the noise scale itself is still each
+#'   replicate's own weight MAD. The value is returned in \code{settings$eta}.
+#'
 #' @param graph,env,env_id As in \code{\link{tune_regions}}. \code{env}
 #'   must reproduce the edge weights (see Details); \code{NULL} (default)
 #'   uses the matrix stored on \code{graph}.
 #' @param final_regions Integer vector of k values; all are evaluated on each
-#'   null ensemble (k is cheap).
+#'   null ensemble. Each k adds one consensus fit per replicate, and
+#'   \eqn{2 \times} \code{stability_B} more if it is in \code{stability_k}.
 #' @param regions_per_partition,N_tree,weight_exponent Single values: the
 #'   ensemble configuration under test (e.g. \code{tune_regions()$best_config}).
 #' @param size_influence,target_edge_turnover,cut_rule,refine_boundary,min_size
@@ -3015,7 +3180,16 @@ print.pulse_regions <- function(x, ...) {
 #' @param B Integer. Null replicates. Default 19.
 #' @param stability_B Integer. Random splits for \code{STAB}; use the value of
 #'   the observed run.
-#' @param observed Optional \code{"pulse_regions_tuning"} object or a data frame
+#' @param stability_k Integer vector: the k values at which \code{STAB} is
+#'   computed for the null. STAB costs \eqn{2 \times} \code{stability_B}
+#'   consensus fits per k and replicate, most of the run time. \code{NULL}
+#'   (default): the k values with an observed \code{STAB} in \code{observed}
+#'   (for a \code{"pulse_regions"} object, its k), or all
+#'   \code{final_regions} when \code{observed} is \code{NULL}. At other k,
+#'   \code{STAB} is \code{NA} in \code{null} and its summary row is
+#'   \code{NA}.
+#' @param observed Optional \code{"pulse_regions"} or
+#'   \code{"pulse_regions_tuning"} object, or a data frame
 #'   with \code{final_regions} and validity columns (e.g. a \code{tuning_log}).
 #'   Rows are matched on the ensemble configuration when those columns exist.
 #' @param large_n_threshold,sample_size,n_cores As in \code{\link{tune_regions}}.
@@ -3027,8 +3201,8 @@ print.pulse_regions <- function(x, ...) {
 #'   null mean, null 95\% bound in the "better" direction, \code{excess} =
 #'   observed minus null mean with the sign set so positive is better than the
 #'   null, and the empirical \code{p}), \code{config}, and \code{B}.
-#'   \code{settings} holds \code{cut_rule}, \code{refine_boundary} and
-#'   \code{min_size}.
+#'   \code{settings} holds \code{cut_rule}, \code{refine_boundary},
+#'   \code{min_size}, \code{stability_k} and the reused \code{eta}.
 #' @export
 compute_null_baseline <- function(graph, env = NULL, env_id = NULL, final_regions,
                                   regions_per_partition = 50, N_tree,
@@ -3036,7 +3210,8 @@ compute_null_baseline <- function(graph, env = NULL, env_id = NULL, final_region
                                   target_edge_turnover = 0.1,
                                   cut_rule = c("propensity", "ssd"),
                                   refine_boundary = FALSE, min_size = 1L,
-                                  B = 19L, stability_B = 10, observed = NULL,
+                                  B = 19L, stability_B = 10, stability_k = NULL,
+                                  observed = NULL,
                                   large_n_threshold = 20000, sample_size = 5000L,
                                   n_cores = 1, seed = NULL, verbose = TRUE) {
        
@@ -3067,8 +3242,13 @@ compute_null_baseline <- function(graph, env = NULL, env_id = NULL, final_region
                         "environmental signal. Pass the matrix the weights were computed from ",
                         "(scaled if add_edge_weight(scale = TRUE)), or env = NULL to use the one ",
                         "stored on `graph`."), r), call. = FALSE)
+        cfg  <- list(regions_per_partition = as.integer(regions_per_partition),
+                     N_tree = as.integer(N_tree), weight_exponent = as.numeric(weight_exponent))
+        stability_k <- if (is.null(stability_k)) .null_stab_k(observed, cfg, final_regions)
+                       else intersect(final_regions, as.integer(stability_k))
         .local_seed(seed)
         
+        eta_null <- NULL
         out <- vector("list", B)
         for (b in seq_len(B)) {
                 if (verbose) message(sprintf("Null replicate %d / %d ...", b, B))
@@ -3079,7 +3259,9 @@ compute_null_baseline <- function(graph, env = NULL, env_id = NULL, final_region
                 ## from the graph, so it must be permuted there too.
                 g_b   <- igraph::set_graph_attr(g_b, "env", env_b)
                 tr  <- sample_spanning_trees(g_b, n = N_tree, verbose = FALSE,
-                                             target_edge_turnover = target_edge_turnover)
+                                             target_edge_turnover = target_edge_turnover,
+                                             eta = eta_null)
+                if (is.null(eta_null)) eta_null <- tr$eta
                 ens <- compute_ensemble(tr, N_tree = N_tree, graph = g_b,
                                                     regions_per_partition = regions_per_partition,
                                                     weight_exponent = weight_exponent,
@@ -3099,7 +3281,8 @@ compute_null_baseline <- function(graph, env = NULL, env_id = NULL, final_region
                         cv <- if (is.null(res))
                                 as.data.frame(as.list(stats::setNames(rep(NA_real_, length(cvi_cols)), cvi_cols)))
                         else .consensus_cvis(res, ens$memberships, env = env_b,
-                                             stability_B = stability_B, graph = g_b,
+                                             stability_B = if (k %in% stability_k) stability_B else 0L,
+                                             graph = g_b,
                                              stability_seed = stab_seed,
                                              large_n_threshold = large_n_threshold,
                                              sample_size = sample_size, n_cores = n_cores)
@@ -3107,8 +3290,6 @@ compute_null_baseline <- function(graph, env = NULL, env_id = NULL, final_region
                 }))
         }
         null <- do.call(rbind, out)
-        cfg  <- list(regions_per_partition = as.integer(regions_per_partition),
-                     N_tree = as.integer(N_tree), weight_exponent = as.numeric(weight_exponent))
         
         if (inherits(observed, "pulse_regions")) {
                 cx  <- observed$config
@@ -3126,22 +3307,20 @@ compute_null_baseline <- function(graph, env = NULL, env_id = NULL, final_region
         }
         
         
-        structure(list(null = null, summary = .null_summary(null, observed, cfg),
+        structure(list(null = null,
+                       summary = .null_summary(null, observed, cfg,
+                                               skip = list(STAB = setdiff(final_regions, stability_k))),
                        config = cfg, B = as.integer(B),
                        settings = list(cut_rule = cut_rule, refine_boundary = refine_boundary,
-                                       min_size = min_size)),
+                                       min_size = min_size, stability_k = stability_k,
+                                       eta = eta_null)),
                   class = "pulse_null")
 }
 
 #' @keywords internal
 #' @noRd
-.null_summary <- function(null, observed, cfg) {
-        if (inherits(observed, "pulse_regions_tuning")) observed <- observed$tuning_log
-        if (!is.null(observed)) {
-                observed <- as.data.frame(observed)
-                for (ax in names(cfg)) if (ax %in% names(observed))
-                        observed <- observed[abs(observed[[ax]] - cfg[[ax]]) < 1e-9, , drop = FALSE]
-        }
+.null_summary <- function(null, observed, cfg, skip = list()) {
+        observed <- .match_observed_config(observed, cfg)
         if (is.null(null$failed)) null$failed <- FALSE
         rows <- list()
         for (k in sort(unique(null$final_regions))) for (cr in names(.CVI_DIRECTION)) {
@@ -3153,11 +3332,12 @@ compute_null_baseline <- function(graph, env = NULL, env_id = NULL, final_region
                         o <- observed[[cr]][observed$final_regions == k]
                         if (length(o)) o[1] else NA_real_
                 }
+                if (k %in% skip[[cr]]) { x <- numeric(0); n_fail <- 0L }   # not computed for the null
                 rows[[length(rows) + 1L]] <- data.frame(
                         final_regions = k, criterion = cr, observed = obs,
                         null_mean = if (length(x)) mean(x) else NA_real_,
                         null_95   = if (length(x)) unname(stats::quantile(x, if (sgn > 0) 0.95 else 0.05)) else NA_real_,
-                        excess    = sgn * (obs - mean(x)),
+                        excess    = if (length(x)) sgn * (obs - mean(x)) else NA_real_,
                         p          = if (length(x) + n_fail > 0L && is.finite(obs))
                                 (1 + sum(sgn * x >= sgn * obs)) / (length(x) + n_fail + 1) else NA_real_,
                         n_null     = length(x),
@@ -3165,6 +3345,31 @@ compute_null_baseline <- function(graph, env = NULL, env_id = NULL, final_region
                         fail_share = n_fail / max(sum(at_k), 1L))
         }
         do.call(rbind, rows)
+}
+
+# Observed validity rows for the null configuration. Accepts a tuning object
+# or a data frame; rows are kept where the configuration columns match `cfg`.
+#' @keywords internal
+#' @noRd
+.match_observed_config <- function(observed, cfg) {
+        if (inherits(observed, "pulse_regions_tuning")) observed <- observed$tuning_log
+        if (is.null(observed)) return(NULL)
+        observed <- as.data.frame(observed)
+        for (ax in names(cfg)) if (ax %in% names(observed))
+                observed <- observed[abs(observed[[ax]] - cfg[[ax]]) < 1e-9, , drop = FALSE]
+        observed
+}
+
+# k values at which the null needs STAB: those with an observed STAB, or all
+# final_regions when nothing is observed.
+#' @keywords internal
+#' @noRd
+.null_stab_k <- function(observed, cfg, final_regions) {
+        if (is.null(observed)) return(final_regions)
+        if (inherits(observed, "pulse_regions")) return(intersect(final_regions, observed$k))
+        observed <- .match_observed_config(observed, cfg)
+        if (!"STAB" %in% names(observed)) return(integer(0))
+        intersect(final_regions, observed$final_regions[is.finite(observed$STAB)])
 }
 
 #' @rdname compute_null_baseline
@@ -3191,14 +3396,17 @@ print.pulse_null <- function(x, ...) {
         z   <- match(z, sort(unique(z))); k <- max(z)
         min_size <- .check_min_size(min_size, k, length(z))
         nb  <- lapply(igraph::adjacent_vertices(graph, igraph::V(graph)), as.integer)
+        connected <- .region_connect_checker(nb, length(z))
+        el  <- igraph::as_edgelist(graph, names = FALSE)
         n_r <- tabulate(z, k)
         S   <- rowsum(X, z, reorder = TRUE)
         moves <- 0L
         for (pass in seq_len(max_pass)) {
                 moved <- 0L
-                bnd <- which(vapply(seq_along(z), function(i) any(z[nb[[i]]] != z[i]), logical(1)))
+                cut <- z[el[, 1]] != z[el[, 2]]
+                bnd <- sort(unique(c(el[cut, 1], el[cut, 2])))
                 for (i in bnd) {
-                        a <- z[i]; cand <- setdiff(unique(z[nb[[i]]]), a)
+                        a <- z[i]; cand <- unique(z[nb[[i]]]); cand <- cand[cand != a]
                         if (!length(cand) || n_r[a] <= min_size) next
                         out  <- n_r[a] / (n_r[a] - 1) * sum((X[i, ] - S[a, ] / n_r[a])^2)
                         gain <- vapply(cand, function(b)
@@ -3206,11 +3414,7 @@ print.pulse_null <- function(x, ...) {
                         if (max(gain) <= 0) next
                         b    <- cand[which.max(gain)]
                         same <- nb[[i]][z[nb[[i]]] == a]
-                        if (length(same) > 1L) {              # is i a cut vertex of region a?
-                                ia <- setdiff(which(z == a), i)
-                                cm <- igraph::components(igraph::induced_subgraph(graph, ia))$membership
-                                if (length(unique(cm[match(same, ia)])) > 1L) next
-                        }
+                        if (!connected(i, same, z)) next
                         z[i] <- b
                         S[a, ] <- S[a, ] - X[i, ]; S[b, ] <- S[b, ] + X[i, ]
                         n_r[a] <- n_r[a] - 1L;     n_r[b] <- n_r[b] + 1L
@@ -3220,6 +3424,66 @@ print.pulse_null <- function(x, ...) {
                 if (!moved) break
         }
         list(z = z, moves = moves, passes = pass)
+}
+
+# Returns check(i, same, z): does region z[i] stay connected when unit i
+# leaves it? `same` are i's neighbours in that region. Exact.
+#
+# Breadth-first search inside the region, started from all of `same` at once,
+# one label per start. Labels merge when their searches meet. The answer is
+# TRUE as soon as one label is left, FALSE as soon as a label runs out of
+# units to visit while others remain. A unit whose neighbours are linked
+# around it (most moves in planar adjacency) is settled after two or three
+# steps; at a true cut vertex the search stops when the smaller piece is
+# exhausted. The whole region is searched only if i closes a long loop.
+# `mark` is shared across calls and reset after each one, so a call costs
+# what it visits, not N.
+.region_connect_checker <- function(nb, n) {
+        mark <- integer(n)
+        function(i, same, z) {
+                same <- unique(same[same != i])
+                L    <- length(same)
+                if (L < 2L) return(TRUE)
+                a    <- z[i]
+                up   <- seq_len(L)                      # union-find over labels
+                find <- function(x) {
+                        while (any(p <- up[x] != x)) x[p] <- up[x[p]]
+                        x
+                }
+                seen <- same
+                on.exit(mark[seen] <<- 0L)
+                mark[same] <<- seq_len(L)
+                front <- same
+                repeat {
+                        nbr  <- nb[front]
+                        to   <- unlist(nbr, use.names = FALSE)
+                        fl   <- rep(find(mark[front]), lengths(nbr))
+                        keep <- to != i & z[to] == a
+                        to   <- to[keep]; fl <- fl[keep]
+                        m    <- mark[to]
+                        old  <- m > 0L
+                        tn   <- to[!old]; ln <- fl[!old]
+                        first <- ln[match(tn, tn)]          # label of first arrival
+                        pa <- c(fl[old], ln)
+                        pb <- c(find(m[old]), first)
+                        d  <- pa != pb
+                        if (any(d)) {
+                                pr <- unique(cbind(pa[d], pb[d]))
+                                for (r in seq_len(nrow(pr))) {
+                                        x <- find(pr[r, 1L]); y <- find(pr[r, 2L])
+                                        if (x != y) up[max(x, y)] <- min(x, y)
+                                }
+                        }
+                        roots <- unique(find(seq_len(L)))
+                        if (length(roots) == 1L) return(TRUE)
+                        keep  <- !duplicated(tn)
+                        front <- tn[keep]
+                        if (!length(front)) return(FALSE)
+                        mark[front] <<- first[keep]
+                        seen <- c(seen, front)
+                        if (!all(roots %in% find(mark[front]))) return(FALSE)
+                }
+        }
 }
 
 #' Internal: parent-edge positions of tree j

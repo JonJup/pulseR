@@ -109,3 +109,8 @@ test_that("n_scale = 'auto' spends each edge once, whatever k_order", {
                 expect_equal(sum(X), igraph::ecount(fx$g), tolerance = 1e-8)
         }
 })
+test_that(".fit_dmm() gives a clear error when K exceeds distinct compositions", {
+        X <- rbind(c(1, 2), c(2, 4), c(3, 6), c(5, 1))   # 2 distinct compositions
+        expect_error(.fit_dmm(X, 3L, seed = 1), "distinct row compositions")
+        expect_silent(.fit_dmm(X, 2L, n_start = 1, max_iter = 20L, seed = 1))
+})

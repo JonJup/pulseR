@@ -66,14 +66,14 @@ This is a fixed modelling choice, not a tuning parameter:
 }
 \value{
 \code{g$graph} with edge attribute \code{weight}, the Euclidean
-distance between neighbouring nodes in (optionally scaled) environmental
+distance between neighboring nodes in (optionally scaled) environmental
 space. Vertices, edges and their order are those of \code{g$graph}, and
 every existing attribute (for example \code{polygon_id}) is kept; vertices
 are named \code{"1"}, \code{"2"}, ... if unnamed. \code{eid} is set to
 the edge position. The graph attribute
 \code{env} holds the numeric matrix the distances were computed from
 (after dropping constant columns and, if \code{scale = TRUE},
-standardising), one row per vertex. \code{\link{tune_regions}} and
+standardizing), one row per vertex. \code{\link{tune_regions}} and
 \code{\link{compute_null_baseline}} use it as their default \code{env},
 so validity indices are computed in the space the weights live in. For
 weights from another source (for example GDM), store the transformed
@@ -125,9 +125,9 @@ such as an island and the mainland. Their weight is
 where \eqn{w^{env}} is the environmental distance, \eqn{d_b} the bridge
 length in metres (\code{bridge_dist}), and \eqn{s} the largest non-bridge
 weight. The penalty is additive, so a bridge between environmentally
-identical units is still penalised. A bridge across a topology gap
+identical units is still penalized. A bridge across a topology gap
 (\eqn{d \approx 0}) gets almost no penalty; one much longer than
-\eqn{\lambda} is as dissimilar as the most dissimilar real neighbour pair,
+\eqn{\lambda} is as dissimilar as the most dissimilar real neighbor pair,
 so spanning-tree cuts strongly prefer it. Note that the chunked path of
 \code{build_network()} measures \eqn{d} between centroids, the
 in-memory path between boundaries.
@@ -135,7 +135,7 @@ in-memory path between boundaries.
 
 \section{Correlated predictors}{
 
-Euclidean distance on standardised columns weights every column equally,
+Euclidean distance on standardized columns weights every column equally,
 so \eqn{p} near-duplicate predictors (for example several temperature
 summaries) act as one predictor weighted \eqn{p} times. The edge weights,
 the trees and \code{CH_FIT}/\code{R2_FIT} all inherit this, because they
@@ -158,11 +158,10 @@ gw  <- add_edge_weight(g, variables = pcs, scale = TRUE)  # scale = whitening
 
 \section{Node ordering}{
 
-This function assumes that the i-th row of the environmental data corresponds
+Rows are joined on id against polygon ID. If either is missing the function
+assumes that the i-th row of the environmental data corresponds
 to the i-th vertex of \code{g$graph}. This contract is \emph{not} verified
-by content, only by count: the function errors if the number of environmental
-rows differs from the number of vertices, but it cannot detect a same-length
-\emph{re-ordering}. Ensure \code{g$polygons} / the stacked parquet rows are
+so ensure \code{g$polygons} / the stacked parquet rows are
 built in the same order as the graph vertices.
 }
 

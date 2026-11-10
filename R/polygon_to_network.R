@@ -118,7 +118,8 @@
 #' with the number of candidate edges, so it is off by default.
 #'
 #' If the input polygons contain an \code{ID} (or \code{id}) column, these
-#' identifiers are stored as the \code{polygon_id} vertex attribute.
+#' identifiers are stored as the \code{polygon_id} vertex attribute. In chunked
+#' mode, chunks without such a column give \code{NA} ids.
 #'
 #' @section Bridge edges:
 #' Edges added by \code{connect_islands = TRUE} are not contiguity. Every edge
@@ -321,6 +322,7 @@ build_network <- function(polygons,
   # Carry polygon identifiers through as a vertex attribute when available.
   id_col <- .id_col(polygons)
   if (!is.na(id_col)) {
+    .check_unique_ids(polygons[[id_col]], id_col)
     g <- igraph::set_vertex_attr(g, "polygon_id", value = polygons[[id_col]])
   }
   
@@ -503,9 +505,10 @@ build_network <- function(polygons,
   
   g <- .build_graph(edge_df, n_total = n_total)
   
-  # Only attach ids if every node has one (a complete vector); a partial set is
-  # more misleading than none.
+  # Attach ids if any chunk had an ID/id column. Chunks without one contribute
+  # NA, so polygon_id can be partly NA. Duplicated non-NA ids only war
   if (saw_id && length(all_ids) == n_total && !all(is.na(all_ids))) {
+    .check_unique_ids(all_ids, "ID/id")
     g <- igraph::set_vertex_attr(g, "polygon_id", value = all_ids)
   }
   
@@ -743,4 +746,22 @@ bboxes_adjacent <- function(bb1, bb2, buffer = 0.01) {
     if (length(lines) == 0) return(0)
     as.numeric(sum(suppressWarnings(sf::st_length(lines))))
   }, numeric(1))
+}
+#' Warn when polygon identifiers are not unique
+#' @param ids Identifier vector in vertex order.
+#' @param id_col Column name, for the message.
+#' @return \code{ids}, invisibly.
+#' @keywords internal
+#' @noRd
+.check_unique_ids <- function(ids, id_col) {
+  dup <- unique(ids[!is.na(ids) & duplicated(ids)])
+  if (length(dup)) {
+    warning(sprintf(paste0(
+      "%d duplicated value(s) in `%s`, e.g. %s. Vertices are still built, ",
+      "but crosswalk() and joins by `polygon_id` need one row per unit. ",
+      "Deduplicate or dissolve the polygons first."),
+      length(dup), id_col, paste(utils::head(dup, 3L), collapse = ", ")),
+      call. = FALSE)
+  }
+  invisible(ids)
 }

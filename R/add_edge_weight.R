@@ -47,14 +47,14 @@
 #' @param verbose Logical. Report edge and vertex counts.
 #'
 #' @return \code{g$graph} with edge attribute \code{weight}, the Euclidean
-#'   distance between neighbouring nodes in (optionally scaled) environmental
+#'   distance between neighboring nodes in (optionally scaled) environmental
 #'   space. Vertices, edges and their order are those of \code{g$graph}, and
 #'   every existing attribute (for example \code{polygon_id}) is kept; vertices
 #'   are named \code{"1"}, \code{"2"}, ... if unnamed. \code{eid} is set to
 #'   the edge position. The graph attribute
 #'   \code{env} holds the numeric matrix the distances were computed from
 #'   (after dropping constant columns and, if \code{scale = TRUE},
-#'   standardising), one row per vertex. \code{\link{tune_regions}} and
+#'   standardizing), one row per vertex. \code{\link{tune_regions}} and
 #'   \code{\link{compute_null_baseline}} use it as their default \code{env},
 #'   so validity indices are computed in the space the weights live in. For
 #'   weights from another source (for example GDM), store the transformed
@@ -74,15 +74,15 @@
 #' where \eqn{w^{env}} is the environmental distance, \eqn{d_b} the bridge
 #' length in metres (\code{bridge_dist}), and \eqn{s} the largest non-bridge
 #' weight. The penalty is additive, so a bridge between environmentally
-#' identical units is still penalised. A bridge across a topology gap
+#' identical units is still penalized. A bridge across a topology gap
 #' (\eqn{d \approx 0}) gets almost no penalty; one much longer than
-#' \eqn{\lambda} is as dissimilar as the most dissimilar real neighbour pair,
+#' \eqn{\lambda} is as dissimilar as the most dissimilar real neighbor pair,
 #' so spanning-tree cuts strongly prefer it. Note that the chunked path of
 #' \code{build_network()} measures \eqn{d} between centroids, the
 #' in-memory path between boundaries.
 #'
 #' @section Correlated predictors:
-#' Euclidean distance on standardised columns weights every column equally,
+#' Euclidean distance on standardized columns weights every column equally,
 #' so \eqn{p} near-duplicate predictors (for example several temperature
 #' summaries) act as one predictor weighted \eqn{p} times. The edge weights,
 #' the trees and \code{CH_FIT}/\code{R2_FIT} all inherit this, because they
@@ -103,11 +103,10 @@
 #' }
 #'
 #' @section Node ordering:
-#' This function assumes that the i-th row of the environmental data corresponds
+#' Rows are joined on id against polygon ID. If either is missing the function 
+#' assumes that the i-th row of the environmental data corresponds
 #' to the i-th vertex of \code{g$graph}. This contract is \emph{not} verified
-#' by content, only by count: the function errors if the number of environmental
-#' rows differs from the number of vertices, but it cannot detect a same-length
-#' \emph{re-ordering}. Ensure \code{g$polygons} / the stacked parquet rows are
+#' so ensure \code{g$polygons} / the stacked parquet rows are
 #' built in the same order as the graph vertices.
 #'
 #' @details
@@ -245,18 +244,10 @@ add_edge_weight <- function(g,
                 .env_from_polygons(g$polygons, variables = variables, id_col = id_drop)
         }
         
-        # Alignment guard: the i-th environmental row must be the i-th vertex. We can
-        # only check the count, not the ordering -- see the "Node ordering" section.
-        if (nrow(env_data) != n_vertices) {
-                stop(sprintf(
-                        paste0("Number of environmental rows (%d) does not match the number of ",
-                               "graph vertices (%d). Rows must be in graph-vertex order."),
-                        nrow(env_data), n_vertices
-                ))
-        }
-        if (ncol(env_data) == 0L) {
-                stop("No environmental variables left after column selection.")
-        }
+        env_data <- .align_env_rows(env_data,
+                                    attr(env_data, "ids"),
+                                    igraph::vertex_attr(graph, "polygon_id"),
+                                    n_vertices, verbose)
         
         # ---- Coerce to numeric, validate, optionally scale ------------------------
         env_matrix <- .coerce_numeric_matrix(env_data)
@@ -446,7 +437,10 @@ add_edge_weight <- function(g,
         geom_like <- c("Shape", "SHAPE", "Shape_Length", "Shape_Area",
                        "geom", "geometry")
         df <- sf::st_drop_geometry(polygons)
-        .select_env_cols(df, variables, c(id_col, geom_like))
+        out <- .select_env_cols(df, variables, c(id_col, geom_like))
+        idc <- .id_col(df)
+        if (!is.na(idc)) attr(out, "ids") <- df[[idc]]
+        out
 }
 
 #' Keep the requested columns, or drop the excluded ones
@@ -487,22 +481,65 @@ add_edge_weight <- function(g,
                        "geom", "geometry")
         
         chunks <- vector("list", length(files))
+        ids    <- vector("list", length(files))
         for (i in seq_along(files)) {
+                nm  <- arrow::ParquetFileReader$create(files[[i]], nmap = FALSE)$GetSchema()$names
+                idc <- .id_col(stats::setNames(nm, nm))
                 if (!is.null(variables)) {
-                        # Read only the requested columns -- a large memory saving on wide,
-                        # continental-scale parquet files. Errors clearly if a column is absent.
-                        d <- as.data.frame(arrow::read_parquet(files[[i]],
-                                                               col_select = variables))
+                        cols <- unique(c(variables, if (!is.na(idc)) idc))
+                        d <- as.data.frame(arrow::read_parquet(files[[i]], 
+                                                               col_select = cols,
+                                                               nmap = FALSE)
+                                           )
                         chunks[[i]] <- .select_env_cols(d, variables, NULL)
                 } else {
-                        d <- as.data.frame(arrow::read_parquet(files[[i]]))
+                        d <- as.data.frame(
+                                arrow::read_parquet(
+                                        files[[i]],
+                                        nmap = FALSE
+                                        )
+                                )
                         chunks[[i]] <- .select_env_cols(d, NULL, c(id_col, geom_like))
                 }
+                ids[[i]] <- if (!is.na(idc)) as.character(d[[idc]])
         }
-        
-        # rbind() on data frames matches columns by name and stops on a
-        # column-set mismatch instead of padding with NA.
         out <- do.call(rbind, chunks)
         rownames(out) <- NULL
+        # IDs are used only if every file has them; otherwise fall back to count.
+        if (!any(vapply(ids, is.null, logical(1))))
+                attr(out, "ids") <- unlist(ids, use.names = FALSE)
         out
+
+}
+#' Order environmental rows to graph vertices by ID; count check as fallback
+#' @keywords internal
+#' @noRd
+.align_env_rows <- function(env, env_ids, v_ids, n, verbose = FALSE) {
+        attr(env, "ids") <- NULL
+        if (is.null(env_ids) || is.null(v_ids)) {
+                if (nrow(env) != n)
+                        stop(sprintf(paste0("Number of environmental rows (%d) does not match ",
+                                            "the number of graph vertices (%d), and no `ID`/`id` ",
+                                            "column + `polygon_id` vertex attribute is available ",
+                                            "to join on."), nrow(env), n), call. = FALSE)
+                return(env)
+        }
+        env_ids <- as.character(env_ids)
+        v_ids   <- as.character(v_ids)
+        dup <- unique(env_ids[duplicated(env_ids)])
+        if (length(dup))
+                stop(sprintf("%d duplicated ID(s) in environmental data (e.g. %s).",
+                             length(dup), paste(utils::head(dup, 3), collapse = ", ")),
+                     call. = FALSE)
+        idx <- match(v_ids, env_ids)
+        if (anyNA(idx)) {
+                miss <- v_ids[is.na(idx)]
+                stop(sprintf("%d graph vertex/vertices have no environmental row (e.g. %s).",
+                             length(miss), paste(utils::head(miss, 3), collapse = ", ")),
+                     call. = FALSE)
+        }
+        if (verbose && length(env_ids) > n)
+                message(sprintf("  Dropped %d environmental row(s) with no matching vertex.",
+                                length(env_ids) - n))
+        env[idx, , drop = FALSE]
 }

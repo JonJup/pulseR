@@ -31,3 +31,17 @@ test_that(".fit_dmm() and .stability_pam_diss() restore the caller's RNG", {
         expect_identical(.Random.seed, before)
         expect_identical(.stability_pam_diss(D, hc, 2L, B = 3L, seed = 1), s1)
 })
+test_that("compute_ensemble(seed =) is reproducible and leaves the stream alone", {
+        x  <- make_grid_sf(8L, 8L)
+        g  <- add_edge_weight(build_network(x, verbose = FALSE),
+                              id_col = "ID", verbose = FALSE)
+        tr <- sample_spanning_trees(g, n = 6, seed = 1, verbose = FALSE)
+        run <- function(s) compute_ensemble(tr, 6, g, 4, verbose = FALSE, seed = s)$memberships
+        
+        expect_identical(run(42), run(42))
+        expect_false(identical(run(42), run(43)))
+        
+        set.seed(7); before <- .Random.seed
+        invisible(run(42))
+        expect_identical(.Random.seed, before)
+})

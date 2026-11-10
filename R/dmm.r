@@ -171,6 +171,9 @@
         if (any(X < 0, na.rm = TRUE) || anyNA(X)) stop("`X` must be non-negative with no NA.", call. = FALSE)
         if (any(rowSums(X) <= 0)) stop("Every row of `X` needs a positive total.", call. = FALSE)
         if (K < 1L || K > nrow(X)) stop("`K` must be between 1 and nrow(X).", call. = FALSE)
+        n_u <- nrow(unique(sqrt(X / rowSums(X))))
+        if (K > n_u) stop("`K` (", K, ") exceeds the ", n_u,
+                          " distinct row compositions of `X`.", call. = FALSE)
         .local_seed(seed)
         
         tr  <- .dmm_triplets(X)

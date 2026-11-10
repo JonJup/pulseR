@@ -139,7 +139,8 @@ linear parts) and dropped when below the threshold. This is exact but scales
 with the number of candidate edges, so it is off by default.
 
 If the input polygons contain an \code{ID} (or \code{id}) column, these
-identifiers are stored as the \code{polygon_id} vertex attribute.
+identifiers are stored as the \code{polygon_id} vertex attribute. In chunked
+mode, chunks without such a column give \code{NA} ids.
 }
 \note{
 This function depends on a package-internal \code{connect_components()}

@@ -47,3 +47,27 @@ test_that("a disconnected graph stops", {
         expect_error(sample_spanning_trees(g, n = 2, verbose = FALSE),
                      "2 connected components")
 })
+make_eid <- function(g) { igraph::E(g)$eid <- seq_len(igraph::ecount(g)); g }
+
+test_that("eta calibration returns 0 and warns on a tree graph", {
+        .local_seed(1)
+        g <- make_eid(igraph::make_tree(20, children = 2, mode = "undirected"))
+        w <- stats::runif(igraph::ecount(g))
+        expect_warning(eta <- .calibrate_eta_empirical(g, w, s = 1, target = 0.1), "tree")
+        expect_identical(eta, 0)
+})
+
+test_that("eta calibration warns when the target is unreachable", {
+        .local_seed(1)
+        g <- make_eid(igraph::make_ring(30))   # 1 cycle: max turnover 1/29
+        w <- stats::runif(igraph::ecount(g))
+        expect_warning(.calibrate_eta_empirical(g, w, s = 1, target = 0.5),
+                       "cannot exceed")
+})
+
+test_that("eta calibration is silent when it converges", {
+        .local_seed(1)
+        g <- make_eid(igraph::make_lattice(c(8, 8)))
+        w <- stats::runif(igraph::ecount(g))
+        expect_no_warning(.calibrate_eta_empirical(g, w, s = stats::mad(w), target = 0.1))
+})

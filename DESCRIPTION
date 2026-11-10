@@ -1,14 +1,30 @@
 Package: pulseR
-Title: What the Package Does (One Line, Title Case)
-Version: 0.0.0.9002
+Title: Probabilistic Hierarchical Spatial Regionalization
+Version: 0.99.0
 Authors@R: 
-    person("Jonathan", "Jupke", , "jonjup@protonmail.com", role = c("aut", "cre"))
-Description: What the package does (one paragraph).
+    person("Jonathan", "Jupke", , "jonjup@duck.com",
+           role = c("aut", "cre", "cph"),
+           comment = c(ORCID = "0000-0002-6815-1855"))
+Description: Builds three-level hierarchical regionalizations of spatial
+    units with uncertainty at every level, following the PULSE framework
+    (Probabilistic Unified Landscape Stratification Engine). Level 1 forms
+    contiguous regions from an ensemble of randomly cut minimum spanning
+    trees, extending the SKATER algorithm (Assuncao et al. 2006)
+    <doi:>, and summarises the ensemble with
+    'salso' (Dahl et al. 2022) <doi:10.1080/10618600.2022.2069779>.
+    Level 2 fits Gaussian mixture models with 'mclust' within each region.
+    Level 3 groups units by the composition of types in their
+    neighbourhood. Each level returns crisp labels and membership
+    probabilities, and diagnostics report ensemble convergence and
+    stability.
 License: MIT + file LICENSE
-Encoding: UTF-8
-Roxygen: list(markdown = TRUE)
+URL: https://github.com/JonJup/pulseR
+BugReports: https://github.com/JonJup/pulseR/issues
+Depends: 
+    R (>= 4.6.0)
 Imports: 
     cluster,
+    graphics,
     grDevices,
     igraph,
     Matrix,
@@ -18,7 +34,7 @@ Imports:
     sf,
     spdep,
     stats,
-	units,
+    units,
     utils
 Suggests: 
     arrow,
@@ -31,6 +47,8 @@ Suggests:
     sfarrow,
     terra,
     testthat (>= 3.0.0)
-VignetteBuilder: knitr
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
 Config/roxygen2/version: 8.1.1
 Config/testthat/edition: 3
+LazyData: true

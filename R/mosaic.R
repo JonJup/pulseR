@@ -817,7 +817,19 @@ get_mosaic_types <- function(signatures,
                 metric <- "silhouette"
         }
         
-        if (method == "dmm") X <- .sig_to_counts(S[idx, , drop = FALSE], tot[idx], ctl$n_scale)
+        if (method == "dmm") {
+                X <- .sig_to_counts(S[idx, , drop = FALSE], tot[idx], ctl$n_scale)
+                n_u <- nrow(unique(sqrt(X / rowSums(X))))   # same check kmeans() uses
+                bad <- n_mosaic_types > n_u
+                if (all(bad)) stop("Only ", n_u, " distinct signature compositions; ",
+                                   "every requested n_mosaic_types exceeds this.", call. = FALSE)
+                if (any(bad)) {
+                        warning("Dropping n_mosaic_types > ", n_u,
+                                " (number of distinct signature compositions): ",
+                                paste(n_mosaic_types[bad], collapse = ", "), call. = FALSE)
+                        n_mosaic_types <- n_mosaic_types[!bad]
+                }
+        }
         
         if (verbose) message("Evaluating ", method, " solutions (metric = ", metric, ") ...")
         rows <- vector("list", length(n_mosaic_types))

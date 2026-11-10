@@ -95,3 +95,13 @@ test_that(".refine_regions never shrinks a region below min_size", {
         expect_identical(.refine_regions(z, x$g, X)$z,
                          .refine_regions(z, x$g, X, min_size = 1L)$z)
 })
+test_that("SSD cut and refinement reject NA in env", {
+        x    <- .ssd_fixture(n_tree = 3)
+        memb <- .memb_ssd(x, 3)                       # clean env: builds fine
+        env  <- igraph::graph_attr(x$g, "env"); env[1, 1] <- NA
+        x$g  <- igraph::set_graph_attr(x$g, "env", env)
+        expect_error(.memb_ssd(x, 3), "complete")
+        expect_error(compute_consensus(memb, 3, graph = x$g, refine_boundary = TRUE,
+                                       verbose = FALSE, report_native = FALSE),
+                     "complete")
+})

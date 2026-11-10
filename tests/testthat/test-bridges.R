@@ -140,3 +140,13 @@ test_that("add_edge_weight() keeps the input graph's vertices, edges and attribu
         expect_identical(igraph::E(g)$bridge, igraph::E(net$graph)$bridge)
         expect_identical(igraph::E(g)$eid, seq_len(igraph::ecount(g)))
 })
+test_that("build_network() warns on duplicated IDs but still builds", {
+        x <- make_grid_sf(3L, 3L)
+        x$ID[2] <- x$ID[1]
+        expect_warning(net <- build_network(x, verbose = FALSE), "duplicated")
+        expect_equal(igraph::vcount(net$graph), 9L)
+})
+
+test_that("build_network() is silent on unique IDs", {
+        expect_no_warning(build_network(make_grid_sf(3L, 3L), verbose = FALSE))
+})

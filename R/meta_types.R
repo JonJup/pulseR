@@ -1,8 +1,8 @@
-# =============================================================================
+# =============================================================================*
 # pulseR — LEVEL 2b: meta-types
 #
 # Why this exists
-# ---------------
+# ---------------*
 # A local type belongs to exactly one region by construction, so knowing a
 # unit's local type tells you its region with certainty. Any signature
 # built on local types therefore encodes region identity, and the mosaic level
@@ -20,7 +20,7 @@
 # cross regions: see the `crossing` element and the print method.
 #
 # Requires: stats, cluster. Optional: ggplot2 (for plot_meta_types).
-# =============================================================================
+# =============================================================================*
 
 
 # -----------------------------------------------------------------------------*
@@ -200,10 +200,6 @@ compute_local_type_distance <- function(local,
 #'   Default 0.2. Some confinement is real, so 0 is usually too strict.
 #' @param sensitivity Thresholds at which the selection is re-read from
 #'   \code{selection}, without refitting. Default \code{c(0.1, 0.2, 0.3)}.
-#'     \item{\code{sensitivity}}{Per threshold: chosen n_meta_types, confined mass,
-#'       unweighted and mass-weighted ARI, silhouette. Attribute \code{stable}
-#'       is TRUE if every threshold picks the same cut. \code{NULL} if
-#'       \code{n_meta_types} was fixed.}
 #' @param method,env,n_sample,seed Passed to \code{\link{compute_local_type_distance}}.
 #' @param linkage Passed to \code{\link[stats]{hclust}}. Default
 #'   \code{"average"}, which merges on mean overlap and does not chain the way
@@ -215,17 +211,21 @@ compute_local_type_distance <- function(local,
 #'     \item{\code{memberships}}{N x n_meta_types matrix. Rows sum to one, exactly, by
 #'       summing local-type columns.}
 #'     \item{\code{hard_labels}, \code{certainty}}{Row argmax and its value.}
-#'     \item{\code{entropy}}{Row entropy of \code{memberships}, normalised by
+#'     \item{\code{entropy}}{Row entropy of \code{memberships}, normalized by
 #'       \eqn{\log} \code{n_meta_types}.}
 #'     \item{\code{key}}{Local type, its region, and its meta-type.}
 #'     \item{\code{crossing}}{Regions represented in each meta-type, and the ARI
-#'       between the meta-type and region labellings OF THE LOCAL TYPES. Low ARI
+#'       between the meta-type and region labelings OF THE LOCAL TYPES. Low ARI
 #'       is the goal: it means meta-types are not region proxies.}
 #'     \item{\code{n_meta_types}}{Number of meta-types.}
 #'     \item{\code{selection}}{Per candidate: confined mass, share of
 #'       single-region meta-types, regions per meta-type, ARI with region,
 #'       silhouette, and whether it passes. \code{NULL} for a single value
 #'       outside 2 to (number of local types - 1).}
+#'     \item{\code{sensitivity}}{Per threshold: chosen n_meta_types, confined mass,
+#'       unweighted and mass-weighted ARI, silhouette. Attribute \code{stable}
+#'       is TRUE if every threshold picks the same cut. \code{NULL} if
+#'       \code{n_meta_types} was fixed.}
 #'     \item{\code{rule}}{How \code{n_meta_types} was chosen.}
 #'     \item{\code{hclust}, \code{distance}}{The tree and the distance used.}
 #'     \item{\code{method}}{Distance method used.}

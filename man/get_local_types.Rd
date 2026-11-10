@@ -177,13 +177,16 @@ per region and shared by every candidate model, so all candidates start
 from the same partition.
 
 The membership of local type \eqn{k} of region \eqn{r} is \eqn{w_{ir} z_{irk}}:
-Level 1 region membership × within-region type probability. Local types never
-change region memberships: summed over the local types of region \eqn{r}, the
-memberships return \eqn{w_{ir}}. Because each \eqn{z_i} row sums to one, the raw row
-sums of the combined matrix equal \eqn{\sum_r w_{ir}} — exactly 1 when
-\code{weights = "memberships"}, and something else when
-\code{weights = "cohesion"}, which is why \code{memberships} is returned
-row-normalized and the normalized version is kept as \code{weighted}.
+Level 1 region membership × within-region type probability. These products
+are returned as \code{weighted}. Summed over the local types of region
+\eqn{r}, a row of \code{weighted} returns \eqn{w_{ir}}, so local types never
+change region memberships. Because each \eqn{z_i} row sums to one, the row
+sums of \code{weighted} equal \eqn{\sum_r w_{ir}} over regions with
+\eqn{w_{ir} >} \code{weight_eps}: close to 1 for
+\code{weights = "memberships"} (exactly 1 only if no weight is at or below
+\code{weight_eps}) and unconstrained for \code{weights = "cohesion"}.
+\code{memberships} is \code{weighted} divided by its row sums, so its rows
+sum to 1; orphan rows (no weight above \code{weight_eps}) stay zero.
 
 Units with \eqn{w_{ir} \le} \code{weight_eps} are excluded from region
 \eqn{r}'s fit and receive a zero in that region's columns. This is exact,
@@ -192,7 +195,6 @@ by construction, and it is what keeps the fit affordable at continental
 \eqn{N}.
 }
 \examples{
-\donttest{
 set.seed(1)
 n <- 200
 env <- data.frame(ID = seq_len(n),
@@ -204,7 +206,6 @@ W <- W / rowSums(W)
 res <- get_local_types(env, regions = W, non_value_cols = "ID",
                        n_local_types = 2:3)
 res
-}
 
 }
 \seealso{

@@ -1,5 +1,3 @@
-## R/ensemble_diagnostics.R  (new file)
-
 #' Check whether cut placement follows the environment
 #'
 #' For a sweep of \code{size_influence}, cuts every tree as the ensemble does

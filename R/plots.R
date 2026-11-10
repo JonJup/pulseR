@@ -1,11 +1,11 @@
-# =============================================================================
+# =============================================================================*
 # pulseR — visualisation for the two-level typology
 #
 #   Level 1  pulse_regions      N units x k regions
 #   Level 2  pulse_local_types  N units x sum(G_r) local types, nested in regions
 #
 # Design contract
-# ---------------
+# ---------------*
 # 1. ONE palette per fit. pulse_palette() is exported and both levels consume
 #    it, so a region map and a local-type map from the same fit are readable
 #    side by side. Local-type colours are shades of their parent region's hue.
@@ -20,12 +20,12 @@
 #    is attached once with attach_geometry() and validated for row alignment.
 #
 # Depends: ggplot2, sf, grDevices, stats. Optional: terra (rasterisation).
-# =============================================================================
+# =============================================================================*
 
 
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------*
 # Geometry
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------*
 
 #' Attach polygon geometry to a fitted typology
 #'
@@ -67,9 +67,9 @@ attach_geometry <- function(x, geom, simplify = NULL) {
 }
 
 
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------*
 # Palettes
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------*
 
 #' Similarity-ordered colours for the regions of a fit
 #'
@@ -79,6 +79,7 @@ attach_geometry <- function(x, geom, simplify = NULL) {
 #' to every plotting call for the fit; the default palette in each function is
 #' this same call, so figures agree unless you deliberately override.
 #'
+#' @rdname Palettes
 #' @param x A \code{"pulse_regions"} object.
 #' @param method \code{"auto"} (default), \code{"ramp1d"}, \code{"hue2d"} or
 #'   \code{"qualitative"}. \code{"auto"} uses \code{"qualitative"} for
@@ -160,7 +161,8 @@ pulse_palette <- function(x,
 #' Every local type keeps its parent region's hue and varies in luminance, so a
 #' local-type map still reads as the region map at a glance. Without this the
 #' two levels look like unrelated results.
-#'
+#' 
+#' @rdname Palettes
 #' @param x A \code{"pulse_local_types"} object.
 #' @param region_colours Character vector of region colours, normally from
 #'   \code{\link{pulse_palette}} on the parent \code{"pulse_regions"} object.
@@ -217,9 +219,9 @@ fade_by_confidence <- function(cols, w, floor = 0.12, to_l = 88) {
 }
 
 
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------*
 # Shared map builder
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------*
 
 #' @keywords internal
 #' @noRd
@@ -266,9 +268,9 @@ fade_by_confidence <- function(cols, w, floor = 0.12, to_l = 88) {
 }
 
 
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------*
 # Level 1: regions
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------*
 
 #' Plot a fitted regionalisation
 #'
@@ -519,9 +521,9 @@ plot_regions <- function(x,
 }
 
 
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------*
 # Level 2: local types
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------*
 
 #' Plot fitted local types
 #'
@@ -716,9 +718,9 @@ plot_local_types <- function(x,
 `%||%` <- function(a, b) if (is.null(a)) b else a
 
 
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------*
 # Both levels together
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------*
 
 #' Region and local-type maps side by side
 #'
@@ -745,7 +747,7 @@ plot_region_local <- function(regions, local, geom = NULL, confidence = "joint",
 }
 
 
-# =============================================================================
+# =============================================================================*
 # pulseR — visualisation, levels 2b and 3
 #
 #   Level 2b  pulse_meta_types   N units x M cross-region meta-types
@@ -767,12 +769,12 @@ plot_region_local <- function(regions, local, geom = NULL, confidence = "joint",
 #
 # Replaces plot_meta_types() from meta_types.R and the older
 # plot_mosaic_signatures() / plot_mosaic_ordination().
-# =============================================================================
+# =============================================================================*
 
 
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------*
 # 1. Shared palette machinery
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------*
 
 #' Similarity-ordered HCL palette from a dissimilarity matrix
 #'
@@ -824,14 +826,15 @@ plot_region_local <- function(regions, local, geom = NULL, confidence = "joint",
         stats::setNames(cols, seq_len(k))
 }
 
-#' Colours for meta-types
+#' Colors for meta-types
 #'
 #' Ordered by average between-meta-type distance in the space the merge was
-#' computed in, so environmentally similar meta-types get neighbouring hues.
+#' computed in, so environmentally similar meta-types get neighboring hues.
 #' Offset in hue from the region palette by default, because a meta-type map
 #' that resembled the region map would mean the merge had not decoupled class
 #' from location.
 #'
+#' @rdname Palettes
 #' @param x A \code{"pulse_meta_types"} object.
 #' @param method,chroma,luminance,hue_offset Passed to the palette builder.
 #' @return Named character vector of \code{n_meta_types} hex colours.
@@ -864,6 +867,7 @@ meta_palette <- function(x, method = "auto", chroma = 65, luminance = 65,
 #' Ordered by the distance between the medoid signatures, in the same metric the
 #' fit used.
 #'
+#' @rdname Palettes
 #' @param x A \code{"pulse_mosaic_types"} object.
 #' @param method,chroma,luminance,hue_offset Passed to the palette builder.
 #' @return Named character vector of \code{n_mosaic_types} hex colours.
@@ -879,9 +883,9 @@ mosaic_palette <- function(x, method = "auto", chroma = 60, luminance = 60,
 }
 
 
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------*
 # 2. Helpers these levels need
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------*
 
 #' Unit count of a fitted object
 #'
@@ -931,9 +935,9 @@ mosaic_palette <- function(x, method = "auto", chroma = 60, luminance = 60,
 }
 
 
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------*
 # 3. Meta-types
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------*
 
 #' Plot merged meta-types
 #'
@@ -1120,9 +1124,9 @@ plot_meta_types <- function(x,
 }
 
 
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------*
 # 4. Mosaic types
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------*
 
 #' Plot fitted mosaic types
 #'
@@ -1327,9 +1331,9 @@ plot_mosaic_types <- function(x,
 }
 
 
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------*
 # 5. Discrete legend on an identity fill
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------*
 
 #' Generalisation of .region_key() to any level
 #' @keywords internal
@@ -1347,9 +1351,9 @@ plot_mosaic_types <- function(x,
 }
 
 
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------*
 # 6. The whole hierarchy
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------*
 
 #' Every level of the typology side by side
 #'

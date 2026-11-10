@@ -25,8 +25,10 @@ check_native_regions(
 \item{trees}{A \code{"pulse_trees"} object.}
 
 \item{graph}{The parent \code{igraph} object the trees were sampled from.
-Needed only to re-resolve tree edges on older igraph versions; always
-supplied for safety.}
+Read only when \code{cut_rule = "ssd"}, which needs the scaled
+environment matrix \code{graph_attr(graph, "env")} stored by
+\code{\link{add_edge_weight}}. Tree edges and weights are taken from
+\code{trees}; \code{graph} is not checked against \code{trees}.}
 
 \item{regions_per_partition}{Integer vector of piece counts to compare.}
 
@@ -98,10 +100,12 @@ is a lower bound when \code{sample_size < N}. Compare rows with each other,
 not with the full-data count.
 }
 \examples{
-\dontrun{
+g <- build_network(pulse_grid, verbose = FALSE)
+g <- add_edge_weight(g, id_col = "ID", variables = c("temp", "prec"),
+verbose = FALSE)
 trees <- sample_spanning_trees(g, n = 200, seed = 1)
-sw <- check_native_regions(trees, g, regions_per_partition = c(10, 25, 50, 100),
-                           N_tree = c(50, 200), seed = 1)
+sw <- check_native_regions(trees, g, regions_per_partition = c(5,6),
+                           N_tree = c(20,25), seed = 1)
 plot(native_regions ~ regions_per_partition, data = sw, log = "xy")
-}
+
 }

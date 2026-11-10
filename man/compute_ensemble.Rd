@@ -15,7 +15,8 @@ compute_ensemble(
   verbose = TRUE,
   size_influence = 2,
   cut_rule = c("propensity", "ssd"),
-  min_size = 1L
+  min_size = 1L,
+  seed = NULL
 )
 
 \method{print}{pulse_ensemble}(x, ...)
@@ -27,8 +28,10 @@ compute_ensemble(
 (must be \code{<= trees$n_trees}).}
 
 \item{graph}{The parent \code{igraph} object the trees were sampled from.
-Needed only to re-resolve tree edges on older igraph versions; always
-supplied for safety.}
+Read only when \code{cut_rule = "ssd"}, which needs the scaled
+environment matrix \code{graph_attr(graph, "env")} stored by
+\code{\link{add_edge_weight}}. Tree edges and weights are taken from
+\code{trees}; \code{graph} is not checked against \code{trees}.}
 
 \item{regions_per_partition}{Integer scalar \eqn{\ge 2}. Number of regions per tree;
 must not exceed the number of vertices.}
@@ -79,6 +82,10 @@ act on that gain in the same units. Needs the environment matrix that
 
 \item{min_size}{Integer \eqn{\ge 1}. Smallest allowed piece. Used only by
 \code{cut_rule = "ssd"}, where cuts are sequential. Default 1.}
+
+\item{seed}{Optional integer seed. One stream drives the whole call; the
+caller's RNG state is restored on exit. \code{NULL} (default) uses the
+current stream, so \code{set.seed()} before the call still works.}
 
 \item{x}{An object of class \code{"pulse_ensemble"}.}
 
