@@ -16,3 +16,12 @@ test_that("joint local-type confidence counts Level 1 once", {
         loc <- list(certainty = c(0.8, 0.8), certainty_raw = c(0.4, 0.8))
         expect_equal(.local_confidence(loc, NULL, "joint"), c(0.4, 0.8))
 })
+test_that("own local-type confidence is within-region z, not joint", {
+        Zw  <- rbind(c(0.45, 0.45, 0.10, 0.00),   # split Level 1, z = 0.5
+                     c(0.90, 0.00, 0.05, 0.05))   # sure Level 1, z = 1
+        loc <- list(weighted = Zw, hard_labels = c(1L, 1L),
+                    key = data.frame(region = c(1L, 1L, 2L, 2L)),
+                    certainty = c(0.45, 0.90), certainty_raw = c(0.45, 0.90))
+        expect_equal(.local_confidence(loc, NULL, "own"),   c(0.50, 1.00))
+        expect_equal(.local_confidence(loc, NULL, "joint"), c(0.45, 0.90))
+})

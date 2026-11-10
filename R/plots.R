@@ -546,8 +546,10 @@ plot_regions <- function(x,
 #'   the hues identical to the level-1 figures.
 #' @param palette Local-type colors; defaults to \code{\link{local_palette}}
 #'   built on \code{\link{pulse_palette}(regions)}.
-#' @param confidence \code{"own"} (default) uses the local-type row maximum;
-#'   \code{"joint"} uses \eqn{w_{ir} z_{irg}} of the assigned local type: Level 1
+#' @param confidence \code{"own"} (default) uses \eqn{z_{irg}}, the 
+#'   within-region probability of the assigned local type, ignoring how sure 
+#'   Level 1 is about the region; \code{"joint"} uses \eqn{w_{ir} z_{irg}} of 
+#'   the assigned local type: Level 1
 #'   region membership × within-region type probability. Use \code{"joint"} for 
 #'   any figure that stands alone.
 #' @param which Integer region, for \code{what = "region"}.
@@ -690,10 +692,23 @@ plot_local_types <- function(x,
 #' @keywords internal
 #' @noRd
 .local_confidence <- function(x, regions, confidence) {
-        if (confidence == "own") return(x$certainty)
-        ## certainty_raw is w_ir * z_irg of the assigned local type. Level 1
-        ## membership is already in it, so it is not multiplied again.
-        .first_non_null(x$certainty_raw, x$certainty)
+        if (confidence == "joint") {
+                ## certainty_raw is w_ir * z_irg of the assigned local type. Level 1
+                ## membership is already in it, so it is not multiplied again.
+                return(.first_non_null(x$certainty_raw, x$certainty))
+        }
+        ## "own": z_irg of the assigned type, conditional on its region, i.e.
+        ## Zw[i, g] / w_ir. Since z rows sum to 1 within a region, w_ir is the
+        ## sum of Zw over that region's columns. No refit or extra slot needed.
+        Zw <- x$weighted
+        if (is.null(Zw) || is.null(x$key)) return(x$certainty)
+        reg  <- x$key$region
+        hard <- x$hard_labels
+        Wr   <- t(rowsum(t(Zw), reg))                      # N x R region weights
+        w_i  <- Wr[cbind(seq_len(nrow(Zw)), match(as.character(reg[hard]), colnames(Wr)))]
+        z    <- Zw[cbind(seq_len(nrow(Zw)), hard)] / w_i
+        z[!is.finite(z)] <- NA_real_                       # all-zero rows; fade maps NA -> 0
+        z
 }
 
 #' @keywords internal
