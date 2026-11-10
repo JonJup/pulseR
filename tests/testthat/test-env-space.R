@@ -41,15 +41,15 @@ test_that(".resolve_env() defaults to the stored matrix", {
         expect_null(.resolve_env(NULL, NULL, g0))
 })
 
-test_that("an ID column does not reach CH_ENV under the default env", {
+test_that("an ID column does not reach CH_FIT under the default env", {
         x <- make_grid_sf()
         net <- suppressMessages(build_network(x, verbose = FALSE))
         g <- add_edge_weight(net, id_col = "ID", verbose = FALSE)
         tr <- sample_spanning_trees(g, n = 8, seed = 1, verbose = FALSE)
         run <- function(env) suppressWarnings(tune_regions(
                 g, tr, N_tree = 8, regions_per_partition = 6, final_regions = 2:3,
-                stability_B = 0, tuning_metric = "ch_env", env = env, seed = 1,
-                verbose = FALSE))$tuning_log$CH_ENV
+                stability_B = 0, tuning_metric = "ch_fit", env = env, seed = 1,
+                verbose = FALSE))$tuning_log$CH_FIT
         expect_equal(run(NULL), run(igraph::graph_attr(g, "env")))
         expect_false(isTRUE(all.equal(run(NULL), run(sf::st_drop_geometry(x)))))
 })
@@ -70,5 +70,13 @@ test_that("compute_null_baseline() refuses an env that does not reproduce the we
                                     N_tree = 8, B = 1, stability_B = 0, seed = 1,
                                     verbose = FALSE)
         expect_s3_class(nb, "pulse_null")
-        expect_true(all(is.finite(nb$null$CH_ENV)))
+        expect_true(all(is.finite(nb$null$CH_FIT)))
+})
+
+test_that("deprecated CH_ENV / ch_env names map to CH_FIT / ch_fit with a warning", {
+        expect_warning(v <- .renamed_cvi(c("CH_ENV", "STAB"), "voters"), "renamed to CH_FIT")
+        expect_identical(v, c("CH_FIT", "STAB"))
+        expect_warning(m <- .renamed_cvi("r2_env", "tuning_metric"), "r2_fit")
+        expect_identical(m, "r2_fit")
+        expect_silent(.renamed_cvi(c("CH_FIT", "STAB"), "voters"))
 })

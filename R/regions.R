@@ -12,8 +12,8 @@
 #'   \code{\link{add_edge_weight}}. Edges must carry a numeric \code{weight}
 #'   attribute (finite, non-negative).
 #' @param env Optional data frame or matrix, one row per vertex of
-#'   \code{graph} in vertex order, for the validity indices \code{CH_ENV} and
-#'   \code{R2_ENV} during tuning. \code{NULL} (default) uses the matrix
+#'   \code{graph} in vertex order, for the validity indices \code{CH_FIT} and
+#'   \code{R2_FIT} during tuning. \code{NULL} (default) uses the matrix
 #'   \code{\link{add_edge_weight}} stored on \code{graph}, so the indices are
 #'   computed in the space of the edge weights. A supplied \code{env} is used
 #'   as given: non-numeric columns are dropped and nothing is scaled.
@@ -70,7 +70,7 @@
 #' @param tuning_strategy Character. One of \code{"grid"} (default),
 #'   \code{"sequential"}, \code{"iterative"}. See \code{\link{tune_regions}}.
 #' @param tuning_metric Character. One of \code{"borda"} (default),
-#'   \code{"ch_env"}, \code{"r2_env"}, \code{"stability"},
+#'   \code{"ch_fit"}, \code{"r2_fit"}, \code{"stability"},
 #'   \code{"silhouette_ca"}, \code{"expected_vi"}. See
 #'   \code{\link{tune_regions}}.
 #' @param stability_B Integer. Random splits for the \code{STAB} index
@@ -151,7 +151,7 @@ get_regions <- function(graph,
                         prior_strength = 0,
                         target_edge_turnover = 0.1,
                         tuning_strategy = c("grid", "sequential", "iterative"),
-                        tuning_metric   =c("borda", "ch_env", "r2_env", "stability", "silhouette_ca", "expected_vi"),
+                        tuning_metric   =c("borda", "ch_fit", "r2_fit", "stability", "silhouette_ca", "expected_vi"),
                         stability_B      = 10,
                         large_n_threshold = 20000,
                         n_cores = 1,
@@ -163,6 +163,7 @@ get_regions <- function(graph,
         
         # match args --------------------------------------------------------------*
         tuning_strategy        <- match.arg(tuning_strategy)
+        tuning_metric          <- .renamed_cvi(tuning_metric, "tuning_metric")
         tuning_metric          <- match.arg(tuning_metric)
         cut_rule               <- match.arg(cut_rule)
         min_size               <- as.integer(min_size)
@@ -1970,12 +1971,12 @@ print.pulse_trees <- function(x, ...) {
                 if (is.null(env)) {
                         if (verbose)
                                 message("Note: no `env` supplied and none stored on `graph`; ",
-                                        "CH_ENV and R2_ENV are NA.")
+                                        "CH_FIT and R2_FIT are NA.")
                         return(NULL)
                 }
                 if (verbose)
                         message("Using the environment matrix stored on `graph` by ",
-                                "add_edge_weight() for CH_ENV and R2_ENV.")
+                                "add_edge_weight() for CH_FIT and R2_FIT.")
                 env <- as.matrix(env)
         } else {
                 env <- as.data.frame(env)
@@ -2100,8 +2101,16 @@ print.pulse_trees <- function(x, ...) {
 #' just be the largest candidate. Choose it by convergence, not by tuning.
 #'
 #' @section Validity indices:
-#' \code{CH_ENV} and \code{R2_ENV}: pseudo-F and \eqn{R^2} of the hard labels
-#' on \code{env}. \code{STAB}: split-half ensemble agreement. The ensemble
+#' \code{CH_FIT} and \code{R2_FIT}: pseudo-F and \eqn{R^2} of the hard labels
+#' on \code{env}. By default \code{env} is the matrix the edge weights were
+#' computed from, so these are internal fit indices: they measure how well
+#' the regions summarise the space the trees were cut in, not agreement with
+#' independent data. Every column adds to the sums of squares, so \eqn{p}
+#' near-duplicate predictors carry about \eqn{p} times the weight of one
+#' independent predictor; see \code{\link{add_edge_weight}}. The former
+#' names \code{CH_ENV}, \code{R2_ENV}, \code{"ch_env"} and \code{"r2_env"}
+#' are still accepted in \code{voters} and \code{tuning_metric}, with a
+#' warning. \code{STAB}: split-half ensemble agreement. The ensemble
 #' columns are split at random into two disjoint halves, the consensus is
 #' computed at the same \code{final_regions} on each half, and the ARI
 #' between the two partitions is averaged over \code{stability_B} splits.
@@ -2114,7 +2123,7 @@ print.pulse_trees <- function(x, ...) {
 #'
 #' @param graph The parent \code{igraph} object the trees were sampled from.
 #' @param env Optional data frame or matrix, one row per vertex of
-#'   \code{graph}, for the validity indices \code{CH_ENV} and \code{R2_ENV}.
+#'   \code{graph}, for the validity indices \code{CH_FIT} and \code{R2_FIT}.
 #'   \code{NULL} (default) uses the matrix \code{\link{add_edge_weight}}
 #'   stored on \code{graph} (graph attribute \code{env}), so the indices are
 #'   computed in the space of the edge weights. A supplied \code{env} is used
@@ -2134,8 +2143,8 @@ print.pulse_trees <- function(x, ...) {
 #'   Candidate cut-probability exponent(s) \eqn{\gamma}. Default 1.
 #' @param tuning_metric Character. Selection criterion, higher is better:
 #'   \code{"borda"} (default; mean rank over \code{voters}),
-#'   \code{"ch_env"} (\code{CH_ENV}, pseudo-F of the hard labels on
-#'   \code{env}), \code{"r2_env"} (\code{R2_ENV}), \code{"stability"}
+#'   \code{"ch_fit"} (\code{CH_FIT}, pseudo-F of the hard labels on
+#'   \code{env}), \code{"r2_fit"} (\code{R2_FIT}), \code{"stability"}
 #'   (\code{STAB}), \code{"silhouette_ca"} (\code{SIL_CA}, co-association
 #'   silhouette) or \code{"expected_vi"} (minus \code{EVI}, mean variation of
 #'   information between ensemble columns and the consensus).
@@ -2145,7 +2154,7 @@ print.pulse_trees <- function(x, ...) {
 #'   Validity indices). Each split costs two consensus runs at half the
 #'   ensemble size. 0 skips it. Default 10.
 #' @param voters Character. Validity columns that vote in the Borda aggregate
-#'   (\code{tuning_metric = "borda"}). Default \code{c("CH_ENV", "STAB")}. Check
+#'   (\code{tuning_metric = "borda"}). Default \code{c("CH_FIT", "STAB")}. Check
 #'   \code{STAB} against \code{\link{compute_null_baseline}} before relying on it.
 #' @param prior_strength Non-negative numeric scalar \eqn{\lambda}. Lowers the
 #'   log cutting propensity of within-prior edges by \eqn{\lambda} standard
@@ -2205,10 +2214,10 @@ tune_regions <- function(graph,
                          regions_per_partition = 50,
                          final_regions,
                          weight_exponent     = 1,
-                         tuning_metric = c("borda", "ch_env", "r2_env", "stability", "silhouette_ca", "expected_vi"),
+                         tuning_metric = c("borda", "ch_fit", "r2_fit", "stability", "silhouette_ca", "expected_vi"),
                          tuning_strategy = c("grid", "sequential", "iterative"),
                          stability_B       = 10,
-                         voters            = c("CH_ENV", "STAB"),
+                         voters            = c("CH_FIT", "STAB"),
                          prior_strength    = 0,
                          prior_typology    = NULL,
                          max_iter          = 10,
@@ -2240,8 +2249,9 @@ tune_regions <- function(graph,
         
         # --- Argument Matching  -----------------------------------------*
         tuning_strategy <- match.arg(tuning_strategy)
+        tuning_metric   <- .renamed_cvi(tuning_metric, "tuning_metric")
         tuning_metric   <- match.arg(tuning_metric)
-        voters   <- unique(as.character(voters))
+        voters   <- unique(.renamed_cvi(as.character(voters), "voters"))
         bad_v    <- setdiff(voters, names(.CVI_DIRECTION))
         if (length(bad_v) || !length(voters))
                 stop("`voters` must be a non-empty subset of: ",
@@ -2387,7 +2397,7 @@ tune_regions <- function(graph,
         # Canonical column sets (kept fixed so rbind() works across batches).
         axis_cols <- .TUNE_AXES
         diag_cols <- c("P0", "N_EFF")
-        cvi_cols  <- c("CH_ENV", "R2_ENV", "STAB", "STAB_FAIL","SIL_CA", "CERT", "EVI", "PAC")
+        cvi_cols  <- c("CH_FIT", "R2_FIT", "STAB", "STAB_FAIL","SIL_CA", "CERT", "EVI", "PAC")
         col_order <- c(axis_cols, diag_cols, cvi_cols, "error")
         
         # A configuration that raised pulseR_config_error: NA diagnostics and CVIs.
@@ -3164,7 +3174,7 @@ print.pulse_null <- function(x, ...) {
         if (!is.null(x$settings))
                 cat(sprintf("  cut_rule = %s | refine_boundary = %s | min_size = %s\n",
                             x$settings$cut_rule, x$settings$refine_boundary, x$settings$min_size))
-        s <- x$summary[x$summary$criterion %in% c("CH_ENV", "STAB"), ]
+        s <- x$summary[x$summary$criterion %in% c("CH_FIT", "STAB"), ]
         s[] <- lapply(s, function(v) if (is.numeric(v)) signif(v, 3) else v)
         print(s, row.names = FALSE)
         invisible(x)

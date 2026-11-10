@@ -40,10 +40,10 @@ test_that("failed STAB splits count as ARI 0 and are reported", {
 
 test_that(".null_summary() counts failed replicates against the null", {
         null <- data.frame(rep = 1:4, final_regions = 2L, failed = c(FALSE, FALSE, TRUE, TRUE),
-                           CH_ENV = c(5, 20, NA, NA), R2_ENV = NA, STAB = NA, SIL_CA = NA,
+                           CH_FIT = c(5, 20, NA, NA), R2_FIT = NA, STAB = NA, SIL_CA = NA,
                            CERT = NA, EVI = NA, PAC = NA)
-        r <- .null_summary(null, data.frame(final_regions = 2L, CH_ENV = 10), list())
-        r <- r[r$criterion == "CH_ENV", ]
+        r <- .null_summary(null, data.frame(final_regions = 2L, CH_FIT = 10), list())
+        r <- r[r$criterion == "CH_FIT", ]
         expect_equal(c(r$n_null, r$n_fail, r$fail_share), c(2, 2, 0.5))
         expect_equal(r$p, 2 / 5)
 })

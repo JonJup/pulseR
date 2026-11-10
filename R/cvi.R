@@ -18,8 +18,8 @@
         SST <- sum(scale(X, scale = FALSE)^2)
         SSB <- SST - SSW
         k_eff <- sum(n_k > 0)
-        c(CH_ENV = (SSB / (k_eff - 1)) / (SSW / (N - k_eff)),
-          R2_ENV = SSB / SST)
+        c(CH_FIT = (SSB / (k_eff - 1)) / (SSW / (N - k_eff)),
+          R2_FIT = SSB / SST)
 }
 
 #' Proportion of ambiguous co-association (Senbabaoglu et al. 2014), estimated
@@ -46,7 +46,7 @@
 #' sets of trees and cuts give the same regions. Each half has half the
 #' columns, so STAB is a conservative estimate for the full ensemble.
 #' Boundary refinement is not applied to the halves: it is driven by
-#' \code{env}, which both halves share and which CH_ENV already scores, so it
+#' \code{env}, which both halves share and which CH_FIT already scores, so it
 #' would raise STAB without the ensemble agreeing more.
 #'
 #' @param memb Integer label matrix, N x M.
@@ -99,7 +99,7 @@
 #' One row of validity columns for a fitted consensus.
 #'
 #' Columns and their direction:
-#'   CH_ENV, R2_ENV  external (environment)          higher better   NA if env = NULL
+#'   CH_FIT, R2_FIT  fit in weight space (internal)  higher better   NA if env = NULL
 #'   STAB            split-half ensemble ARI         higher better
 #'   SIL_CA          mean co-association silhouette  higher better   ensemble-internal
 #'   CERT            mean own-region Pi membership   higher better   ensemble-internal
@@ -113,7 +113,7 @@
                             stability_seed = NULL, large_n_threshold = 20000,
                             sample_size = 5000L, n_cores = 1L, verbose = FALSE) {
         k <- res$k; hard <- res$hard_labels
-        fe <- if (is.null(env)) c(CH_ENV = NA_real_, R2_ENV = NA_real_) else .pseudo_F_env(env, hard, k)
+        fe <- if (is.null(env)) c(CH_FIT = NA_real_, R2_FIT = NA_real_) else .pseudo_F_env(env, hard, k)
         if (verbose && stability_B > 0L) message(sprintf("    stability (B = %d) ...", stability_B))
         stab <- .stability_consensus(memb, k, B = stability_B,
                                      large_n_threshold = large_n_threshold,
@@ -121,8 +121,8 @@
                                      refine_iter = refine_iter, n_runs = n_runs,
                                      n_cores = n_cores, graph = graph,
                                      seed = stability_seed)
-        data.frame(CH_ENV = unname(fe["CH_ENV"]),
-                   R2_ENV = unname(fe["R2_ENV"]),
+        data.frame(CH_FIT = unname(fe["CH_FIT"]),
+                   R2_FIT = unname(fe["R2_FIT"]),
                    STAB   = as.numeric(stab),
                    STAB_FAIL = .first_non_null(attr(stab, "fail_share"), NA_real_),
                    SIL_CA = res$avg_sil_width,
@@ -145,8 +145,8 @@
 #' @param env_id Columns of \code{env} to drop before scoring.
 #' @param stability_B,seed,large_n_threshold,sample_size,n_cores As in
 #'   \code{compute_null_baseline()}.
-#' @return A one-row data frame: \code{final_regions}, \code{CH_ENV},
-#'   \code{R2_ENV}, \code{STAB}, \code{STAB_FAIL}, \code{SIL_CA}, \code{CERT},
+#' @return A one-row data frame: \code{final_regions}, \code{CH_FIT},
+#'   \code{R2_FIT}, \code{STAB}, \code{STAB_FAIL}, \code{SIL_CA}, \code{CERT},
 #'   \code{EVI}, \code{PAC}.
 #' @export
 compute_validity <- function(x, graph = NULL, env = NULL, env_id = NULL,
@@ -187,15 +187,37 @@ compute_validity <- function(x, graph = NULL, env = NULL, env_id = NULL,
 #' Direction of each validity column (for Borda).
 #' @keywords internal
 #' @noRd
-.CVI_DIRECTION <- c(CH_ENV = "max", R2_ENV = "max", STAB = "max",
+.CVI_DIRECTION <- c(CH_FIT = "max", R2_FIT = "max", STAB = "max",
                     SIL_CA = "max", CERT = "max", EVI = "min", PAC = "min")
 
-#' Columns entering the Borda aggregate. Only ensemble-EXTERNAL criteria by
-#' default: the co-association indices are functions of the ensemble and
+#' Columns entering the Borda aggregate. Only criteria that are not functions
+#' of the co-association matrix by default (CH_FIT is internal to the data,
+#' external to the ensemble): the co-association indices are functions of the ensemble and
 #' reward degenerate ensembles (gamma -> Inf) on the ensemble-shape axes.
 #' @keywords internal
 #' @noRd
-.BORDA_COLS <- c("CH_ENV", "STAB")
+.BORDA_COLS <- c("CH_FIT", "STAB")
+
+#' Old validity names, accepted with a warning until the next release.
+#' @keywords internal
+#' @noRd
+.CVI_RENAMED <- c(CH_ENV = "CH_FIT", R2_ENV = "R2_FIT",
+                  ch_env = "ch_fit", r2_env = "r2_fit")
+
+#' Map deprecated validity names in `x` to current ones, with a warning.
+#' @keywords internal
+#' @noRd
+.renamed_cvi <- function(x, arg) {
+        hit <- x %in% names(.CVI_RENAMED)
+        if (any(hit)) {
+                warning(sprintf("`%s`: %s renamed to %s; the old names will be removed in a later version.",
+                                arg, paste(x[hit], collapse = ", "),
+                                paste(.CVI_RENAMED[x[hit]], collapse = ", ")),
+                        call. = FALSE)
+                x[hit] <- unname(.CVI_RENAMED[x[hit]])
+        }
+        x
+}
 
 #' Score column of a tuning log, higher is better
 #'
@@ -215,8 +237,8 @@ compute_validity <- function(x, graph = NULL, env = NULL, env_id = NULL,
                        }
                        -.borda_score(df[, cols, drop = FALSE], unname(.CVI_DIRECTION[cols]))
                },
-               ch_env        = df$CH_ENV,
-               r2_env        = df$R2_ENV,
+               ch_fit        = df$CH_FIT,
+               r2_fit        = df$R2_FIT,
                stability     = df$STAB,
                silhouette_ca = df$SIL_CA,
                expected_vi   = -df$EVI,

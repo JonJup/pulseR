@@ -48,10 +48,10 @@ test_that("voters controls the Borda aggregate", {
                                   final_regions = 2:3, env = tg$env, voters = "NOPE",
                                   verbose = FALSE), "voters")
         tu <- tune_regions(tg$g, tr, N_tree = 30, regions_per_partition = 8, final_regions = 2:4,
-                           env = tg$env, stability_B = 0, voters = "CH_ENV",
+                           env = tg$env, stability_B = 0, voters = "CH_FIT",
                            verbose = FALSE, seed = 1)
         expect_equal(tu$best_final_regions,
-                     tu$tuning_log$final_regions[which.max(tu$tuning_log$CH_ENV)])
+                     tu$tuning_log$final_regions[which.max(tu$tuning_log$CH_FIT)])
 })
 
 test_that("null baseline returns one summary row per k and criterion", {
@@ -77,7 +77,7 @@ test_that("tune_regions() logs a failed k as an NA row and keeps going", {
                 "1 of 3 configurations failed")
         bad <- tu$tuning_log$final_regions == 4L
         expect_true(all(is.na(tu$tuning_log$score[bad])))
-        expect_true(all(is.na(tu$tuning_log$CH_ENV[bad])))
+        expect_true(all(is.na(tu$tuning_log$CH_FIT[bad])))
         expect_match(tu$tuning_log$error[bad], "k = 4")
         expect_true(all(is.na(tu$tuning_log$error[!bad])))
         expect_false(tu$best_final_regions == 4L)
@@ -107,7 +107,7 @@ test_that("null baseline accepts an untuned pulse_regions as observed", {
         nb  <- compute_null_baseline(tg$g, tg$env, final_regions = 2, regions_per_partition = 8,
                                      N_tree = 20, B = 2, stability_B = 0, observed = res,
                                      seed = 1, verbose = FALSE, target_edge_turnover = 0.1)
-        expect_true(is.finite(nb$summary$observed[nb$summary$criterion == "CH_ENV"]))
+        expect_true(is.finite(nb$summary$observed[nb$summary$criterion == "CH_FIT"]))
         v <- compute_validity(res, env = tg$env, stability_B = 0)
         expect_equal(v$final_regions, 2L)
 })
