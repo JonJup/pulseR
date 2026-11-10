@@ -14,3 +14,13 @@ test_that(".salso_k() stops clearly when salso reports no `a`", {
                 .package = "salso")
         expect_error(.salso_k(memb, 2L), "did not report the search parameter")
 })
+test_that(".salso_k() rethrows a salso failure as pulseR_config_error", {
+        memb <- matrix(rep(1:2, each = 10), 20, 4)
+        local_mocked_bindings(
+                salso = function(x, ...) stop("f() values at end points not of opposite sign"),
+                .package = "salso")
+        err <- expect_error(.salso_k(memb, 12L), class = "pulseR_config_error")
+        expect_match(conditionMessage(err), "k = 12")
+        expect_match(conditionMessage(err), "opposite sign")
+})
+

@@ -64,3 +64,39 @@ test_that("null baseline returns one summary row per k and criterion", {
         expect_equal(nrow(nb$null), 4L)
         expect_true(all(is.na(nb$summary$observed)))
 })
+test_that("tune_regions() logs a failed k as an NA row and keeps going", {
+        tg <- toy_graph()
+        tr <- sample_spanning_trees(tg$g, n = 30, seed = 1, verbose = FALSE)
+        orig <- .salso_k
+        local_mocked_bindings(.salso_k = function(memb, k, ...)
+                if (k == 4L) .config_error("no consensus at k = 4") else orig(memb, k, ...))
+        expect_warning(
+                tu <- tune_regions(tg$g, tr, N_tree = 30, regions_per_partition = 8,
+                                   final_regions = 2:4, env = tg$env, stability_B = 0,
+                                   verbose = FALSE, seed = 1),
+                "1 of 3 configurations failed")
+        bad <- tu$tuning_log$final_regions == 4L
+        expect_true(all(is.na(tu$tuning_log$score[bad])))
+        expect_true(all(is.na(tu$tuning_log$CH_ENV[bad])))
+        expect_match(tu$tuning_log$error[bad], "k = 4")
+        expect_true(all(is.na(tu$tuning_log$error[!bad])))
+        expect_false(tu$best_final_regions == 4L)
+})
+
+test_that("tune_regions() stops clearly when every configuration fails", {
+        tg <- toy_graph()
+        tr <- sample_spanning_trees(tg$g, n = 30, seed = 1, verbose = FALSE)
+        local_mocked_bindings(.salso_k = function(...) .config_error("nope"))
+        expect_error(tune_regions(tg$g, tr, N_tree = 30, regions_per_partition = 8,
+                                  final_regions = 2:3, stability_B = 0, verbose = FALSE),
+                     "All 2 configurations failed")
+})
+
+test_that("non-config errors inside tuning still abort", {
+        tg <- toy_graph()
+        tr <- sample_spanning_trees(tg$g, n = 30, seed = 1, verbose = FALSE)
+        local_mocked_bindings(.salso_k = function(...) stop("genuine bug"))
+        expect_error(tune_regions(tg$g, tr, N_tree = 30, regions_per_partition = 8,
+                                  final_regions = 2:3, stability_B = 0, verbose = FALSE),
+                     "genuine bug")
+})

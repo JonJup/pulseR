@@ -281,8 +281,9 @@ print.pulse_ensemble_size <- function(x, ...) {
 #' ref <- compute_ensemble(trees, N_tree, graph, R,
 #'                                     weight_exponent = 0)
 #' }
-#' The gap between the curves is what the cut rule adds. γ = 0 ignores the 
-#' weights; add size_influence = 0 for uniform random cuts.
+#' The gap between the curves is what the cut rule adds. 
+#' \eqn{\gamma = 0} cuts uniformly at random; \code{size_influence} is then
+#' ignored.
 #' Compare \code{lift} between the two, not \code{rho}: rank correlation
 #' rewards the many single-unit cuts around environmental outliers.
 #'

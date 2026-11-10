@@ -49,7 +49,8 @@ to \eqn{\gamma}. \eqn{\gamma = 0} cuts edges uniformly at random,
 \eqn{\gamma = 1} (default) cuts with probability proportional to weight, and
 larger \eqn{\gamma} concentrates cuts on the heaviest edges (approaching
 deterministic heaviest-edge removal as \eqn{\gamma \to \infty}).
-γ = 0 ignores the weights; add size_influence = 0 for uniform random cuts.}
+\eqn{\gamma = 0} cuts uniformly at random; \code{size_influence} is then
+ignored.}
 
 \item{verbose}{Logical. Default \code{TRUE}.}
 

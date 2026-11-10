@@ -29,8 +29,9 @@
 #'   \eqn{\gamma}. The cut probability of an edge is proportional to its
 #'   weight raised to \eqn{\gamma}, times the size factor. \eqn{\gamma = 0}
 #'   ignores the weights, \eqn{\gamma = 1} (default) is proportional to
-#'   weight, larger values concentrate cuts on the heaviest edges. γ = 0 ignores
-#'  the weights; add size_influence = 0 for uniform random cuts
+#'   weight, larger values concentrate cuts on the heaviest edges. #' 
+#'   \eqn{\gamma = 0} cuts uniformly at random; \code{size_influence} is then
+#'   ignored.
 #' @param size_influence Non-negative numeric. Spread of the size-balance term
 #'   \eqn{\log(n_c (N - n_c) / N)} relative to the spread of the environmental
 #'   term \eqn{\gamma \log w}, per tree. 0 ignores piece size; the default 2
@@ -555,7 +556,8 @@ sample_spanning_trees <- function(graph, n, seed = NULL, verbose = TRUE,
 #'   \eqn{\gamma = 1} (default) cuts with probability proportional to weight, and
 #'   larger \eqn{\gamma} concentrates cuts on the heaviest edges (approaching
 #'   deterministic heaviest-edge removal as \eqn{\gamma \to \infty}). 
-#'   γ = 0 ignores the weights; add size_influence = 0 for uniform random cuts.
+#'   \eqn{\gamma = 0} cuts uniformly at random; \code{size_influence} is then
+#'   ignored.
 #' @param size_influence Non-negative numeric. Spread of the size term
 #'   \eqn{\alpha \log s_e} relative to the spread \eqn{u} of the
 #'   environmental term \eqn{\gamma \log w}, per tree. 0 ignores piece size;
@@ -662,9 +664,10 @@ compute_ensemble <- function(trees,
 #' environmental term on the log scale the exponential race competes on, so
 #' \code{size_influence} and \code{prior_strength} are dimensionless and mean
 #' the same on every graph. Zero weights are floored at the smallest positive
-#' weight of the tree before taking logs. If \eqn{u = 0} (\eqn{\gamma = 0},
-#' constant or all-zero weights) the prior falls back to \eqn{u = \log 2}, one halving per unit of
-#' \eqn{\lambda}, and \code{fallback} is set.
+#' weight of the tree before taking logs. 
+#' If \eqn{u = 0} (\eqn{\gamma = 0}, constant or all-zero weights) cuts are
+#' uniform: \eqn{\alpha = 0}, and the prior falls back to \eqn{u = \log 2}, one
+#' halving per unit of \eqn{\lambda}, and \code{fallback} is set.
 #'
 #' @param w Tree edge weights (non-negative, finite).
 #' @param size_f Size factor \eqn{n_c (N - n_c) / N} per tree edge.
@@ -690,8 +693,10 @@ compute_ensemble <- function(trees,
         sd_s <- stats::sd(ls)
         ok_w  <- is.finite(sd_w) && sd_w > 0
         ok_s  <- is.finite(sd_s) && sd_s > 0
-        unit  <- if (ok_w) sd_w else log(2)      # no weight spread: one unit = one halving
-        alpha <- if (ok_s) size_influence * unit / sd_s else 0
+        # no weight spread: one unit = one halving
+        unit  <- if (ok_w) sd_w else log(2)
+        
+        alpha <- if (ok_w && ok_s) size_influence * unit / sd_s else 0   
         lp    <- lw + alpha * ls
         fallback <- FALSE
         if (prior_strength > 0 && !is.null(within_prior)) {
@@ -730,11 +735,12 @@ compute_ensemble <- function(trees,
 #'   the Ward SSD reduction of cutting \eqn{e}, \eqn{h_e = n_1 n_2 / (n_1 + n_2)}
 #'   and \eqn{D_e} the squared distance between the two side means of
 #'   \code{graph_attr(graph, "env")}. Because \eqn{g_e} contains \eqn{h_e}, the
-#'   Ward term already favours balanced cuts with exponent \eqn{\gamma};
+#'   Ward term already favors balanced cuts with exponent \eqn{\gamma};
 #'   \code{size_influence} adds to that. \eqn{u = \mathrm{sd}(\gamma \log g)},
 #'   \eqn{\alpha = \texttt{size\_influence} \cdot u / \mathrm{sd}(\log h)},
-#'   with the same \eqn{\log 2} fallback for \eqn{u} as the propensity rule.
-#'   Cuts leaving a side smaller than \code{min_size} are excluded.
+#'   with \eqn{\alpha = 0} when \eqn{u = 0} and the same \eqn{\log 2} prior 
+#'   fallback as the propensity rule. Cuts leaving a side smaller than 
+#'   \code{min_size} are excluded.
 #'   \code{size_influence = 0}, \code{prior_strength = 0} and
 #'   \code{min_size = 1} reproduce the plain Ward race draw for draw.
 #' @keywords internal
@@ -785,7 +791,7 @@ compute_ensemble <- function(trees,
                                 u    <- stats::sd(lp)                 # unit: sd(gamma log g)
                                 ok_u <- is.finite(u) && u > 0
                                 if (!ok_u) u <- log(2)
-                                if (size_influence > 0) {
+                                if (size_influence > 0 && ok_u) {
                                         lh   <- log(fc$h)
                                         sd_h <- stats::sd(lh)
                                         if (is.finite(sd_h) && sd_h > 0)
@@ -1622,6 +1628,18 @@ check_native_regions <- function(trees, graph,
 # 3. Hard consensus partition
 # -----------------------------------------------------------------------------
 
+#' Signal a configuration-level failure
+#'
+#' Class `pulseR_config_error`: the inputs are valid but this configuration
+#' cannot be fitted (e.g. the ensemble does not support k regions).
+#' tune_regions() logs these as failed rows; every other error still aborts.
+#' @keywords internal
+#' @noRd
+.config_error <- function(msg, parent = NULL) {
+        stop(structure(class = c("pulseR_config_error", "error", "condition"),
+                       list(message = msg, call = NULL, parent = parent)))
+}
+
 #' salso at exactly k regions (merging down if it overshoots).
 #' Returns list(labels, step, salso): `step` codes index .LABEL_STEPS;
 #' `salso` keeps the search parameter a that salso settled on and salso's own
@@ -1630,9 +1648,15 @@ check_native_regions <- function(trees, graph,
 #' @noRd
 .salso_k <- function(memb, k, n_runs = 16L, n_cores = 1L) {
         draws <- t(memb); storage.mode(draws) <- "integer"
-        est <- salso::salso(draws,
-                            loss   = salso::VI(a = list(nClusters = k)),
-                            nRuns  = n_runs, nCores = n_cores)
+        est <- tryCatch(
+                salso::salso(draws,
+                             loss   = salso::VI(a = list(nClusters = k)),
+                             nRuns  = n_runs, nCores = n_cores),
+                error = function(e) .config_error(sprintf(paste0(
+                        "salso could not find a consensus partition with k = %d ",
+                        "regions (salso: %s). The ensemble likely cannot support ",
+                        "k = %d; lower k or raise regions_per_partition."),
+                        k, conditionMessage(e), k), parent = e))
         info <- attr(est, "info")
         raw  <- as.integer(est); rm(est)                    # est carries a copy of draws
         # salso's search for a solves a step function, and its final rerun at the
@@ -1656,10 +1680,10 @@ check_native_regions <- function(trees, graph,
         raw  <- match(raw, sort(unique(raw)))
         k0   <- max(raw)
         if (k0 < k)
-                stop(sprintf(paste0(
+                .config_error(sprintf(paste0(
                         "salso returned %d regions for the requested k = %d. The ensemble ",
                         "does not support that many consensus regions; lower k or raise ",
-                        "regions_per_partition."), k0, k), call. = FALSE)
+                        "regions_per_partition."), k0, k))
         lab  <- raw
         step <- rep(1L, length(raw))                        # "salso"
         if (k0 > k) {
@@ -2345,7 +2369,25 @@ tune_regions <- function(graph,
         axis_cols <- .TUNE_AXES
         diag_cols <- c("P0", "N_EFF")
         cvi_cols  <- c("CH_ENV", "R2_ENV", "STAB", "STAB_FAIL","SIL_CA", "CERT", "EVI", "PAC")
-        col_order <- c(axis_cols, diag_cols, cvi_cols)
+        col_order <- c(axis_cols, diag_cols, cvi_cols, "error")
+        
+        # A configuration that raised pulseR_config_error: NA diagnostics and CVIs.
+        failed_row <- function(cfg, msg) {
+                na <- as.data.frame(as.list(stats::setNames(
+                        rep(NA_real_, length(diag_cols) + length(cvi_cols)),
+                        c(diag_cols, cvi_cols))))
+                cbind(cfg[, axis_cols, drop = FALSE], na, error = msg,
+                      stringsAsFactors = FALSE)
+        }
+        
+        # Failed rows get score NA and stay out of the Borda ranking.
+        score_rows <- function(log) {
+                s  <- rep(NA_real_, nrow(log))
+                ok <- is.na(log$error)
+                if (any(ok)) s[ok] <- .derive_score_column(log[ok, , drop = FALSE],
+                                                           tuning_metric, voters)
+                s
+        }
         
         # --- Score one configuration -> one row of CVI columns ---------------*
         score_config <- function(cfg) {
@@ -2371,7 +2413,7 @@ tune_regions <- function(graph,
                 list(out = cbind(cfg[, axis_cols, drop = FALSE],
                                  data.frame(P0    = mean(memb_mat$chance_coassoc),
                                             N_EFF = 1 / mean(memb_mat$chance_coassoc)),
-                                 cvis),
+                                 cvis, error = NA_character_, stringsAsFactors = FALSE),
                      fit = fit)
         }
         # --- tuning_log accumulator ------------------------------------------*
@@ -2381,7 +2423,7 @@ tune_regions <- function(graph,
                 # Borda ranks are computed globally over all rows evaluated so far, so
                 # the score column must be rebuilt after every batch.
                 if (is.null(tuning_log) || nrow(tuning_log) == 0L) return(invisible(NULL))
-                tuning_log$score <<- .derive_score_column(tuning_log, tuning_metric, voters)
+                tuning_log$score <<- score_rows(tuning_log)
                 invisible(NULL)
         }
         
@@ -2395,9 +2437,16 @@ tune_regions <- function(graph,
                                 if (!is.null(tick)) tick(i)
                                 next
                         }
-                        sc <- score_config(cfg_df[i, , drop = FALSE])
-                        new_rows[[i]] <- sc$out
-                        assign(keys[i], sc$fit, envir = fit_store)
+                        sc <- tryCatch(score_config(cfg_df[i, , drop = FALSE]),
+                                       pulseR_config_error = function(e) e)
+                        if (inherits(sc, "pulseR_config_error")) {
+                                new_rows[[i]] <- failed_row(cfg_df[i, , drop = FALSE],
+                                                            conditionMessage(sc))
+                                if (verbose) message("  Failed: ", conditionMessage(sc))
+                        } else {
+                                new_rows[[i]] <- sc$out
+                                assign(keys[i], sc$fit, envir = fit_store)
+                        }
                         seen <- c(seen, keys[i])
                         if (!is.null(tick)) tick(i)
                 }
@@ -2518,7 +2567,18 @@ tune_regions <- function(graph,
         # --- Deduplicate and pick the best configuration ---------------------*
         tuning_log <- tuning_log[!duplicated(.tune_key(tuning_log)), , drop = FALSE]
         rownames(tuning_log) <- NULL
-        tuning_log$score <- .derive_score_column(tuning_log, tuning_metric, voters)
+        tuning_log$score <- score_rows(tuning_log)
+        
+        failed <- !is.na(tuning_log$error)
+        if (all(failed))
+                stop(sprintf("All %d configurations failed. First error: %s",
+                             nrow(tuning_log), tuning_log$error[1L]), call. = FALSE)
+        if (any(failed))
+                warning(sprintf(paste0(
+                        "%d of %d configurations failed and were scored NA ",
+                        "(see tuning_log$error). First error: %s"),
+                        sum(failed), nrow(tuning_log), tuning_log$error[failed][1L]),
+                        call. = FALSE)
         
         if (all(is.na(tuning_log$score))) {
                 stop("All hyper-parameter combinations produced an undefined score; ",

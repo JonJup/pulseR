@@ -11,11 +11,10 @@ test_that("zero weights are floored at the smallest positive weight", {
         expect_true(all(is.finite(.cut_log_propensity(w0, s)$lp)))
 })
 
-test_that("all-zero weights give uniform environmental propensity", {
-        s <- c(1, 2, 3, 4)
-        pr <- .cut_log_propensity(rep(0, 4), s)
-        expect_true(all(is.finite(pr$lp)))
-        expect_gt(pr$alpha, 0)
+test_that("all-zero weights give uniform propensity", {
+        pr <- .cut_log_propensity(rep(0, 4), c(1, 2, 3, 4))
+        expect_equal(pr$alpha, 0)
+        expect_equal(pr$lp, rep(0, 4))
         expect_equal(pr$unit, log(2))
 })
 
@@ -28,4 +27,21 @@ test_that("the ensemble runs on a graph with zero weights", {
         em <- compute_ensemble(tr, N_tree = 5, graph = g,
                                            regions_per_partition = 4, verbose = FALSE)
         expect_true(all(apply(em$memberships, 2, function(l) length(unique(l))) == 4L))
+})
+test_that("gamma = 0 ignores size_influence under both cut rules", {
+        set.seed(3)
+        g <- igraph::make_lattice(c(6, 6))
+        igraph::E(g)$weight <- stats::runif(igraph::ecount(g))
+        g <- igraph::set_graph_attr(g, "env",
+                                    matrix(stats::rnorm(36 * 2), 36, 2))
+        tr <- sample_spanning_trees(g, n = 5, seed = 1, verbose = FALSE)
+        expect_equal(.cut_log_propensity(stats::runif(9), 1:9,
+                                         weight_exponent = 0)$alpha, 0)
+        for (rule in c("propensity", "ssd")) {
+                run <- function(si) { set.seed(7)
+                        compute_ensemble(tr, 5, g, 4, weight_exponent = 0,
+                                         size_influence = si, cut_rule = rule,
+                                         verbose = FALSE)$memberships }
+                expect_identical(run(0), run(2), info = rule)
+        }
 })

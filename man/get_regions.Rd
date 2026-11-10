@@ -62,8 +62,9 @@ trees, one partition each. Trees are sampled once at \code{max(N_tree)}.}
 \eqn{\gamma}. The cut probability of an edge is proportional to its
 weight raised to \eqn{\gamma}, times the size factor. \eqn{\gamma = 0}
 ignores the weights, \eqn{\gamma = 1} (default) is proportional to
-weight, larger values concentrate cuts on the heaviest edges. γ = 0 ignores
-the weights; add size_influence = 0 for uniform random cuts}
+weight, larger values concentrate cuts on the heaviest edges. #'
+\eqn{\gamma = 0} cuts uniformly at random; \code{size_influence} is then
+ignored.}
 
 \item{size_influence}{Non-negative numeric. Spread of the size-balance term
 \eqn{\log(n_c (N - n_c) / N)} relative to the spread of the environmental
