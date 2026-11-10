@@ -100,3 +100,14 @@ test_that("non-config errors inside tuning still abort", {
                                   final_regions = 2:3, stability_B = 0, verbose = FALSE),
                      "genuine bug")
 })
+test_that("null baseline accepts an untuned pulse_regions as observed", {
+        tg  <- toy_graph(n = 10)
+        res <- get_regions(tg$g, regions_per_partition = 8, final_regions = 2,
+                           N_tree = 20, seed = 1)
+        nb  <- compute_null_baseline(tg$g, tg$env, final_regions = 2, regions_per_partition = 8,
+                                     N_tree = 20, B = 2, stability_B = 0, observed = res,
+                                     seed = 1, verbose = FALSE, target_edge_turnover = 0.1)
+        expect_true(is.finite(nb$summary$observed[nb$summary$criterion == "CH_ENV"]))
+        v <- compute_validity(res, env = tg$env, stability_B = 0)
+        expect_equal(v$final_regions, 2L)
+})

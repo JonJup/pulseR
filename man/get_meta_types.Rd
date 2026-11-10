@@ -12,6 +12,7 @@ get_meta_types(
   method = c("bhattacharyya", "wasserstein", "empirical"),
   env = NULL,
   n_sample = 20000L,
+  seed = NULL,
   linkage = c("average", "ward.D", "single", "complete", "mcquitty", "median",
     "centroid", "ward.D2"),
   distance = NULL
@@ -33,7 +34,7 @@ largest one does.}
 \item{max_confined}{Threshold for candidate selection, in \eqn{[0, 1]}.
 Default 0.2. Some confinement is real, so 0 is usually too strict.}
 
-\item{method, env, n_sample}{Passed to \code{\link{compute_local_type_distance}}.}
+\item{method, env, n_sample, seed}{Passed to \code{\link{compute_local_type_distance}}.}
 
 \item{linkage}{Passed to \code{\link[stats]{hclust}}. Default
 \code{"average"}, which merges on mean overlap and does not chain the way

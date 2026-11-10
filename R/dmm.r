@@ -19,7 +19,20 @@
         attr(X, "valid") <- which(ok)
         X
 }
-
+## n_scale = "auto": 1 / mean neighbourhoods per edge, so the summed
+## pseudo-counts equal the number of distinct contributing edges.
+.resolve_n_scale <- function(n_scale, signatures) {
+        if (identical(n_scale, "auto")) {
+                m <- attr(signatures, "edge_multiplicity")
+                if (is.null(m) || !is.finite(m) || m <= 0)
+                        stop("n_scale = \"auto\" needs attr(signatures, \"edge_multiplicity\"). ",
+                             "Recompute with compute_all_signatures(), or pass a number.", call. = FALSE)
+                return(1 / m)
+        }
+        if (!is.numeric(n_scale) || length(n_scale) != 1L || !is.finite(n_scale) || n_scale <= 0)
+                stop("`dmm_control$n_scale` must be \"auto\" or one positive number.", call. = FALSE)
+        n_scale
+}
 ## Grouped sums over contiguous blocks: one cumsum, about 5x faster than rowsum().
 ## `ends` = cumsum(tabulate(group)); empty groups return 0.
 .gsum <- function(v, ends) {

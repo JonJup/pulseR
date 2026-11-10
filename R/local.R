@@ -63,6 +63,21 @@
         as.matrix(W)
 }
 
+#' Level 1 hard region per unit: the regions object's own labels when present
+#' (post contiguity repair), else the row argmax of the weight matrix.
+#' @noRd
+.region_hard <- function(regions, W) {
+        src <- if (inherits(regions, "pulse_regions_tuning")) regions$best_result else regions
+        h <- if (is.list(src) && !is.data.frame(src))
+                .first_non_null(src$hard_labels, src$fit$hard_labels) else NULL
+        if (is.null(h)) return(max.col(W, ties.method = "first"))
+        h <- as.integer(h)
+        if (length(h) != nrow(W) || anyNA(h) || any(h < 1L | h > ncol(W)))
+                stop("`regions$hard_labels` must be integers in 1..ncol(memberships), ",
+                     "one per unit.", call. = FALSE)
+        h
+}
+
 #' Weighted BIC of one me.weighted() fit.
 #'
 #' 2 * (weighted log-likelihood) - npar * log(n_eff), with n_eff = sum(weights).
@@ -262,17 +277,21 @@
 #'   \describe{
 #'     \item{\code{memberships}}{N x sum(G_r) matrix, rows sum to 1.}
 #'     \item{\code{weighted}}{The same matrix before row-normalisation.}
-#'     \item{\code{hard_labels}}{Integer vector, column index of the row maximum.}
-#'     \item{\code{certainty}}{Row maximum of \code{memberships}.}
-#'     \item{\code{certainty_raw}}{Row maximum of \code{weighted}.}
-#'     \item{\code{entropy}}{Normalised row entropy of \code{memberships}.}
+#'     \item{\code{hard_labels}}{Integer vector: column of the most probable
+#'       local type within the unit's Level 1 hard region
+#'       (\code{region_labels}), so \code{key$region[hard_labels] == region_labels}.}
+#'     \item{\code{region_labels}}{Level 1 hard region per unit: the regions
+#'       object's \code{hard_labels}, or the row argmax of a bare weight matrix.}
+#'     \item{\code{certainty}}{\code{memberships} at \code{hard_labels}.}
+#'     \item{\code{certainty_raw}}{\code{weighted} at \code{hard_labels}.}
+#'     \item{\code{entropy}}{Normalized row entropy of \code{memberships}.}
 #'     \item{\code{key}}{Data frame mapping each column to its region and local type.}
 #'     \item{\code{n_local_types}}{Selected G per region.}
 #'     \item{\code{BIC}}{G x region matrix over all requested G: the best 
 #'       weighted BIC over covariance models for each G; \code{NA} where G was 
 #'       not a candidate for that region.}
 #'     \item{\code{BIC_by_model}}{G x model x region array of weighted BIC
-#'       values; \code{NA} where a candidate was infeasible or failed.}
+#'       values; \code{NA} where a candidate was in feasible or failed.}
 #'     \item{\code{model_names}}{Selected covariance model per region.}
 #'     \item{\code{models}}{Selected fits, or \code{NULL}.}
 #'     \item{\code{constant}}{Logical predictor x region matrix: \code{TRUE}
@@ -300,7 +319,8 @@
 #' res
 #' }
 #'
-#' @importFrom mclust hc hclass unmap me.weighted priorControl nMclustParams mclust.options hcE hcV hcEII hcVII hcEEE hcVVV
+#' @importFrom mclust hc hclass unmap me.weighted priorControl nMclustParams 
+#'   mclust.options hcE hcV hcEII hcVII hcEEE hcVVV
 #' @importFrom stats var
 #' @export
 get_local_types <- function(env,
@@ -666,13 +686,33 @@ get_local_types <- function(env,
         rs <- rowSums(Zw)
         U  <- Zw / pmax(rs, .Machine$double.eps)
         
-        hard <- max.col(U, ties.method = "first")
-        idx  <- cbind(seq_len(N), hard)
+        ## Crisp local type = argmax of z inside the unit's Level 1 hard region.
+        ## Within a region block Zw = z * w with w constant per row, so the
+        ## block argmax equals argmax(z). A global max.col(U) could pick a type
+        ## from a region the unit does not belong to.
+        reg_hard <- .region_hard(regions, W)
+        hard     <- integer(N)
+        no_block <- integer(0)
+        for (r in re) {
+                i <- which(reg_hard == r)
+                if (!length(i)) next
+                cols <- (offset[r] + 1L):offset[r + 1L]
+                blk  <- Zw[i, cols, drop = FALSE]
+                hard[i]  <- offset[r] + max.col(blk, ties.method = "first")
+                no_block <- c(no_block, i[rowSums(blk) == 0])
+        }
+        no_block <- setdiff(no_block, orphan)        # orphans already warned
+        if (length(no_block))
+                warning(sprintf(paste0("%d unit(s) have hard region weight <= `weight_eps`; ",
+                                       "their local type is the region's first type with ",
+                                       "certainty 0."), length(no_block)), call. = FALSE)
+        idx <- cbind(seq_len(N), hard)
         
         out <- list(
                 memberships   = U,
                 weighted      = Zw,
                 hard_labels  = as.integer(hard),
+                region_labels = as.integer(reg_hard),
                 certainty     = U[idx],
                 certainty_raw = Zw[idx],
                 entropy       = .row_entropy(U),

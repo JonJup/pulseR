@@ -144,3 +144,14 @@ test_that("salso's cluster-cap warning becomes the `capped` flag", {
         local_mocked_bindings(salso = function(x, ...) x[1, ], .package = "salso")
         expect_false(.salso_native(memb)$capped)
 })
+test_that("empirical distance samples n_sample rows, reproducibly, RNG untouched", {
+        s   <- two_region_env(n = 300, p = 2)
+        loc <- get_local_types(s$env, s$W, n_local_types = 2)
+        full <- compute_local_type_distance(loc, "empirical", s$env, n_sample = 1e6)
+        expect_equal(full, compute_local_type_distance(loc, "empirical", s$env))  # N < n_sample: no sampling
+        set.seed(99); before <- .Random.seed
+        a <- compute_local_type_distance(loc, "empirical", s$env, n_sample = 100, seed = 7)
+        expect_identical(.Random.seed, before)
+        expect_equal(a, compute_local_type_distance(loc, "empirical", s$env, n_sample = 100, seed = 7))
+        expect_error(compute_local_type_distance(loc, "empirical", s$env, n_sample = 1), "n_sample")
+})

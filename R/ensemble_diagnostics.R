@@ -30,7 +30,7 @@
 #' @param regions_per_partition Integer \eqn{R \ge 2}.
 #' @param size_influence Numeric vector of settings to compare. 0 is always
 #'   added (it is the ceiling reference).
-#' @param weight_exponent \eqn{\gamma}. Default 1.
+#' @param weight_exponent Numeric vector of \eqn{\gamma} values to compare (inverse temperature; see compute_ensemble). Default 1.
 #' @param prior_strength \eqn{\lambda}, as in \code{\link{compute_ensemble}}.
 #' @param N_tree Number of trees to use. Default \code{min(100, n_trees)}.
 #' @param seed Optional integer; the caller's RNG state is restored.
@@ -49,7 +49,8 @@ check_cut_placement <- function(trees, regions_per_partition,
         stopifnot(inherits(trees, "pulse_trees"),
                   is.numeric(size_influence), all(size_influence >= 0),
                   length(regions_per_partition) == 1L, regions_per_partition >= 2,
-                  length(weight_exponent) == 1L, weight_exponent >= 0,
+                  is.numeric(weight_exponent), length(weight_exponent) >= 1L,
+                  all(is.finite(weight_exponent)), all(weight_exponent >= 0),
                   length(prior_strength) == 1L, is.finite(prior_strength),
                   prior_strength >= 0)
         if (is.null(N_tree)) N_tree <- min(100L, trees$n_trees)
@@ -57,6 +58,8 @@ check_cut_placement <- function(trees, regions_per_partition,
         .local_seed(seed)
         
         si    <- sort(unique(c(0, size_influence)))
+        ge    <- sort(unique(weight_exponent))
+        grid  <- expand.grid(si = si, ge = ge)
         lev   <- c("random", as.character(si))
         n_v   <- trees$n_vertices
         n_cut <- as.integer(regions_per_partition) - 1L
@@ -71,6 +74,7 @@ check_cut_placement <- function(trees, regions_per_partition,
                         stop("regions_per_partition must be below the number of tree edges.",
                              call. = FALSE)
                 n_c   <- .subtree_sizes(edge_ids, trees$edge_endpoints, n_v = n_v)
+                sf    <- n_c * (n_v - n_c) / n_v
                 small <- pmin(n_c, n_v - n_c)
                 pct   <- (rank(w) - 0.5) / n_e
                 above <- w > stats::median(w)
@@ -81,40 +85,54 @@ check_cut_placement <- function(trees, regions_per_partition,
                         cut <- which(key <= sort(key, partial = n_cut)[n_cut])
                         cut[seq_len(min(length(cut), n_cut))]
                 }
-                rows <- vector("list", length(si) + 1L)
-                cut  <- pick(le)                                # uniform cuts
-                rows[[1L]] <- data.frame(setting = "random", tree = j, pct = pct[cut],
-                                         above = above[cut], small = small[cut])
-                for (s in seq_along(si)) {
-                        lp  <- .cut_log_propensity(w, n_c * (n_v - n_c) / n_v,
-                                                   weight_exponent = weight_exponent,
-                                                   size_influence  = si[s],
-                                                   prior_strength  = prior_strength,
-                                                   within_prior    = wp)$lp
-                        cut <- pick(le - lp)
-                        rows[[s + 1L]] <- data.frame(setting = lev[s + 1L], tree = j,
-                                                     pct = pct[cut], above = above[cut],
-                                                     small = small[cut])
+                row_df <- function(setting, g, cut)
+                        data.frame(setting = setting, weight_exponent = g, tree = j,
+                                   pct = pct[cut], above = above[cut], small = small[cut])
+                rows <- vector("list", nrow(grid) + 1L)
+                rows[[1L]] <- row_df("random", NA_real_, pick(le))
+                for (k in seq_len(nrow(grid))) {
+                        lp <- .cut_log_propensity(w, sf,
+                                                  weight_exponent = grid$ge[k],
+                                                  size_influence  = grid$si[k],
+                                                  prior_strength  = prior_strength,
+                                                  within_prior    = wp)$lp
+                        rows[[k + 1L]] <- row_df(as.character(grid$si[k]), grid$ge[k],
+                                                 pick(le - lp))
                 }
                 out[[j]] <- do.call(rbind, rows)
         }
         cuts <- do.call(rbind, out)
         cuts$setting <- factor(cuts$setting, levels = lev)
         
-        agg <- function(f) vapply(split(cuts, cuts$setting), f, numeric(1))
-        mp  <- agg(function(d) mean(d$pct))
-        rng <- mp[["0"]] - mp[["random"]]
-        summary <- data.frame(
-                setting            = lev,
-                above_median       = agg(function(d) mean(d$above)),
-                mean_pct           = mp,
-                env_retained       = if (rng > 0) (mp - mp[["random"]]) / rng else NA_real_,
-                singleton_share    = agg(function(d) mean(d$small == 1L)),
-                median_small_piece = agg(function(d) stats::median(d$small)),
-                row.names = NULL)
+        summ <- function(d) data.frame(above_median       = mean(d$above),
+                                       mean_pct           = mean(d$pct),
+                                       singleton_share    = mean(d$small == 1L),
+                                       median_small_piece = stats::median(d$small))
+        is_r <- cuts$setting == "random"
+        summary <- do.call(rbind, c(
+                list(data.frame(setting = "random", weight_exponent = NA_real_,
+                                summ(cuts[is_r, ]))),
+                lapply(seq_len(nrow(grid)), function(k) {
+                        d <- cuts[!is_r & cuts$weight_exponent == grid$ge[k] &
+                                          cuts$setting == as.character(grid$si[k]), ]
+                        data.frame(setting = as.character(grid$si[k]),
+                                   weight_exponent = grid$ge[k], summ(d))
+                })))
+        # ceiling = size_influence 0 at the SAME gamma; floor = random
+        flo  <- summary$mean_pct[1L]
+        ceil <- summary$mean_pct[match(paste(summary$weight_exponent, "0"),
+                                       paste(summary$weight_exponent, summary$setting))]
+        rng  <- ceil - flo
+        summary$env_retained <- ifelse(!is.na(rng) & rng > 0,
+                                       (summary$mean_pct - flo) / rng, NA_real_)
+        summary$env_retained[1L] <- if (any(rng > 0, na.rm = TRUE)) 0 else NA_real_
+        summary <- summary[c("setting", "weight_exponent", "above_median", "mean_pct",
+                             "env_retained", "singleton_share", "median_small_piece")]
+        rownames(summary) <- NULL
+        
         structure(list(summary = summary, cuts = cuts,
                        config = list(regions_per_partition = as.integer(regions_per_partition),
-                                     weight_exponent = weight_exponent,
+                                     weight_exponent = ge,
                                      prior_strength = prior_strength,
                                      N_tree = as.integer(N_tree), n_vertices = n_v)),
                   class = "pulse_cut_placement")
@@ -126,13 +144,13 @@ check_cut_placement <- function(trees, regions_per_partition,
 #' @return \code{print.pulse_cut_placement} returns \code{x} invisibly.
 #' @export
 print.pulse_cut_placement <- function(x, ...) {
-        cat(sprintf("<pulse_cut_placement>  N_tree = %d | R = %d | weight_exponent = %g | N = %d\n",
+        cat(sprintf("<pulse_cut_placement>  N_tree = %d | R = %d | weight_exponent = %s | N = %d\n",
                     x$config$N_tree, x$config$regions_per_partition,
-                    x$config$weight_exponent, x$config$n_vertices))
+                    paste(x$config$weight_exponent, collapse = ", "), x$config$n_vertices))
         s <- x$summary
         s[] <- lapply(s, function(v) if (is.numeric(v)) signif(v, 3) else v)
         print(s, row.names = FALSE)
-        cat("env_retained: 0 = cuts ignore environment (random), 1 = as at size_influence = 0.\n")
+        cat("env_retained: 0 = random, 1 = as at size_influence = 0 with the same weight_exponent. Compare mean_pct across weight_exponent for sharpness.\n")
         invisible(x)
 }
 

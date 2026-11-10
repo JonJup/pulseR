@@ -118,17 +118,27 @@
 #' @param env Predictor matrix for \code{method = "empirical"}, one row per unit,
 #'   columns \code{local$variables}.
 #' @param n_sample Rows sampled for the empirical comparison. Default 20000.
+#' @param seed Seed for that sample, restored on exit. \code{NULL} (default)
+#'   uses the current RNG stream.
 #' @return A \code{dist} over the local types, with type names as labels.
 #' @export
 compute_local_type_distance <- function(local,
                                 method = c("bhattacharyya", "wasserstein", "empirical"),
-                                env = NULL, n_sample = 20000L) {
+                                env = NULL, n_sample = 20000L, seed = NULL) {
         method <- match.arg(method)
         gs <- .local_gaussians(local)
         C  <- length(gs$mu)
         
         if (method == "empirical") {
                 if (is.null(env)) stop("`method = \"empirical\"` needs `env`.", call. = FALSE)
+                if (!is.numeric(n_sample) || length(n_sample) != 1L || is.na(n_sample) ||
+                    n_sample < 2 || n_sample != round(n_sample))
+                        stop("`n_sample` must be a single integer >= 2.", call. = FALSE)
+                N <- nrow(env)
+                if (N > n_sample) {
+                        .local_seed(seed)
+                        env <- env[sort(sample.int(N, n_sample)), , drop = FALSE]
+                }
                 X <- as.matrix(env[, local$variables, drop = FALSE])
                 if (!is.null(local$scaling))
                         X <- sweep(sweep(X, 2L, local$scaling$center, "-"), 2L, local$scaling$scale, "/")
@@ -188,7 +198,7 @@ compute_local_type_distance <- function(local,
 #'   largest one does.
 #' @param max_confined Threshold for candidate selection, in \eqn{[0, 1]}.
 #'   Default 0.2. Some confinement is real, so 0 is usually too strict.
-#' @param method,env,n_sample Passed to \code{\link{compute_local_type_distance}}.
+#' @param method,env,n_sample,seed Passed to \code{\link{compute_local_type_distance}}.
 #' @param linkage Passed to \code{\link[stats]{hclust}}. Default
 #'   \code{"average"}, which merges on mean overlap and does not chain the way
 #'   single linkage would.
@@ -224,6 +234,7 @@ get_meta_types <- function(local,
                            method     = c("bhattacharyya", "wasserstein", "empirical"),
                            env        = NULL,
                            n_sample   = 20000L,
+                           seed       = NULL,
                            linkage    = c("average","ward.D", "single", "complete",
                                           "mcquitty", "median", "centroid", "ward.D2"),
                            distance   = NULL) {
@@ -232,7 +243,7 @@ get_meta_types <- function(local,
         method <- match.arg(method)
         linkage <- match.arg(linkage)
         
-        d <- if (is.null(distance)) compute_local_type_distance(local, method, env, n_sample) else distance
+        d <- if (is.null(distance)) compute_local_type_distance(local, method, env, n_sample, seed) else distance
         C <- attr(d, "Size")
         reg <- local$key$region
         hc  <- stats::hclust(d, method = linkage)

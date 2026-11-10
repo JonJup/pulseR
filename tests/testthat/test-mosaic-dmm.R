@@ -22,7 +22,8 @@ test_that("compute_all_signatures() attaches totals", {
 test_that("method = 'dmm' returns a valid pulse_mosaic_types object", {
         fx <- .dmm_fixture()
         m <- suppressWarnings(get_mosaic_types(fx$sig, 2:4, method = "dmm", seed = 1,
-                                               verbose = FALSE, dmm_control = list(n_start = 2)))
+                                               verbose = FALSE,
+                                               dmm_control = list(n_start = 2, n_scale = 1)))
         expect_s3_class(m, "pulse_mosaic_types")
         expect_s3_class(m$clusters, "pulse_dmm")
         expect_equal(m$method, "dmm")
@@ -99,4 +100,12 @@ test_that("DMM with metric = 'ICL' skips the N x N distance matrix", {
                                                verbose = FALSE, dmm_control = list(n_start = 1)))
         expect_true(all(is.na(m$validity$SILH_fuzzy)))
         expect_true(is.finite(m$saturation))
+})
+test_that("n_scale = 'auto' spends each edge once, whatever k_order", {
+        fx <- .dmm_fixture()
+        for (k in 1:3) {
+                s <- compute_all_signatures(fx$P, fx$g, k_order = k, verbose = FALSE)
+                X <- .sig_to_counts(s, n_scale = .resolve_n_scale("auto", s))
+                expect_equal(sum(X), igraph::ecount(fx$g), tolerance = 1e-8)
+        }
 })

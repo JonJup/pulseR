@@ -120,17 +120,21 @@ An object of class \code{"pulse_local_types"}: a list with
 \describe{
 \item{\code{memberships}}{N x sum(G_r) matrix, rows sum to 1.}
 \item{\code{weighted}}{The same matrix before row-normalisation.}
-\item{\code{hard_labels}}{Integer vector, column index of the row maximum.}
-\item{\code{certainty}}{Row maximum of \code{memberships}.}
-\item{\code{certainty_raw}}{Row maximum of \code{weighted}.}
-\item{\code{entropy}}{Normalised row entropy of \code{memberships}.}
+\item{\code{hard_labels}}{Integer vector: column of the most probable
+local type within the unit's Level 1 hard region
+(\code{region_labels}), so \code{key$region[hard_labels] == region_labels}.}
+\item{\code{region_labels}}{Level 1 hard region per unit: the regions
+object's \code{hard_labels}, or the row argmax of a bare weight matrix.}
+\item{\code{certainty}}{\code{memberships} at \code{hard_labels}.}
+\item{\code{certainty_raw}}{\code{weighted} at \code{hard_labels}.}
+\item{\code{entropy}}{Normalized row entropy of \code{memberships}.}
 \item{\code{key}}{Data frame mapping each column to its region and local type.}
 \item{\code{n_local_types}}{Selected G per region.}
 \item{\code{BIC}}{G x region matrix over all requested G: the best
 weighted BIC over covariance models for each G; \code{NA} where G was
 not a candidate for that region.}
 \item{\code{BIC_by_model}}{G x model x region array of weighted BIC
-values; \code{NA} where a candidate was infeasible or failed.}
+values; \code{NA} where a candidate was in feasible or failed.}
 \item{\code{model_names}}{Selected covariance model per region.}
 \item{\code{models}}{Selected fits, or \code{NULL}.}
 \item{\code{constant}}{Logical predictor x region matrix: \code{TRUE}

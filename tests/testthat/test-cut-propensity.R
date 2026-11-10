@@ -45,3 +45,12 @@ test_that("gamma = 0 ignores size_influence under both cut rules", {
                 expect_identical(run(0), run(2), info = rule)
         }
 })
+test_that("weight_exponent is an inverse temperature on the whole log-propensity", {
+        set.seed(1)
+        w  <- stats::runif(50, 0.1, 1); s <- stats::runif(50, 1, 10)
+        wp <- rep(c(TRUE, FALSE), 25)
+        f  <- function(g) .cut_log_propensity(w, s, g, size_influence = 2,
+                                              prior_strength = 1, within_prior = wp)$lp
+        expect_equal(f(3), 3 * f(1))
+        expect_equal(f(0.25), 0.25 * f(1))
+})

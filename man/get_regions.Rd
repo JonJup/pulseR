@@ -58,13 +58,23 @@ consensus regions \eqn{k}.}
 \item{N_tree}{Integer, or integer vector of candidates. Number of spanning
 trees, one partition each. Trees are sampled once at \code{max(N_tree)}.}
 
-\item{weight_exponent}{Non-negative numeric scalar or vector of candidates
-\eqn{\gamma}. The cut probability of an edge is proportional to its
-weight raised to \eqn{\gamma}, times the size factor. \eqn{\gamma = 0}
-ignores the weights, \eqn{\gamma = 1} (default) is proportional to
-weight, larger values concentrate cuts on the heaviest edges. #'
-\eqn{\gamma = 0} cuts uniformly at random; \code{size_influence} is then
-ignored.}
+\item{weight_exponent}{Non-negative numeric scalar \eqn{\gamma}, an inverse
+temperature. It multiplies the whole log cut propensity. The size term and
+the prior shift are both expressed in \eqn{u = \mathrm{sd}(\gamma \log w)},
+so for \eqn{\gamma > 0}
+\deqn{\log \pi_e = \gamma \left[\log \tilde w_e
+      + \texttt{size\_influence} \tfrac{\sigma}{\sigma_s} \log s_e
+      - \lambda \sigma \, 1[e \in \text{prior}]\right],
+      \quad \sigma = \mathrm{sd}(\log \tilde w).}
+\code{size_influence} and \code{prior_strength} decide which edges are
+preferred. \eqn{\gamma} decides how strongly that preference is followed.
+\eqn{\gamma \to 0} approaches uniform cuts, and \eqn{\gamma \to \infty}
+approaches deterministic removal of the top-scoring edges. Those are the
+heaviest edges only when \code{size_influence = 0} and
+\code{prior_strength = 0}. Raising \eqn{\gamma} does not shift emphasis
+from size to environment.
+At \eqn{\gamma = 0} cuts are uniform and \code{size_influence} is ignored.
+\code{prior_strength} falls back to one halving per unit.}
 
 \item{size_influence}{Non-negative numeric. Spread of the size-balance term
 \eqn{\log(n_c (N - n_c) / N)} relative to the spread of the environmental

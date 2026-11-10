@@ -25,13 +25,23 @@
 #'   consensus regions \eqn{k}.
 #' @param N_tree Integer, or integer vector of candidates. Number of spanning
 #'   trees, one partition each. Trees are sampled once at \code{max(N_tree)}.
-#' @param weight_exponent Non-negative numeric scalar or vector of candidates
-#'   \eqn{\gamma}. The cut probability of an edge is proportional to its
-#'   weight raised to \eqn{\gamma}, times the size factor. \eqn{\gamma = 0}
-#'   ignores the weights, \eqn{\gamma = 1} (default) is proportional to
-#'   weight, larger values concentrate cuts on the heaviest edges. #' 
-#'   \eqn{\gamma = 0} cuts uniformly at random; \code{size_influence} is then
-#'   ignored.
+#' @param weight_exponent Non-negative numeric scalar \eqn{\gamma}, an inverse
+#'   temperature. It multiplies the whole log cut propensity. The size term and
+#'   the prior shift are both expressed in \eqn{u = \mathrm{sd}(\gamma \log w)},
+#'   so for \eqn{\gamma > 0}
+#'   \deqn{\log \pi_e = \gamma \left[\log \tilde w_e
+#'         + \texttt{size\_influence} \tfrac{\sigma}{\sigma_s} \log s_e
+#'         - \lambda \sigma \, 1[e \in \text{prior}]\right],
+#'         \quad \sigma = \mathrm{sd}(\log \tilde w).}
+#'   \code{size_influence} and \code{prior_strength} decide which edges are
+#'   preferred. \eqn{\gamma} decides how strongly that preference is followed.
+#'   \eqn{\gamma \to 0} approaches uniform cuts, and \eqn{\gamma \to \infty}
+#'   approaches deterministic removal of the top-scoring edges. Those are the
+#'   heaviest edges only when \code{size_influence = 0} and
+#'   \code{prior_strength = 0}. Raising \eqn{\gamma} does not shift emphasis
+#'   from size to environment.
+#'   At \eqn{\gamma = 0} cuts are uniform and \code{size_influence} is ignored.
+#'   \code{prior_strength} falls back to one halving per unit.
 #' @param size_influence Non-negative numeric. Spread of the size-balance term
 #'   \eqn{\log(n_c (N - n_c) / N)} relative to the spread of the environmental
 #'   term \eqn{\gamma \log w}, per tree. 0 ignores piece size; the default 2
@@ -550,14 +560,23 @@ sample_spanning_trees <- function(graph, n, seed = NULL, verbose = TRUE,
 #'   (\code{weight_exponent = 0} or constant weights), one unit halves the
 #'   propensity instead, with a warning.
 #' @param verbose Logical. Default \code{TRUE}.
-#' @param weight_exponent Non-negative numeric scalar \eqn{\gamma}. The cut
-#'   probability of an edge is proportional to its (prior-adjusted) weight raised
-#'   to \eqn{\gamma}. \eqn{\gamma = 0} cuts edges uniformly at random,
-#'   \eqn{\gamma = 1} (default) cuts with probability proportional to weight, and
-#'   larger \eqn{\gamma} concentrates cuts on the heaviest edges (approaching
-#'   deterministic heaviest-edge removal as \eqn{\gamma \to \infty}). 
-#'   \eqn{\gamma = 0} cuts uniformly at random; \code{size_influence} is then
-#'   ignored.
+#' @param weight_exponent Non-negative numeric scalar \eqn{\gamma}, an inverse
+#'   temperature. It multiplies the whole log cut propensity. The size term and
+#'   the prior shift are both expressed in \eqn{u = \mathrm{sd}(\gamma \log w)},
+#'   so for \eqn{\gamma > 0}
+#'   \deqn{\log \pi_e = \gamma \left[\log \tilde w_e
+#'         + \texttt{size\_influence} \tfrac{\sigma}{\sigma_s} \log s_e
+#'         - \lambda \sigma \, 1[e \in \text{prior}]\right],
+#'         \quad \sigma = \mathrm{sd}(\log \tilde w).}
+#'   \code{size_influence} and \code{prior_strength} decide which edges are
+#'   preferred. \eqn{\gamma} decides how strongly that preference is followed.
+#'   \eqn{\gamma \to 0} approaches uniform cuts, and \eqn{\gamma \to \infty}
+#'   approaches deterministic removal of the top-scoring edges. Those are the
+#'   heaviest edges only when \code{size_influence = 0} and
+#'   \code{prior_strength = 0}. Raising \eqn{\gamma} does not shift emphasis
+#'   from size to environment.
+#'   At \eqn{\gamma = 0} cuts are uniform and \code{size_influence} is ignored.
+#'   \code{prior_strength} falls back to one halving per unit.
 #' @param size_influence Non-negative numeric. Spread of the size term
 #'   \eqn{\alpha \log s_e} relative to the spread \eqn{u} of the
 #'   environmental term \eqn{\gamma \log w}, per tree. 0 ignores piece size;
@@ -2407,7 +2426,8 @@ tune_regions <- function(graph,
                 fit$step <- as.raw(fit$step)
                 cvis <- .consensus_cvis(
                         res, memb = memb_mat$memberships, env = env,
-                        stability_B = stability_B,
+                        stability_B = stability_B, graph = graph,
+                        refine_iter = 10L, n_runs = 16L,
                         stability_seed = stability_seed, large_n_threshold = large_n_threshold,
                         sample_size = sample_size, n_cores = n_cores, verbose = verbose)
                 list(out = cbind(cfg[, axis_cols, drop = FALSE],
@@ -3065,7 +3085,8 @@ compute_null_baseline <- function(graph, env = NULL, env_id = NULL, final_region
                         cv <- if (is.null(res))
                                 as.data.frame(as.list(stats::setNames(rep(NA_real_, length(cvi_cols)), cvi_cols)))
                         else .consensus_cvis(res, ens$memberships, env = env_b,
-                                             stability_B = stability_B, stability_seed = stab_seed,
+                                             stability_B = stability_B, graph = g_b,
+                                             stability_seed = stab_seed,
                                              large_n_threshold = large_n_threshold,
                                              sample_size = sample_size, n_cores = n_cores)
                         cbind(data.frame(rep = b, final_regions = k, failed = is.null(res)), cv[, cvi_cols, drop = FALSE])
@@ -3074,6 +3095,23 @@ compute_null_baseline <- function(graph, env = NULL, env_id = NULL, final_region
         null <- do.call(rbind, out)
         cfg  <- list(regions_per_partition = as.integer(regions_per_partition),
                      N_tree = as.integer(N_tree), weight_exponent = as.numeric(weight_exponent))
+        
+        if (inherits(observed, "pulse_regions")) {
+                cx  <- observed$config
+                off <- names(cfg)[!vapply(names(cfg), function(a)
+                        isTRUE(abs(cx[[a]] - cfg[[a]]) < 1e-9), logical(1))]
+                if (length(off))
+                        warning("`observed` was fitted with different ", paste(off, collapse = ", "),
+                                " than the null; observed and null are not comparable.", call. = FALSE)
+                if (!observed$k %in% final_regions)
+                        warning(sprintf("`observed` has k = %d, which is not in `final_regions`; ",
+                                        observed$k), "`observed` will be NA.", call. = FALSE)
+                observed <- .validity_row(observed, env, stability_B = stability_B, seed = seed,
+                                          large_n_threshold = large_n_threshold,
+                                          sample_size = sample_size, n_cores = n_cores)
+        }
+        
+        
         structure(list(null = null, summary = .null_summary(null, observed, cfg),
                        config = cfg, B = as.integer(B),
                        settings = list(cut_rule = cut_rule, refine_boundary = refine_boundary,

@@ -38,31 +38,45 @@
 #' Split-half ensemble agreement of the consensus (STAB)
 #'
 #' Splits the ensemble columns at random into two disjoint halves, runs the
-#' same consensus procedure at \code{k} on each half, and records the ARI
+#' same consensus procedure at \code{k} on each half (same salso
+#' \code{n_runs}, same VI moves, and contiguity repair when \code{graph} is
+#' given), and records the ARI
 #' between the two half-ensemble partitions; repeated \code{B} times. The
 #' halves share no trees and no cuts, so STAB measures whether independent
 #' sets of trees and cuts give the same regions. Each half has half the
 #' columns, so STAB is a conservative estimate for the full ensemble.
+#' Boundary refinement is not applied to the halves: it is driven by
+#' \code{env}, which both halves share and which CH_ENV already scores, so it
+#' would raise STAB without the ensemble agreeing more.
 #'
 #' @param memb Integer label matrix, N x M.
 #' @param k Target region count.
 #' @param B Number of random splits. 0 returns \code{NA}.
+#' @param refine_iter,n_runs As in \code{compute_consensus()}; keep them equal
+#'   to the values used for the scored fit.
+#' @param graph \code{NULL}, or the graph used for contiguity repair of the
+#'   scored fit. \code{NULL} skips repair in the halves.
 #' @return Mean ARI over splits, or \code{NA} if \code{M < 4}.
 #' @keywords internal
 #' @noRd
 .stability_consensus <- function(memb, k, B = 10L,
                                  large_n_threshold = 20000, sample_size = 5000L,
-                                 n_runs = 4L, n_cores = 1L, seed = NULL) {
+                                 refine_iter = 10L, n_runs = 16L, n_cores = 1L,
+                                 graph = NULL, seed = NULL) {
         if (B <= 0L) return(NA_real_)
         M <- ncol(memb)
         if (M < 4L || nrow(memb) < 2L * k) return(NA_real_)
         .local_seed(seed)
         half <- M %/% 2L
-        fit_half <- function(cols) tryCatch(
-                .consensus_partition(memb[, cols, drop = FALSE], k, large_n_threshold,
-                                     sample_size, refine_iter = 3L, n_runs, n_cores,
-                                     verbose = FALSE)$labels,
-                error = function(e) NULL)
+        fit_half <- function(cols) tryCatch({
+                m   <- memb[, cols, drop = FALSE]
+                fit <- .consensus_partition(m, k, large_n_threshold, sample_size,
+                                            refine_iter, n_runs, n_cores,
+                                            verbose = FALSE)
+                if (is.null(graph)) return(fit$labels)
+                st <- .ensemble_stats(m, fit$labels, k, pi = TRUE, gvi_a = fit$salso$a)
+                .enforce_contiguity(graph, fit$labels, st$Pi)
+        }, error = function(e) NULL)
         aris <- vapply(seq_len(B), function(b) {
                 perm <- sample.int(M)
                 la <- fit_half(sort(perm[seq_len(half)]))
@@ -94,7 +108,8 @@
 #' @keywords internal
 #' @noRd
 .consensus_cvis <- function(res, memb, env = NULL,
-                            stability_B = 10L,
+                            stability_B = 10L, graph = NULL,
+                            refine_iter = 10L, n_runs = 16L,
                             stability_seed = NULL, large_n_threshold = 20000,
                             sample_size = 5000L, n_cores = 1L, verbose = FALSE) {
         k <- res$k; hard <- res$hard_labels
@@ -102,7 +117,9 @@
         if (verbose && stability_B > 0L) message(sprintf("    stability (B = %d) ...", stability_B))
         stab <- .stability_consensus(memb, k, B = stability_B,
                                      large_n_threshold = large_n_threshold,
-                                     sample_size = sample_size, n_cores = n_cores,
+                                     sample_size = sample_size,
+                                     refine_iter = refine_iter, n_runs = n_runs,
+                                     n_cores = n_cores, graph = graph,
                                      seed = stability_seed)
         data.frame(CH_ENV = unname(fe["CH_ENV"]),
                    R2_ENV = unname(fe["R2_ENV"]),
@@ -113,6 +130,59 @@
                    EVI    = res$expected_vi,
                    PAC    = .pac(memb))
 }
+
+#' Validity indices of a fitted regionalization
+#'
+#' Scores a \code{"pulse_regions"} object with the same indices that
+#' \code{tune_regions()} and \code{compute_null_baseline()} use, so observed
+#' and null values are directly comparable. Works on untuned fits.
+#'
+#' @param x A \code{"pulse_regions"} object from \code{get_regions()}.
+#' @param graph Optional igraph; its stored \code{env} is used when \code{env}
+#'   is \code{NULL}. When given, the STAB half fits get contiguity repair on
+#'   it, so pass it if and only if \code{x} was fitted with contiguity.
+#' @param env Optional matrix or data frame, one row per unit.
+#' @param env_id Columns of \code{env} to drop before scoring.
+#' @param stability_B,seed,large_n_threshold,sample_size,n_cores As in
+#'   \code{compute_null_baseline()}.
+#' @return A one-row data frame: \code{final_regions}, \code{CH_ENV},
+#'   \code{R2_ENV}, \code{STAB}, \code{STAB_FAIL}, \code{SIL_CA}, \code{CERT},
+#'   \code{EVI}, \code{PAC}.
+#' @export
+compute_validity <- function(x, graph = NULL, env = NULL, env_id = NULL,
+                             stability_B = 10L, seed = NULL,
+                             large_n_threshold = 20000, sample_size = 5000L,
+                             n_cores = 1L) {
+        if (!inherits(x, "pulse_regions"))
+                stop("`x` must be a \"pulse_regions\" object from get_regions().", call. = FALSE)
+        if (!is.null(graph)) {
+                env <- .resolve_env(env, env_id, graph, verbose = TRUE)
+        } else if (!is.null(env)) {
+                env <- as.data.frame(env)
+                if (!is.null(env_id)) env <- env[, setdiff(names(env), env_id), drop = FALSE]
+                env <- as.matrix(env[, vapply(env, is.numeric, logical(1)), drop = FALSE])
+                .warn_id_like(env, "`env_id`")
+        }
+        .validity_row(x, env, graph = graph, stability_B = stability_B, seed = seed,
+                      large_n_threshold = large_n_threshold,
+                      sample_size = sample_size, n_cores = n_cores)
+}
+
+#' @keywords internal
+#' @noRd
+.validity_row <- function(x, env, graph = NULL, stability_B = 10L, seed = NULL,
+                          large_n_threshold = 20000, sample_size = 5000L, n_cores = 1L) {
+        if (is.null(x$fit))
+                stop("`x` has no consensus fit (prior_strength = Inf), so validity ",
+                     "indices are undefined.", call. = FALSE)
+        if (!is.null(env) && nrow(env) != length(x$hard_labels))
+                stop("`env` must have one row per unit of `x`.", call. = FALSE)
+        v <- .consensus_cvis(x$fit, x$ensemble, env = env, stability_B = stability_B,
+                             graph = graph, stability_seed = seed, large_n_threshold = large_n_threshold,
+                             sample_size = sample_size, n_cores = n_cores)
+        cbind(data.frame(final_regions = x$k), v)
+}
+
 
 #' Direction of each validity column (for Borda).
 #' @keywords internal

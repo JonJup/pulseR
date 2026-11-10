@@ -324,10 +324,13 @@ compute_all_signatures <- function(mosaic_input, graph, k_order,
         if (!ne) stop("`graph` has no edges.", call. = FALSE)
         
         ## B[e, f] = w_f(u_e) * w_f(v_e): non-zero only when BOTH endpoints are in
-        ## N(f), which is exactly the "edge lies inside the neighbourhood" test.
+        ## N(f), which is exactly the "edge lies inside the neighborhood" test.
         if (verbose) message("Building edge-by-focal incidence ...")
         B <- W[u, , drop = FALSE] * W[v, , drop = FALSE]   # ne x n, sparse
-        
+        ## Kernel-weighted mean number of neighborhoods containing each edge.
+        ## Every edge enters the DMM likelihood this many times.
+        eB <- Matrix::rowSums(B)
+        edge_mult <- if (any(eB > 0)) sum(eB) / sum(eB > 0) else NA_real_
         ## Class-pair index (upper triangle, diagonal included).
         pairs <- which(upper.tri(matrix(0, nc, nc), diag = TRUE), arr.ind = TRUE)
         pairs <- pairs[order(pairs[, 1], pairs[, 2]), , drop = FALSE]
@@ -373,7 +376,7 @@ compute_all_signatures <- function(mosaic_input, graph, k_order,
         structure(signatures, class = c("pulse_signatures", "matrix", "array"),
                   n_classes = nc, class_labels = lab, k_order = k,
                   kernel = kernel, sigma = sigma, exclude_bridges = exclude_bridges,
-                  totals = rs)    # summed edge weight per neighbourhood: DMM pseudo-counts
+                  totals = rs, edge_multiplicity = edge_mult)
 }
 
 #' Signature of one focal polygon (reference implementation)
@@ -755,7 +758,7 @@ get_mosaic_types <- function(signatures,
                      call. = FALSE)
         
         ctl <- list(n_start = 5L, max_iter = 500L, tol = 1e-5,
-                    A_init = 50, alpha_min = 1e-4, A_max = 1e6, n_scale = 1)
+                    A_init = 50, alpha_min = 1e-4, A_max = 1e6, n_scale = "auto")
         bad <- setdiff(names(dmm_control), names(ctl))
         if (length(bad))
                 stop("Unknown `dmm_control` entries: ", paste(bad, collapse = ", "),
@@ -767,7 +770,7 @@ get_mosaic_types <- function(signatures,
                 stop("`signatures` has no \"totals\" attribute, which method = 'dmm' needs. ",
                      "Recompute with compute_all_signatures(); subsetting or rbind() drops it.",
                      call. = FALSE)
-        
+        if (method == "dmm") ctl$n_scale <- .resolve_n_scale(ctl$n_scale, signatures)
         signatures  <- as.matrix(signatures)
         valid <- stats::complete.cases(signatures)
         if (sum(valid) < 2L) stop("Fewer than two complete signature rows.", call. = FALSE)
@@ -868,7 +871,8 @@ get_mosaic_types <- function(signatures,
                 warning("Selected k is the largest candidate. Overlapping neighbourhoods count ",
                         "each edge many times, which inflates the DMM likelihood and pushes ",
                         metric, " upward. Extend `n_mosaic_types`, and rerun with ",
-                        "dmm_control = list(n_scale = 0.5) to see whether the selected count moves.",
+                        sprintf("dmm_control = list(n_scale = %.3g) to see whether the selected count moves.",
+                                ctl$n_scale / 2),
                         call. = FALSE)
         
         final <- fits[[best_i]]

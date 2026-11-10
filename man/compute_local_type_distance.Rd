@@ -8,7 +8,8 @@ compute_local_type_distance(
   local,
   method = c("bhattacharyya", "wasserstein", "empirical"),
   env = NULL,
-  n_sample = 20000L
+  n_sample = 20000L,
+  seed = NULL
 )
 }
 \arguments{
@@ -28,6 +29,9 @@ count as similar; it needs \code{env}.}
 columns \code{local$variables}.}
 
 \item{n_sample}{Rows sampled for the empirical comparison. Default 20000.}
+
+\item{seed}{Seed for that sample, restored on exit. \code{NULL} (default)
+uses the current RNG stream.}
 }
 \value{
 A \code{dist} over the local types, with type names as labels.

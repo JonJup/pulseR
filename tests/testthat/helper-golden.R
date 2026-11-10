@@ -25,7 +25,10 @@
                                 prior_strength = if (p) 1 else 0, size_influence = 1,
                                 cut_rule = rule, min_size = if (rule == "ssd") 3L else 1L)
                 }
-                out[[paste(p, "ccp")]] <- check_cut_placement(x$tr, 6, seed = 3)$cuts
+                ccp <- check_cut_placement(x$tr, 6, seed = 3)$cuts
+                # weight_exponent column added after the fixture was built;
+                # values of all other columns must stay identical.
+                out[[paste(p, "ccp")]] <- ccp[setdiff(names(ccp), "weight_exponent")]
         }
         structure(out, igraph = as.character(utils::packageVersion("igraph")))
 }
