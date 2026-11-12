@@ -13,7 +13,7 @@ compute_consensus(
   sample_size = 5000L,
   refine_iter = 10L,
   enforce_contiguity = !is.null(graph),
-  refine_boundary = FALSE,
+  refine_boundary = !is.null(graph),
   min_size = 1L,
   n_runs = 16L,
   n_cores = 1L,

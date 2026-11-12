@@ -11,10 +11,10 @@ compute_ensemble(
   graph,
   regions_per_partition,
   prior_strength = 0,
-  weight_exponent = 1,
+  weight_exponent = 4,
   verbose = TRUE,
-  size_influence = 2,
-  cut_rule = c("propensity", "ssd"),
+  size_influence = 20,
+  cut_rule = c("ssd", "propensity"),
   min_size = 1L,
   seed = NULL
 )

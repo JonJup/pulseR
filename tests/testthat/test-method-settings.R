@@ -28,13 +28,13 @@ test_that("compute_ensemble() records the cut settings, also in tuner slices", {
 test_that("get_regions() stores the settings in config, tuned and untuned", {
         g <- .ms_graph()
         one <- suppressWarnings(get_regions(g, final_regions = 2, N_tree = 10,
-                                            regions_per_partition = 4, cut_rule = "ssd",
+                                            regions_per_partition = 4, 
                                             refine_boundary = TRUE, min_size = 2L,
                                             seed = 1, verbose = FALSE))
         expect_identical(one$config$cut_rule, "ssd")
         expect_true(one$config$refine_boundary)
         expect_identical(one$config$min_size, 2L)
-        tun <- suppressWarnings(get_regions(g, final_regions = 2:3, N_tree = 10,
+        tun <- suppressWarnings(get_regions(g, final_regions = 2:3, N_tree = 10, cut_rule = "propensity",
                                             regions_per_partition = 4, stability_B = 0,
                                             refine_boundary = TRUE, seed = 1, verbose = FALSE))
         expect_identical(tun$config$cut_rule, "propensity")

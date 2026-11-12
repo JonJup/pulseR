@@ -4,9 +4,6 @@
 # Companion to build_network(): it consumes the same vertex convention
 # (integer ids 1..n in feature order, no name-based matching) and is called
 # either with `polygons=` (in-memory path) or `centroids=` (chunked path).
-#
-# Relies on these package-internal utilities defined in utils.r:
-#   .log(), .need(), .assert_flag(), .warn_if_longlat()
 # =============================================================================
 
 #' Connect disconnected components of a spatial graph
@@ -87,10 +84,18 @@
 #' @seealso \code{\link[igraph]{components}}
 #'
 #' @examples
-#' \dontrun{
-#' library(sf); library(igraph)
-#' g_connected <- connect_components(g, centroids = pts, method = "rann")
-#' }
+#' 
+#' xy <- sf::st_coordinates(sf::st:centroid(sf::st_geometry(pulse_grid)))
+#' keep <- xy[,1] < 8000 | xy[,2] >11000
+#' sub <- pulse_grid[keep,]
+#' net <- build_network(sub, connect_islands = FALSE, verbose = FALSE)
+#' 
+#' g_connected <- connect_components(
+#' net$graph, 
+#' centroids = xy, 
+#' method = "rann",
+#' verbose = FALSE)
+#' 
 #'
 #' @importFrom sf st_centroid st_geometry st_coordinates st_distance st_crs
 #' @importFrom igraph is_igraph components vcount add_edges edge_attr set_graph_attr

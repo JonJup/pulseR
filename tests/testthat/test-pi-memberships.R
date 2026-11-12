@@ -146,7 +146,7 @@ test_that("memberships and summaries come from the repaired labels", {
         bad   <- truth; bad[3] <- 2L
         local_mocked_bindings(.consensus_partition = mock_partition(bad))
         
-        fit <- compute_consensus(memb, final_regions = 2L, graph = g, verbose = FALSE)
+        fit <- compute_consensus(memb, final_regions = 2L, graph = g, verbose = FALSE, refine_boundary = FALSE)
         
         # Repair moved unit 3 back.
         expect_equal(fit$hard_labels, truth)
@@ -179,11 +179,11 @@ test_that("memberships and summaries come from the repaired labels", {
 test_that("a unit without piece-mates is filled, one-hot without a graph", {
         memb <- cbind(c(1, 1, 2, 2, 3), c(1, 2, 2, 2, 3))
         local_mocked_bindings(.consensus_partition = mock_partition(c(1L, 1L, 2L, 2L, 2L)))
-        expect_warning(fit <- compute_consensus(memb, final_regions = 2L, verbose = FALSE), "pi_support")
+        expect_warning(fit <- compute_consensus(memb, final_regions = 2L, verbose = FALSE, refine_boundary = FALSE), "pi_support")
         expect_equal(fit$pi_support[5], 0L)
         expect_equal(fit$memberships[5, ], c(0, 1))
         g <- igraph::make_ring(5, circular = FALSE)
-        expect_warning(fit <- compute_consensus(memb, final_regions = 2L, graph = g, verbose = FALSE), "pi_support")
+        expect_warning(fit <- compute_consensus(memb, final_regions = 2L, graph = g, verbose = FALSE, refine_boundary = FALSE), "pi_support")
         expect_equal(fit$memberships[5, ], fit$memberships[4, ])
 })
 
@@ -237,7 +237,7 @@ test_that("contiguity repair regrows freed units by Pi, not by cohesion", {
         
         # compute_consensus() uses Pi.
         local_mocked_bindings(.consensus_partition = mock_partition(bad))
-        fit <- compute_consensus(memb, final_regions = 3L, graph = g, verbose = FALSE)
+        fit <- compute_consensus(memb, final_regions = 3L, graph = g, verbose = FALSE, refine_boundary = FALSE)
         expect_equal(fit$hard_labels[40], 1L)
         
         shown <- data.frame(

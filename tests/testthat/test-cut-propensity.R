@@ -25,7 +25,7 @@ test_that("the ensemble runs on a graph with zero weights", {
         igraph::E(g)$weight <- w
         tr <- sample_spanning_trees(g, n = 5, seed = 1, verbose = FALSE)
         em <- compute_ensemble(tr, N_tree = 5, graph = g,
-                                           regions_per_partition = 4, verbose = FALSE)
+                              regions_per_partition = 4, verbose = FALSE, cut_rule = "propensity")
         expect_true(all(apply(em$memberships, 2, function(l) length(unique(l))) == 4L))
 })
 test_that("gamma = 0 ignores size_influence under both cut rules", {
@@ -36,12 +36,12 @@ test_that("gamma = 0 ignores size_influence under both cut rules", {
                                     matrix(stats::rnorm(36 * 2), 36, 2))
         tr <- sample_spanning_trees(g, n = 5, seed = 1, verbose = FALSE)
         expect_equal(.cut_log_propensity(stats::runif(9), 1:9,
-                                         weight_exponent = 0)$alpha, 0)
+                                        weight_exponent = 0)$alpha, 0)
         for (rule in c("propensity", "ssd")) {
                 run <- function(si) { set.seed(7)
                         compute_ensemble(tr, 5, g, 4, weight_exponent = 0,
-                                         size_influence = si, cut_rule = rule,
-                                         verbose = FALSE)$memberships }
+                                        size_influence = si, cut_rule = rule,
+                                        verbose = FALSE)$memberships }
                 expect_identical(run(0), run(2), info = rule)
         }
 })

@@ -1,4 +1,3 @@
-## tests/testthat/test-edge-ids.R
 ## pulse_trees stores parent-edge ids, not igraph trees.
 
 test_that("edge-id format reproduces pre-refactor memberships under a fixed seed", {

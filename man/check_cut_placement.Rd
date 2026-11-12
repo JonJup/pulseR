@@ -9,7 +9,7 @@ check_cut_placement(
   trees,
   regions_per_partition,
   size_influence = c(0, 0.5, 1, 2, 4),
-  weight_exponent = 1,
+  weight_exponent = 4,
   prior_strength = 0,
   N_tree = NULL,
   seed = NULL
