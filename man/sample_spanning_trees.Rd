@@ -12,7 +12,8 @@ sample_spanning_trees(
   verbose = TRUE,
   prior_typology = NULL,
   target_edge_turnover = 0.1,
-  prior_strength = 0
+  prior_strength = 0,
+  eta = NULL
 )
 
 \method{print}{pulse_trees}(x, ...)
@@ -50,6 +51,13 @@ the minimum spanning tree. Default 0.1.}
 
 \item{prior_strength}{Numeric. Stored in the result for
 \code{\link{compute_ensemble}}; not used for sampling.}
+
+\item{eta}{\code{NULL} (default) or one non-negative number. The noise
+multiplier: noise sd = \code{eta} times the perturbation unit (see
+Details). \code{NULL} calibrates it to \code{target_edge_turnover};
+a number skips the calibration and \code{target_edge_turnover} is not
+used for it. \code{compute_null_baseline()} uses this to calibrate once
+for all replicates.}
 
 \item{x}{An object to print (e.g. of class \code{"pulse_trees"}).}
 

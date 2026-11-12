@@ -20,6 +20,7 @@ compute_null_baseline(
   min_size = 1L,
   B = 19L,
   stability_B = 10,
+  stability_k = NULL,
   observed = NULL,
   large_n_threshold = 20000,
   sample_size = 5000L,
@@ -36,7 +37,8 @@ must reproduce the edge weights (see Details); \code{NULL} (default)
 uses the matrix stored on \code{graph}.}
 
 \item{final_regions}{Integer vector of k values; all are evaluated on each
-null ensemble (k is cheap).}
+null ensemble. Each k adds one consensus fit per replicate, and
+\eqn{2 \times} \code{stability_B} more if it is in \code{stability_k}.}
 
 \item{regions_per_partition, N_tree, weight_exponent}{Single values: the
 ensemble configuration under test (e.g. \code{tune_regions()$best_config}).}
@@ -48,7 +50,17 @@ ensemble configuration under test (e.g. \code{tune_regions()$best_config}).}
 \item{stability_B}{Integer. Random splits for \code{STAB}; use the value of
 the observed run.}
 
-\item{observed}{Optional \code{"pulse_regions_tuning"} object or a data frame
+\item{stability_k}{Integer vector: the k values at which \code{STAB} is
+computed for the null. STAB costs \eqn{2 \times} \code{stability_B}
+consensus fits per k and replicate, most of the run time. \code{NULL}
+(default): the k values with an observed \code{STAB} in \code{observed}
+(for a \code{"pulse_regions"} object, its k), or all
+\code{final_regions} when \code{observed} is \code{NULL}. At other k,
+\code{STAB} is \code{NA} in \code{null} and its summary row is
+\code{NA}.}
+
+\item{observed}{Optional \code{"pulse_regions"} or
+\code{"pulse_regions_tuning"} object, or a data frame
 with \code{final_regions} and validity columns (e.g. a \code{tuning_log}).
 Rows are matched on the ensemble configuration when those columns exist.}
 
@@ -68,8 +80,8 @@ replicate and k), \code{summary} (one row per k and criterion: observed,
 null mean, null 95\\% bound in the "better" direction, \code{excess} =
 observed minus null mean with the sign set so positive is better than the
 null, and the empirical \code{p}), \code{config}, and \code{B}.
-\code{settings} holds \code{cut_rule}, \code{refine_boundary} and
-\code{min_size}.
+\code{settings} holds \code{cut_rule}, \code{refine_boundary},
+\code{min_size}, \code{stability_k} and the reused \code{eta}.
 
 \code{print.pulse_null} returns \code{x} invisibly.
 }
@@ -100,4 +112,10 @@ a 5\\% test.
 
 The shuffle also removes spatial autocorrelation in \code{env}. Smooth
 but ecologically meaningless gradients therefore count as signal here.
+
+The tree noise multiplier \eqn{\eta} is calibrated to
+\code{target_edge_turnover} on the first replicate and reused for the
+others. Replicates are exchangeable permutations of the same matrix, so
+one calibration serves all of them; the noise scale itself is still each
+replicate's own weight MAD. The value is returned in \code{settings$eta}.
 }

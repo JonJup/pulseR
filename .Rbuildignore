@@ -1,7 +1,8 @@
 ^pulseR\.Rproj$
 ^\.Rproj\.user$
 ^LICENSE\.md$
-^sim\.*
+^simulations_old\.*
+^simulations_tests\.*
 ^dev$
 ^data-raw$
 

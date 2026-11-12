@@ -656,6 +656,7 @@ plot_local_types <- function(x,
                 
                 profiles = {
                         if (is.null(env)) stop("`what = \"profiles\"` needs `env`.", call. = FALSE)
+                        if (inherits(env, "sf")) env <- sf::st_drop_geometry(env)
                         X <- as.matrix(env[, x$variables, drop = FALSE])
                         U <- x$memberships
                         ## Membership-weighted centroid: the fuzzy analogue of a group
@@ -766,12 +767,8 @@ plot_region_local <- function(regions, local, geom = NULL, confidence = "joint",
 #   * A mosaic fit covers only the polygons with a complete signature. Isolated
 #     units have no mosaic type at all and must render as absent, not as a
 #     silent extra class. .scatter_valid() handles that everywhere.
-#
-# Replaces plot_meta_types() from meta_types.R and the older
-# plot_mosaic_signatures() / plot_mosaic_ordination().
 # =============================================================================*
-
-
+# 
 # -----------------------------------------------------------------------------*
 # 1. Shared palette machinery
 # -----------------------------------------------------------------------------*
@@ -1084,6 +1081,7 @@ plot_meta_types <- function(x,
                 
                 profiles = {
                         if (is.null(env)) stop("`what = \"profiles\"` needs `env`.", call. = FALSE)
+                        if (inherits(env, "sf")) env <- sf::st_drop_geometry(env)
                         vs <- if (is.null(variables)) colnames(env) else variables
                         X <- as.matrix(env[, vs, drop = FALSE])
                         U <- x$memberships
