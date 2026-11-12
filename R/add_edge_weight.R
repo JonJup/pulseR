@@ -135,18 +135,22 @@
 #' @seealso \code{\link{build_network}}, \code{\link{sample_spanning_trees}}.
 #'
 #' @examples
-#' \dontrun{
 #' # --- In-memory ---
-#' g_weighted        <- add_edge_weight(g)
-#' g_weighted_subset <- add_edge_weight(g, variables = c("temp", "precip"))
-#'
+#' g <- build_network(pulse_grid, verbose = FALSE)
+#' g_weighted <- add_edge_weight(g, variables = c("temp", "prec"))
 #' # --- Chunked across parquet files ---
-#' files <- list.files("data/env", pattern = "\\.parquet$", full.names = TRUE)
-#' g_weighted <- add_edge_weight(
+#' if (require(arrow, quietly = TRUE)){
+#'  env <- sf::st_drop_geometry(pluse_grid)
+#'  files <- file.path(tempdir(), c("env1.parquet", "env2.parquet"))
+#'  arrow::write_parquet(env[1:150,], files[1])
+#'  arrow::write_parquet(env[151:300, ] files[2])
+#' g_chunked <- add_edge_weight(
 #'   g,
 #'   chunked = TRUE,
 #'   files   = files,
-#'   id_col  = c("ID", "country")
+#'   variables = c("temp", "prec"),
+#'   id_col  = c("ID", "country"),
+#'   verbose = FALSE
 #' )
 #' }
 #'
