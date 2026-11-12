@@ -56,8 +56,7 @@ At \eqn{\gamma = 0} cuts are uniform and \code{size_influence} is ignored.
 
 \item{size_influence}{Non-negative numeric. Spread of the size term
 \eqn{\alpha \log s_e} relative to the spread \eqn{u} of the
-environmental term \eqn{\gamma \log w}, per tree. 0 ignores piece size;
-the default 2 lets size dominate, so cuts rarely shave off single units.}
+environmental term \eqn{\gamma \log w}, per tree. Default (0) ignores piece size.}
 
 \item{prior_strength}{Non-negative numeric scalar \eqn{\lambda}. Lowers the
 log cutting propensity of within-prior edges by \eqn{\lambda} standard

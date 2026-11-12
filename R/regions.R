@@ -44,8 +44,7 @@
 #'   \code{prior_strength} falls back to one halving per unit.
 #' @param size_influence Non-negative numeric. Spread of the size-balance term
 #'   \eqn{\log(n_c (N - n_c) / N)} relative to the spread of the environmental
-#'   term \eqn{\gamma \log w}, per tree. 0 ignores piece size; the default 2
-#'   lets size dominate, so cuts rarely shave off single units.
+#'   term \eqn{\gamma \log w}, per tree. The default (0) ignores piece size.
 #' @param prior_typology Optional. Vertex attribute name (single character)
 #'   or vector of length \code{vcount(graph)} giving a prior ecoregion label
 #'   at each vertex. \code{NA} means no prior at that vertex. Default
@@ -58,10 +57,10 @@
 #'   memberships. If that spread is zero (\code{weight_exponent = 0} or
 #'   constant weights), one unit halves the propensity instead, with a
 #'   warning.
-#' @param cut_rule \code{"propensity"} (default) or \code{"ssd"}: how each
+#' @param cut_rule \code{"propensity"} or \code{"ssd"} (default): how each
 #'   tree is cut. See \code{\link{compute_ensemble}}.
 #' @param refine_boundary Logical. Contiguity-preserving boundary refinement
-#'   after consensus. Default \code{FALSE}. See \code{\link{compute_consensus}}.
+#'   after consensus. Default \code{TRUE}. See \code{\link{compute_consensus}}.
 #' @param min_size Integer \eqn{\ge 1}. Smallest piece the \code{"ssd"} rule may
 #'   cut off, and smallest region the boundary refinement may leave. Default 1.
 #' @param target_edge_turnover Numeric in \eqn{[0, 1)}. Average share of the
@@ -131,7 +130,7 @@
 #' g <- make_lattice(c(15, 15))
 #' E(g)$weight <- runif(ecount(g))
 #' res <- get_regions(g, regions_per_partition = c(10, 20), final_regions = c(3, 4),
-#'                    N_tree = 30, seed = 1)
+#'                    N_tree = 30, seed = 1, cut_rule = "propensity", refine_boundary=FALSE)
 #' table(res$hard_labels)
 #' }
 #'
@@ -628,11 +627,10 @@ sample_spanning_trees <- function(graph, n, seed = NULL, verbose = TRUE,
 #'   \code{prior_strength} falls back to one halving per unit.
 #' @param size_influence Non-negative numeric. Spread of the size term
 #'   \eqn{\alpha \log s_e} relative to the spread \eqn{u} of the
-#'   environmental term \eqn{\gamma \log w}, per tree. 0 ignores piece size;
-#'   the default 2 lets size dominate, so cuts rarely shave off single units.
-#' @param cut_rule \code{"propensity"} (default): the
+#'   environmental term \eqn{\gamma \log w}, per tree. Default (0) ignores piece size.
+#' @param cut_rule \code{"propensity"}: the
 #'   \code{regions_per_partition - 1} cuts of a tree are drawn at once by the
-#'   exponential race above. \code{"ssd"}: cuts are drawn one at a time, each
+#'   exponential race above. \code{"ssd"} (default): cuts are drawn one at a time, each
 #'   by an exponential race on the Ward reduction in within-piece sum of
 #'   squares of \code{graph_attr(graph, "env")}, recomputed after every cut;
 #'   \code{weight_exponent}, \code{size_influence} and \code{prior_strength}
@@ -668,7 +666,7 @@ compute_ensemble <- function(trees,
                             prior_strength = 0, 
                             weight_exponent = 4, 
                             verbose = TRUE,
-                            size_influence = 20,
+                            size_influence = 0,
                             cut_rule = c("ssd", "propensity"),
                             min_size = 1L,
                             seed = NULL) {
@@ -827,21 +825,21 @@ compute_ensemble <- function(trees,
 #' @keywords internal
 #' @noRd
 .compute_ensemble_internal <- function(graph,
-                                       trees,
-                                       N_tree,
-                                       regions_per_partition,
-                                       prior_strength  = 0,
-                                       weight_exponent = 1,
-                                       size_influence  = 2,
-                                       cut_rule = "propensity",
-                                       min_size = 1L) {
+                                      trees,
+                                      N_tree,
+                                      regions_per_partition,
+                                      prior_strength  = 0,
+                                      weight_exponent = 1,
+                                      size_influence  = 2,
+                                      cut_rule = "ssd",
+                                      min_size = 1L) {
         n_use <- as.integer(N_tree)
         n_reg <- as.integer(regions_per_partition)
         n_v   <- trees$n_vertices
         wpe   <- trees$within_prior_edge
         if (n_reg > n_v) {
                 stop(sprintf("regions_per_partition (%d) cannot exceed the number of vertices (%d).",
-                             n_reg, n_v), call. = FALSE)
+                            n_reg, n_v), call. = FALSE)
         }
         n_to_cut   <- n_reg - 1L
         n_fallback <- 0L
@@ -1170,7 +1168,7 @@ compute_ensemble <- function(trees,
 #' @param refine_boundary Logical. After contiguity repair, move boundary units
 #'   to an adjacent region when that lowers the within-region sum of squares of
 #'   \code{graph_attr(graph, "env")}, never disconnecting a region or shrinking
-#'   it below \code{min_size}. Default \code{FALSE}. Not to be confused with
+#'   it below \code{min_size}. Default \code{TRUE}. Not to be confused with
 #'   \code{refine_iter}, which counts single-unit loss moves on the sampled path.
 #' @param min_size Integer \eqn{\ge 1}. Smallest region size the boundary
 #'   refinement may leave. Default 1.
@@ -2409,7 +2407,7 @@ tune_regions <- function(graph,
         bad_v    <- setdiff(voters, names(.CVI_DIRECTION))
         if (length(bad_v) || !length(voters))
                 stop("`voters` must be a non-empty subset of: ",
-                     paste(names(.CVI_DIRECTION), collapse = ", "), call. = FALSE)
+                    paste(names(.CVI_DIRECTION), collapse = ", "), call. = FALSE)
         
         # --- Exact prior reproduction short-circuit --------------------------*
         if (is.infinite(prior_strength)) {
@@ -2446,11 +2444,12 @@ tune_regions <- function(graph,
         N_tree                <- sort(unique(as.integer(N_tree)))
         weight_exponent       <- sort(unique(as.numeric(weight_exponent)))
         rpp_tied <- is.null(regions_per_partition)
-        if (rpp_tied){
-          3 * final_regions
-        } else {
-          sort(unique(as.integer(regions_per_partition)))
-        }
+        regions_per_partition <- 
+          if (rpp_tied){
+            3 * final_regions
+          } else {
+            sort(unique(as.integer(regions_per_partition)))
+          }
   
   
         # --- Checks -----------------------------------------------------*
@@ -2726,7 +2725,7 @@ tune_regions <- function(graph,
                       N_tree = rev(N_tree), 
                       final_regions = final_regions, 
                       weight_exponent = weight_exponent,
-                      KEEP.OUT.ATTRS = FALSE, stringsAsFactros=FALSE
+                      KEEP.OUT.ATTRS = FALSE, stringsAsFactors=FALSE
                     )
                     p$regions_per_partition <- 3 * p$final_regions
                     p
@@ -3400,7 +3399,7 @@ compute_null_baseline <- function(
                 ax <- setdiff(names(cfg), "rpp_per_region")
                 off <- ax[
                   !vapply(
-                    names(cfg), 
+                    ax, 
                     function(a)
                       isTRUE(abs(cx[[a]] - cfg[[a]]) < 1e-9), 
                     logical(1)
@@ -3484,12 +3483,12 @@ compute_null_baseline <- function(
         if (inherits(observed, "pulse_regions_tuning")) observed <- observed$tuning_log
         if (is.null(observed)) return(NULL)
         observed <- as.data.frame(observed)
-        for (ax in setdiff(names(cfg), "rpp_per_region")){
-          if (ax %in% names(observed)){
-            observed <- observed[observed$regions_per_partition == cfg$rpp_per_region * observed$final_regions,,drop = FALSE]
-          }
-        }   
-        observed
+        for (ax in setdiff(names(cfg), "rpp_per_region"))
+          if (ax %in% names(observed))
+            observed <- observed[abs(observed[[ax]] - cfg[[ax]]) < 1e-9, , drop = FALSE]
+        if (!is.null(cfg$rpp_per_region) && "regions_per_partition" %in% names(observed))
+          observed <- observed[observed$regions_per_partition ==
+                                 cfg$rpp_per_region * observed$final_regions, , drop = FALSE]
 }
 
 # k values at which the null needs STAB: those with an observed STAB, or all

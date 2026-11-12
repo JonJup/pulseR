@@ -45,7 +45,7 @@ single connected component of \code{graph}.}
 \item{refine_boundary}{Logical. After contiguity repair, move boundary units
 to an adjacent region when that lowers the within-region sum of squares of
 \code{graph_attr(graph, "env")}, never disconnecting a region or shrinking
-it below \code{min_size}. Default \code{FALSE}. Not to be confused with
+it below \code{min_size}. Default \code{TRUE}. Not to be confused with
 \code{refine_iter}, which counts single-unit loss moves on the sampled path.}
 
 \item{min_size}{Integer \eqn{\ge 1}. Smallest region size the boundary

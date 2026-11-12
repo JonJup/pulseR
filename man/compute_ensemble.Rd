@@ -13,7 +13,7 @@ compute_ensemble(
   prior_strength = 0,
   weight_exponent = 4,
   verbose = TRUE,
-  size_influence = 20,
+  size_influence = 0,
   cut_rule = c("ssd", "propensity"),
   min_size = 1L,
   seed = NULL
@@ -68,12 +68,11 @@ At \eqn{\gamma = 0} cuts are uniform and \code{size_influence} is ignored.
 
 \item{size_influence}{Non-negative numeric. Spread of the size term
 \eqn{\alpha \log s_e} relative to the spread \eqn{u} of the
-environmental term \eqn{\gamma \log w}, per tree. 0 ignores piece size;
-the default 2 lets size dominate, so cuts rarely shave off single units.}
+environmental term \eqn{\gamma \log w}, per tree. Default (0) ignores piece size.}
 
-\item{cut_rule}{\code{"propensity"} (default): the
+\item{cut_rule}{\code{"propensity"}: the
 \code{regions_per_partition - 1} cuts of a tree are drawn at once by the
-exponential race above. \code{"ssd"}: cuts are drawn one at a time, each
+exponential race above. \code{"ssd"} (default): cuts are drawn one at a time, each
 by an exponential race on the Ward reduction in within-piece sum of
 squares of \code{graph_attr(graph, "env")}, recomputed after every cut;
 \code{weight_exponent}, \code{size_influence} and \code{prior_strength}

@@ -79,14 +79,13 @@ At \eqn{\gamma = 0} cuts are uniform and \code{size_influence} is ignored.
 
 \item{size_influence}{Non-negative numeric. Spread of the size-balance term
 \eqn{\log(n_c (N - n_c) / N)} relative to the spread of the environmental
-term \eqn{\gamma \log w}, per tree. 0 ignores piece size; the default 2
-lets size dominate, so cuts rarely shave off single units.}
+term \eqn{\gamma \log w}, per tree. The default (0) ignores piece size.}
 
-\item{cut_rule}{\code{"propensity"} (default) or \code{"ssd"}: how each
+\item{cut_rule}{\code{"propensity"} or \code{"ssd"} (default): how each
 tree is cut. See \code{\link{compute_ensemble}}.}
 
 \item{refine_boundary}{Logical. Contiguity-preserving boundary refinement
-after consensus. Default \code{FALSE}. See \code{\link{compute_consensus}}.}
+after consensus. Default \code{TRUE}. See \code{\link{compute_consensus}}.}
 
 \item{min_size}{Integer \eqn{\ge 1}. Smallest piece the \code{"ssd"} rule may
 cut off, and smallest region the boundary refinement may leave. Default 1.}
@@ -194,7 +193,7 @@ library(igraph)
 g <- make_lattice(c(15, 15))
 E(g)$weight <- runif(ecount(g))
 res <- get_regions(g, regions_per_partition = c(10, 20), final_regions = c(3, 4),
-                   N_tree = 30, seed = 1)
+                   N_tree = 30, seed = 1, cut_rule = "propensity", refine_boundary=FALSE)
 table(res$hard_labels)
 }
 
