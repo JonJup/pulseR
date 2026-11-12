@@ -140,14 +140,14 @@
 get_regions <- function(graph,
                         env = NULL,
                         env_id = NULL,
-                        regions_per_partition = 50,
+                        regions_per_partition = NULL,
                         final_regions,
                         N_tree,
-                        weight_exponent     = 1L,
-                        size_influence      = 2,
-                        cut_rule            = c("propensity", "ssd"),
-                        refine_boundary     = FALSE,
-                        min_size            = 1L,
+                        weight_exponent     = 4,
+                        size_influence      = 0,
+                        cut_rule            = c("ssd", "propensity"),
+                        refine_boundary     = TRUE,
+                        min_size            = 1,
                         prior_typology = NULL,
                         prior_strength = 0,
                         target_edge_turnover = 0.1,
@@ -176,7 +176,7 @@ get_regions <- function(graph,
                 is.numeric(prior_strength) | is.infinite(prior_strength), 
                 length(prior_strength) == 1L,
                 prior_strength >= 0,
-                is.numeric(regions_per_partition),
+                is.numeric(regions_per_partition)|| is.null(regions_per_partition),
                 is.numeric(N_tree),
                 is.numeric(final_regions)
                 
@@ -188,7 +188,7 @@ get_regions <- function(graph,
         # Upper-bound check before doing any sampling work.
         if (any(regions_per_partition >= igraph::vcount(graph))) {
                 stop("`regions_per_partition` must be smaller than the number of vertices (",
-                     igraph::vcount(graph), ").", call. = FALSE)
+                    igraph::vcount(graph), ").", call. = FALSE)
         }
         
         
@@ -209,27 +209,56 @@ get_regions <- function(graph,
                         coverage      = pr$coverage,
                         ensemble      = NULL,
                         config        = list(regions_per_partition = K,
-                                             weight_exponent      = NA_real_,
-                                             N_tree                 = NA_integer_,
-                                             final_regions        = K,
-                                             cut_rule             = NA_character_,
-                                             refine_boundary      = NA,
-                                             min_size             = NA_integer_),
+                                            weight_exponent      = NA_real_,
+                                            N_tree                 = NA_integer_,
+                                            final_regions        = K,
+                                            cut_rule             = NA_character_,
+                                            refine_boundary      = NA,
+                                            min_size             = NA_integer_),
                         prior_strength = Inf, tuned = FALSE))
         }
         
         # --- Exact tuneable parameters  ----------------------------*
         
         N_tree_values         <- sort(unique(as.integer(N_tree)))
-        regions_per_partition <- sort(unique(as.integer(regions_per_partition)))
         final_regions         <- sort(unique(as.integer(final_regions)))
+        rpp_tied              <- is.null(regions_per_partition)
+        regions_per_partition <- if(rpp_tied){
+          if (length(final_regions) == 1) 3 * final_regions else NULL 
+        } else {
+          sort(unique(as.integer(regions_per_partition)))
+        }
         
+        if (any(regions_per_partition >= igraph::vcount(graph))){
+          stop(
+            "`regions_per_partition` (",
+            paste0(regions_per_partition),
+            ") must be smaller than the number of units (",
+            paste(igraph::vcount(graph)),
+            ,").",
+            call. = FALSE
+          )
+        }
+        if (!rpp_tied && length(regions_per_partition) == 1 && regions_per_partition < max(final_regions)){
+          stop(
+            sprintf(
+              paste0(
+                "`regions_per_partition` (%d) must be as large as the largest",
+                "`final_regions` (%d)." 
+              ),
+              regions_per_partition,
+              max(final_regions)
+            ),
+            call. = FALSE
+          )
+        }
+  
         # --- lambda_E > 0 needs prior labels; fail before any sampling ------*
         # Labels come from `trees` if supplied, otherwise from `prior_typology`.
         has_prior <- if (is.null(trees)) !is.null(prior_typology) else !all(is.na(trees$prior_labels))
         if (prior_strength > 0 && !has_prior) {
                 stop("`prior_strength` > 0 but no prior labels found: supply ",
-                     "`prior_typology`, or `trees` sampled with one.", call. = FALSE)
+                    "`prior_typology`, or `trees` sampled with one.", call. = FALSE)
         }
         
         
@@ -240,12 +269,12 @@ get_regions <- function(graph,
                 # Nothing random runs before this, so these trees are identical to
                 # sample_spanning_trees(..., seed = seed) called on its own.
                 trees <- sample_spanning_trees(graph  = graph, 
-                                               n               = max(N_tree_values),
-                                               seed            = NULL, 
-                                               verbose         = verbose,
-                                               prior_typology  = prior_typology, 
-                                               target_edge_turnover = target_edge_turnover,
-                                               prior_strength       = prior_strength 
+                                              n               = max(N_tree_values),
+                                              seed            = NULL, 
+                                              verbose         = verbose,
+                                              prior_typology  = prior_typology, 
+                                              target_edge_turnover = target_edge_turnover,
+                                              prior_strength       = prior_strength 
                 )
                 trees$seed <- seed
         }
@@ -633,16 +662,16 @@ sample_spanning_trees <- function(graph, n, seed = NULL, verbose = TRUE,
 #' @importFrom igraph E ends make_graph components
 #' @export
 compute_ensemble <- function(trees, 
-                             N_tree, 
-                             graph, 
-                             regions_per_partition, 
-                             prior_strength = 0, 
-                             weight_exponent = 1, 
-                             verbose = TRUE,
-                             size_influence = 2,
-                             cut_rule = c("propensity", "ssd"),
-                             min_size = 1L,
-                             seed = NULL) {
+                            N_tree, 
+                            graph, 
+                            regions_per_partition, 
+                            prior_strength = 0, 
+                            weight_exponent = 4, 
+                            verbose = TRUE,
+                            size_influence = 20,
+                            cut_rule = c("ssd", "propensity"),
+                            min_size = 1L,
+                            seed = NULL) {
         
         stopifnot(inherits(trees, "pulse_trees"))
         cut_rule <- match.arg(cut_rule)
@@ -1189,12 +1218,14 @@ compute_ensemble <- function(trees,
 #'   \code{n_members}, \code{ensemble_meta}.
 #' @importFrom Matrix sparseMatrix crossprod
 #' @export
-compute_consensus <- function(ensemble, final_regions, graph = NULL,
+compute_consensus <- function(ensemble, 
+                              final_regions, 
+                              graph = NULL,
                               large_n_threshold  = 20000,
                               sample_size        = 5000L,
                               refine_iter        = 10L,
                               enforce_contiguity = !is.null(graph),
-                              refine_boundary    = FALSE,
+                              refine_boundary    = !is.null(graph),
                               min_size           = 1L,
                               n_runs             = 16L,
                               n_cores            = 1L,
@@ -1340,7 +1371,7 @@ compute_consensus <- function(ensemble, final_regions, graph = NULL,
                         "(regions_per_partition = %s). See check_native_regions()."),
                         native$k,
                         paste0(if (native$sampled) sprintf(" on a %d-unit sample", native$n_units) else "",
-                               if (native$capped) " (at salso's cluster cap: a lower bound)" else ""),
+                              if (native$capped) " (at salso's cluster cap: a lower bound)" else ""),
                         k, format(meta$regions_per_partition)))
         }
         
@@ -1438,18 +1469,18 @@ compute_consensus <- function(ensemble, final_regions, graph = NULL,
 #' 
 #' @export
 check_native_regions <- function(trees, graph,
-                                 regions_per_partition = c(10L, 25L, 50L, 100L),
-                                 N_tree              = trees$n_trees,
-                                 weight_exponent     = 1,
-                                 size_influence      = 2,
-                                 prior_strength      = 0,
-                                 cut_rule            = c("propensity", "ssd"),
-                                 min_size            = 1L,
-                                 sample_size         = 2000L,
-                                 n_runs              = 4L,
-                                 n_cores             = 1L,
-                                 seed                = NULL,
-                                 verbose             = TRUE) {
+                                regions_per_partition = c(10L, 25L, 50L, 100L),
+                                N_tree              = trees$n_trees,
+                                weight_exponent     = 4,
+                                size_influence      = 0,
+                                prior_strength      = 0,
+                                cut_rule            = c("ssd", "propensity"),
+                                min_size            = 1L,
+                                sample_size         = 2000L,
+                                n_runs              = 4L,
+                                n_cores             = 1L,
+                                seed                = NULL,
+                                verbose             = TRUE) {
         stopifnot(inherits(trees, "pulse_trees"))
         cut_rule <- match.arg(cut_rule)
         .local_seed(seed)
@@ -2146,7 +2177,9 @@ print.pulse_trees <- function(x, ...) {
 }
 .TIE_TOL  <- 1e-12
 .TIE_RULE <- paste("fewest final_regions, then fewest regions_per_partition,",
-                   "then smallest weight_exponent, then largest N_tree")
+                  "then smallest weight_exponent, then largest N_tree")
+
+
 
 #' Canonical key for one hyper-parameter configuration
 #'
@@ -2330,31 +2363,31 @@ print.pulse_trees <- function(x, ...) {
 #'
 #' @export
 tune_regions <- function(graph, 
-                         trees,
-                         N_tree,
-                         regions_per_partition = 50,
-                         final_regions,
-                         weight_exponent     = 1,
-                         tuning_metric = c("borda", "ch_fit", "r2_fit", "stability", "silhouette_ca", "expected_vi"),
-                         tuning_strategy = c("grid", "sequential", "iterative"),
-                         stability_B       = 10,
-                         voters            = c("CH_FIT", "STAB"),
-                         prior_strength    = 0,
-                         prior_typology    = NULL,
-                         max_iter          = 10,
-                         size_influence    = 2,
-                         cut_rule          = c("propensity", "ssd"),
-                         refine_boundary   = FALSE,
-                         min_size          = 1L,
-                         max_configs     = 64L,
-                         large_n_threshold = 20000,
-                         sample_size = 5000,
-                         n_cores = 1,
-                         env = NULL, 
-                         env_id = NULL,
-                         seed              = NULL,
-                         stability_seed    = seed,
-                         verbose           = TRUE) {
+                        trees,
+                        N_tree,
+                        regions_per_partition = NULL,
+                        final_regions,
+                        weight_exponent     = 4,
+                        tuning_metric     = c("borda", "ch_fit", "r2_fit", "stability", "silhouette_ca", "expected_vi"),
+                        tuning_strategy   = c("grid", "sequential", "iterative"),
+                        stability_B       = 10,
+                        voters            = c("CH_FIT", "STAB"),
+                        prior_strength    = 0,
+                        prior_typology    = NULL,
+                        max_iter          = 10,
+                        size_influence    = 0,
+                        cut_rule          = c("ssd", "propensity"),
+                        refine_boundary   = TRUE,
+                        min_size          = 1L,
+                        max_configs     = 64L,
+                        large_n_threshold = 20000,
+                        sample_size = 5000,
+                        n_cores = 1,
+                        env = NULL, 
+                        env_id = NULL,
+                        seed              = NULL,
+                        stability_seed    = seed,
+                        verbose           = TRUE) {
         
         # --- Checks -----------------------------------------------------*
         stopifnot(inherits(trees, "pulse_trees"))
@@ -2389,8 +2422,8 @@ tune_regions <- function(graph,
                 # Same class and slots as a tuned result, so get_local_types(),
                 # as_mosaic_input() and crosswalk_types() accept it.
                 best <- list(memberships = pr$memberships, hard_labels = pr$hard_labels,
-                             coverage = pr$coverage, class_levels = pr$class_levels,
-                             k = K)
+                            coverage = pr$coverage, class_levels = pr$class_levels,
+                            k = K)
                 cfg <- data.frame(regions_per_partition = K, weight_exponent = NA_real_,
                                   N_tree = NA_integer_, final_regions = K)
                 return(structure(list(
@@ -2409,11 +2442,17 @@ tune_regions <- function(graph,
         
         # --- Normalize candidate sets ----------------------------------------*
         # weight_exponent stays double; the other four are counts.
-        regions_per_partition <- sort(unique(as.integer(regions_per_partition)))
         final_regions         <- sort(unique(as.integer(final_regions)))
         N_tree                <- sort(unique(as.integer(N_tree)))
         weight_exponent       <- sort(unique(as.numeric(weight_exponent)))
-        
+        rpp_tied <- is.null(regions_per_partition)
+        if (rpp_tied){
+          3 * final_regions
+        } else {
+          sort(unique(as.integer(regions_per_partition)))
+        }
+  
+  
         # --- Checks -----------------------------------------------------*
         stopifnot(
                 length(regions_per_partition) >= 1L,
@@ -2434,8 +2473,10 @@ tune_regions <- function(graph,
                 final_regions        = final_regions
         )
         active_axes <- .TUNE_AXES[vapply(cand[.TUNE_AXES], length, integer(1)) > 1L]
-        
-        # Distinct ensemble pairs: the actual cost of the search.
+        if (rpp_tied) active_axes <- setdiff(active_axes, "regions_per_partition")      
+  
+  
+        # Distinct ensemble pairs: the actual cost of the search. Tied: one ensemble per (final region, weight exponent)
         n_ens_triples <- length(regions_per_partition) * length(weight_exponent)
         if (tuning_strategy == "grid" && n_ens_triples > max_configs) {
                 stop(sprintf(paste0(
@@ -2583,6 +2624,7 @@ tune_regions <- function(graph,
         
         evaluate_configs <- function(cfg_df, tick = NULL) {
                 cfg_df <- cfg_df[, axis_cols, drop = FALSE]
+                if (rpp_tied) cfg_df$regions_per_partition <- 3 * cfg_df$final_regions
                 seen   <- if (is.null(tuning_log)) character(0) else .tune_key(tuning_log)
                 keys   <- .tune_key(cfg_df)
                 new_rows <- vector("list", nrow(cfg_df))
@@ -2592,7 +2634,7 @@ tune_regions <- function(graph,
                                 next
                         }
                         sc <- tryCatch(score_config(cfg_df[i, , drop = FALSE]),
-                                       pulseR_config_error = function(e) e)
+                                      pulseR_config_error = function(e) e)
                         if (inherits(sc, "pulseR_config_error")) {
                                 new_rows[[i]] <- failed_row(cfg_df[i, , drop = FALSE],
                                                             conditionMessage(sc))
@@ -2622,7 +2664,7 @@ tune_regions <- function(graph,
         # --- Coordinate-descent helpers --------------------------------------*
         # Incumbent starts at the median candidate on every axis.
         cur <- lapply(cand, function(v) v[ceiling(length(v) / 2)])
-        
+        if (rpp_tied) cur$regions_per_partition <- 3 * cur$final_regions
         cur_df <- function() as.data.frame(cur[axis_cols], stringsAsFactors = FALSE)
         
         # Configurations that vary `axis` and hold every other axis at the incumbent.
@@ -2636,7 +2678,7 @@ tune_regions <- function(graph,
         
         # Best value on `axis` among logged rows that match the incumbent elsewhere.
         best_along <- function(axis) {
-                others <- setdiff(axis_cols, axis)
+                others <- setdiff(axis_cols, c(axis, if (rpp_tied) "regions_per_partition"))
                 keep   <- rep(TRUE, nrow(tuning_log))
                 for (o in others) keep <- keep & (tuning_log[[o]] == cur[[o]])
                 idx <- which(keep)
@@ -2652,12 +2694,13 @@ tune_regions <- function(graph,
                 # visit and every smaller candidate is a free column slice.
                 if (axis == "N_tree") cfgs <- cfgs[order(-cfgs$N_tree), , drop = FALSE]
                 if (verbose) message(sprintf("  Sweeping %s (%d candidates)",
-                                             axis, nrow(cfgs)))
+                                            axis, nrow(cfgs)))
                 tick <- if (verbose) .make_progress(nrow(cfgs), label) else NULL
                 evaluate_configs(cfgs, tick)
                 cur[[axis]] <<- best_along(axis)
+                if (rpp_tied) cur$regions_per_partition <<- 3 * cur$final_regions
                 if (verbose) message(sprintf("  >> Best %s = %s", axis,
-                                             format(cur[[axis]])))
+                                            format(cur[[axis]])))
                 invisible(NULL)
         }
         
@@ -2677,13 +2720,26 @@ tune_regions <- function(graph,
                 # expand.grid varies its first argument fastest; ordering it this way
                 # keeps configurations that share an ensemble contiguous, and visits
                 # N_tree descending so the max-size build happens first in each block.
-                pairs <- expand.grid(
-                        final_regions        = final_regions,
-                        N_tree                 = rev(N_tree),
-                        regions_per_partition = regions_per_partition,
-                        weight_exponent      = weight_exponent,
-                        KEEP.OUT.ATTRS = FALSE, stringsAsFactors = FALSE
-                )
+                pairs <- 
+                  if (rpp_tied){
+                    p <- expand.grid(
+                      N_tree = rev(N_tree), 
+                      final_regions = final_regions, 
+                      weight_exponent = weight_exponent,
+                      KEEP.OUT.ATTRS = FALSE, stringsAsFactros=FALSE
+                    )
+                    p$regions_per_partition <- 3 * p$final_regions
+                    p
+                  } else {
+                    expand.grid(
+                      final_regions        = final_regions,
+                      N_tree                 = rev(N_tree),
+                      regions_per_partition = regions_per_partition,
+                      weight_exponent      = weight_exponent,
+                      KEEP.OUT.ATTRS = FALSE, stringsAsFactors = FALSE
+              )
+                  }
+          
                 if (verbose) message(sprintf(
                         "  Grid: %d configurations across %d ensemble computations",
                         nrow(pairs), n_ens_triples))
@@ -3204,26 +3260,41 @@ print.pulse_regions <- function(x, ...) {
 #'   \code{settings} holds \code{cut_rule}, \code{refine_boundary},
 #'   \code{min_size}, \code{stability_k} and the reused \code{eta}.
 #' @export
-compute_null_baseline <- function(graph, env = NULL, env_id = NULL, final_regions,
-                                  regions_per_partition = 50, N_tree,
-                                  weight_exponent = 1, size_influence = 2,
+compute_null_baseline <- function(
+                                  graph, 
+                                  env = NULL, 
+                                  env_id = NULL, 
+                                  final_regions,
+                                  regions_per_partition = NULL, 
+                                  N_tree,
+                                  weight_exponent = 4, 
+                                  size_influence = 0,
                                   target_edge_turnover = 0.1,
-                                  cut_rule = c("propensity", "ssd"),
-                                  refine_boundary = FALSE, min_size = 1L,
-                                  B = 19L, stability_B = 10, stability_k = NULL,
+                                  cut_rule = c("ssd", "propensity"),
+                                  refine_boundary = TRUE,
+                                  min_size = 1L,
+                                  B = 19, 
+                                  stability_B = 10, 
+                                  stability_k = NULL,
                                   observed = NULL,
-                                  large_n_threshold = 20000, sample_size = 5000L,
-                                  n_cores = 1, seed = NULL, verbose = TRUE) {
-       
-        stopifnot(inherits(graph, "igraph"),
-                  length(regions_per_partition) == 1L, length(N_tree) == 1L,
-                  length(weight_exponent) == 1L, B >= 1)
+                                  large_n_threshold = 20000, 
+                                  sample_size = 5000,
+                                  n_cores = 1, 
+                                  seed = NULL, 
+                                  verbose = TRUE) {
+  
+        stopifnot(
+          inherits(graph, "igraph"),
+          length(regions_per_partition) <= 1L, 
+          length(N_tree) == 1L,
+          length(weight_exponent) == 1L, B >= 1
+        )
         cut_rule <- match.arg(cut_rule)
         env <- .resolve_env(env, env_id, graph, verbose = FALSE)
         if (is.null(env))
                 stop("`env` is required: supply the matrix the edge weights were computed ",
-                     "from, or build `graph` with add_edge_weight(), which stores it.",
-                     call. = FALSE)
+                    "from, or build `graph` with add_edge_weight(), which stores it.",
+                    call. = FALSE)
         if (anyNA(env))
                 stop("`env` has missing values; the null needs complete rows.", call. = FALSE)
         final_regions <- sort(unique(as.integer(final_regions)))
@@ -3242,10 +3313,26 @@ compute_null_baseline <- function(graph, env = NULL, env_id = NULL, final_region
                         "environmental signal. Pass the matrix the weights were computed from ",
                         "(scaled if add_edge_weight(scale = TRUE)), or env = NULL to use the one ",
                         "stored on `graph`."), r), call. = FALSE)
-        cfg  <- list(regions_per_partition = as.integer(regions_per_partition),
-                     N_tree = as.integer(N_tree), weight_exponent = as.numeric(weight_exponent))
+        # cfg  <- list(
+        #   regions_per_partition = as.integer(regions_per_partition),
+        #   N_tree = as.integer(N_tree),
+        #   weight_exponent = as.numeric(weight_exponent)
+        # )
+        rpp_tied <- is.null(regions_per_partition)
+        rpp_of   <- function(k) if (rpp_tied) 3 * k else regions_per_partition
+        cfg <- 
+          c( 
+            if (!rpp_tied) 
+              list(regions_per_partition = regions_per_partition),
+              list(
+                N_tree = N_tree, 
+                weight_exponent = weight_exponent
+              ),
+            if (rpp_tied) list(rpp_per_region = 3)  
+            )
+            
         stability_k <- if (is.null(stability_k)) .null_stab_k(observed, cfg, final_regions)
-                       else intersect(final_regions, as.integer(stability_k))
+                      else intersect(final_regions, as.integer(stability_k))
         .local_seed(seed)
         
         eta_null <- NULL
@@ -3259,17 +3346,34 @@ compute_null_baseline <- function(graph, env = NULL, env_id = NULL, final_region
                 ## from the graph, so it must be permuted there too.
                 g_b   <- igraph::set_graph_attr(g_b, "env", env_b)
                 tr  <- sample_spanning_trees(g_b, n = N_tree, verbose = FALSE,
-                                             target_edge_turnover = target_edge_turnover,
-                                             eta = eta_null)
+                                            target_edge_turnover = target_edge_turnover,
+                                            eta = eta_null)
                 if (is.null(eta_null)) eta_null <- tr$eta
-                ens <- compute_ensemble(tr, N_tree = N_tree, graph = g_b,
-                                                    regions_per_partition = regions_per_partition,
-                                                    weight_exponent = weight_exponent,
-                                                    size_influence = size_influence,
-                                                    cut_rule = cut_rule, min_size = min_size,
-                                                    verbose = FALSE)
+                build <- function(rpp) compute_ensemble(tr,
+                                          N_tree                = N_tree, 
+                                          graph                 = g_b,
+                                          regions_per_partition = rpp,
+                                          weight_exponent       = weight_exponent,
+                                          size_influence        = size_influence,
+                                          cut_rule              = cut_rule, 
+                                          min_size              = min_size,
+                                          verbose               = FALSE
+                                        )
+                # ens <- compute_ensemble(tr,
+                #                         N_tree                = N_tree, 
+                #                         graph                 = g_b,
+                #                         regions_per_partition = regions_per_partition,
+                #                         weight_exponent       = weight_exponent,
+                #                         size_influence        = size_influence,
+                #                         cut_rule              = cut_rule, 
+                #                         min_size              = min_size,
+                #                         verbose               = FALSE
+                #                       )
+                ens_fixed <- 
+                  if (rpp_tied) NULL else build(rpp_of(NA))
                 stab_seed <- sample.int(.Machine$integer.max, 1L)
                 out[[b]] <- do.call(rbind, lapply(final_regions, function(k) {
+                        ens <- if (rpp_tied) build(rpp_of(k)) else ens_fixed
                         res <- tryCatch(
                                 compute_consensus(ens, k, graph = g_b,
                                                   refine_boundary = refine_boundary,
@@ -3281,11 +3385,11 @@ compute_null_baseline <- function(graph, env = NULL, env_id = NULL, final_region
                         cv <- if (is.null(res))
                                 as.data.frame(as.list(stats::setNames(rep(NA_real_, length(cvi_cols)), cvi_cols)))
                         else .consensus_cvis(res, ens$memberships, env = env_b,
-                                             stability_B = if (k %in% stability_k) stability_B else 0L,
-                                             graph = g_b,
-                                             stability_seed = stab_seed,
-                                             large_n_threshold = large_n_threshold,
-                                             sample_size = sample_size, n_cores = n_cores)
+                                            stability_B = if (k %in% stability_k) stability_B else 0L,
+                                            graph = g_b,
+                                            stability_seed = stab_seed,
+                                            large_n_threshold = large_n_threshold,
+                                            sample_size = sample_size, n_cores = n_cores)
                         cbind(data.frame(rep = b, final_regions = k, failed = is.null(res)), cv[, cvi_cols, drop = FALSE])
                 }))
         }
@@ -3293,8 +3397,17 @@ compute_null_baseline <- function(graph, env = NULL, env_id = NULL, final_region
         
         if (inherits(observed, "pulse_regions")) {
                 cx  <- observed$config
-                off <- names(cfg)[!vapply(names(cfg), function(a)
-                        isTRUE(abs(cx[[a]] - cfg[[a]]) < 1e-9), logical(1))]
+                ax <- setdiff(names(cfg), "rpp_per_region")
+                off <- ax[
+                  !vapply(
+                    names(cfg), 
+                    function(a)
+                      isTRUE(abs(cx[[a]] - cfg[[a]]) < 1e-9), 
+                    logical(1)
+                  )
+                ]
+                if (rpp_tied && !isTRUE(cx$regions_per_partition == rpp_of(cx$final_regions)))
+                  off <- c(off, "regions_per_partition")
                 if (length(off))
                         warning("`observed` was fitted with different ", paste(off, collapse = ", "),
                                 " than the null; observed and null are not comparable.", call. = FALSE)
@@ -3307,14 +3420,30 @@ compute_null_baseline <- function(graph, env = NULL, env_id = NULL, final_region
         }
         
         
-        structure(list(null = null,
-                       summary = .null_summary(null, observed, cfg,
-                                               skip = list(STAB = setdiff(final_regions, stability_k))),
-                       config = cfg, B = as.integer(B),
-                       settings = list(cut_rule = cut_rule, refine_boundary = refine_boundary,
-                                       min_size = min_size, stability_k = stability_k,
-                                       eta = eta_null)),
-                  class = "pulse_null")
+        structure(list(
+          null = null,
+          summary = .null_summary(
+            null, 
+            observed, 
+            cfg,
+            skip = list(
+              STAB = setdiff(
+                final_regions, 
+                stability_k
+              )
+            )
+          ),
+          config = cfg,
+          B = as.integer(B),
+          settings = list(
+            cut_rule = cut_rule, 
+            refine_boundary = refine_boundary,
+            min_size = min_size,
+            stability_k = stability_k,
+            eta = eta_null)
+          ),
+          class = "pulse_null"
+        )
 }
 
 #' @keywords internal
@@ -3355,8 +3484,11 @@ compute_null_baseline <- function(graph, env = NULL, env_id = NULL, final_region
         if (inherits(observed, "pulse_regions_tuning")) observed <- observed$tuning_log
         if (is.null(observed)) return(NULL)
         observed <- as.data.frame(observed)
-        for (ax in names(cfg)) if (ax %in% names(observed))
-                observed <- observed[abs(observed[[ax]] - cfg[[ax]]) < 1e-9, , drop = FALSE]
+        for (ax in setdiff(names(cfg), "rpp_per_region")){
+          if (ax %in% names(observed)){
+            observed <- observed[observed$regions_per_partition == cfg$rpp_per_region * observed$final_regions,,drop = FALSE]
+          }
+        }   
         observed
 }
 
@@ -3378,15 +3510,26 @@ compute_null_baseline <- function(graph, env = NULL, env_id = NULL, final_region
 #' @return \code{print.pulse_null} returns \code{x} invisibly.
 #' @export
 print.pulse_null <- function(x, ...) {
-        cat(sprintf("<pulse_null>  %d replicates | regions_per_partition = %d | N_tree = %d | weight_exponent = %g\n",
-                    x$B, x$config$regions_per_partition, x$config$N_tree, x$config$weight_exponent))
-        if (!is.null(x$settings))
-                cat(sprintf("  cut_rule = %s | refine_boundary = %s | min_size = %s\n",
-                            x$settings$cut_rule, x$settings$refine_boundary, x$settings$min_size))
-        s <- x$summary[x$summary$criterion %in% c("CH_FIT", "STAB"), ]
-        s[] <- lapply(s, function(v) if (is.numeric(v)) signif(v, 3) else v)
-        print(s, row.names = FALSE)
-        invisible(x)
+  rpp <- if (is.null(x$config$rpp_per_region)){
+    format(x$config$regions_per_partition) 
+  } else {
+    paste0(x$config$rpp_per_region," x k")
+  }
+  cat(
+    sprintf("<pulse_null>  %d replicates | regions_per_partition = %s | N_tree = %d | weight_exponent = %g\n",
+      x$B,
+      rpp,
+      x$config$N_tree, 
+      x$config$weight_exponent
+    )
+  )
+  if (!is.null(x$settings))
+          cat(sprintf("  cut_rule = %s | refine_boundary = %s | min_size = %s\n",
+                      x$settings$cut_rule, x$settings$refine_boundary, x$settings$min_size))
+  s <- x$summary[x$summary$criterion %in% c("CH_FIT", "STAB"), ]
+  s[] <- lapply(s, function(v) if (is.numeric(v)) signif(v, 3) else v)
+  print(s, row.names = FALSE)
+  invisible(x)
 }
 # Contiguity-preserving SSD descent on a hard partition. Moves a boundary
 # unit to an adjacent region if total within-region SSD drops and the old

@@ -42,7 +42,7 @@
 #' @export
 check_cut_placement <- function(trees, regions_per_partition,
                                 size_influence  = c(0, 0.5, 1, 2, 4),
-                                weight_exponent = 1, prior_strength = 0,
+                                weight_exponent = 4, prior_strength = 0,
                                 N_tree = NULL, seed = NULL) {
         stopifnot(inherits(trees, "pulse_trees"),
                   is.numeric(size_influence), all(size_influence >= 0),

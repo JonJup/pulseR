@@ -97,10 +97,10 @@
 #'
 #' @export
 connect_components <- function(g,
-                               polygons  = NULL,
-                               centroids = NULL,
-                               method    = c("rann", "nngeo", "sf"),
-                               verbose   = TRUE) {
+                              polygons  = NULL,
+                              centroids = NULL,
+                              method    = c("rann", "nngeo", "sf"),
+                              verbose   = TRUE) {
         
         # ---- Argument validation ---------------------------------------------------
         if (!igraph::is_igraph(g)) {
