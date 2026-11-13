@@ -234,7 +234,7 @@ get_regions <- function(graph,
             paste0(regions_per_partition),
             ") must be smaller than the number of units (",
             paste(igraph::vcount(graph)),
-            ,").",
+            ").",
             call. = FALSE
           )
         }
