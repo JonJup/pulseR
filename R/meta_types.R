@@ -118,17 +118,34 @@
 #' @param env Predictor matrix for \code{method = "empirical"}, one row per unit,
 #'   columns \code{local$variables}.
 #' @param n_sample Rows sampled for the empirical comparison. Default 20000.
+#' @param variables Use a subset of local$variables; the Gaussians are reduced to it, which is exact for a Gaussian.
 #' @param seed Seed for that sample, restored on exit. \code{NULL} (default)
 #'   uses the current RNG stream.
 #' @return A \code{dist} over the local types, with type names as labels.
 #' @export
-compute_local_type_distance <- function(local,
-                                method = c("bhattacharyya", "wasserstein", "empirical"),
-                                env = NULL, n_sample = 20000L, seed = NULL) {
+compute_local_type_distance <- function(
+                local,
+                method = c("bhattacharyya", "wasserstein", "empirical"),
+                env = NULL, 
+                n_sample = 20000L, 
+                variables = NULL,
+                seed = NULL) {
         method <- match.arg(method)
         gs <- .local_gaussians(local)
+        # How many components? 
         C  <- length(gs$mu)
-        
+        # vector of local variables 
+        vi <- seq_along(local$variables)
+        if (!is.null(variables)) {
+                if (!is.character(variables) || !length(variables) || anyDuplicated(variables))
+                        stop("`variables` must be distinct variable names.", call. = FALSE)
+                vi <- match(variables, local$variables)
+                if (anyNA(vi))
+                        stop("`variables` not used by the local types: ",
+                             paste(variables[is.na(vi)], collapse = ", "), call. = FALSE)
+                gs$mu    <- lapply(gs$mu, function(m) m[vi])
+                gs$sigma <- lapply(gs$sigma, function(S) S[vi, vi, drop = FALSE])
+        }
         if (method == "empirical") {
                 if (is.null(env)) stop("`method = \"empirical\"` needs `env`.", call. = FALSE)
                 if (!is.numeric(n_sample) || length(n_sample) != 1L || is.na(n_sample) ||
@@ -139,7 +156,10 @@ compute_local_type_distance <- function(local,
                         .local_seed(seed)
                         env <- env[sort(sample.int(N, n_sample)), , drop = FALSE]
                 }
-                X <- as.matrix(env[, local$variables, drop = FALSE])
+                X <- as.matrix(env[, local$variables[vi], drop = FALSE])
+                if (!is.null(local$scaling))
+                        X <- sweep(sweep(X, 2L, local$scaling$center[vi], "-"), 2L,
+                                   local$scaling$scale[vi], "/")
                 if (!is.null(local$scaling))
                         X <- sweep(sweep(X, 2L, local$scaling$center, "-"), 2L, local$scaling$scale, "/")
                 ## Column c = the density of type c over the sampled units,
@@ -167,7 +187,9 @@ compute_local_type_distance <- function(local,
         }
         dimnames(D) <- list(gs$names, gs$names)
         attr(D, "region") <- gs$region
-        stats::as.dist(D)
+        D <- stats::as.dist(D)
+        attr(D, "variables") <- local$variables[vi]
+        D
 }
 
 #' @keywords internal
@@ -201,11 +223,24 @@ compute_local_type_distance <- function(local,
 #' @param sensitivity Thresholds at which the selection is re-read from
 #'   \code{selection}, without refitting. Default \code{c(0.1, 0.2, 0.3)}.
 #' @param method,env,n_sample,seed Passed to \code{\link{compute_local_type_distance}}.
+#' @param rule How to choose among several \code{n_meta_types}.
+#'   \code{"crossing"} (default): the finest cut whose confined mass is at most
+#'   \code{max_confined}. \code{"gap"}: cut where the tree has its largest jump
+#'   in merge height, that is, between the last merge of similar types and the
+#'   first merge of dissimilar ones. Crossing only says a meta-type is not a
+#'   stand-in for a region; it does not say the meta-type is homogeneous, so
+#'   it keeps accepting finer splits of one recurring type. The gap rule does
+#'   not need several regions. The crossing diagnostics stay in
+#'   \code{selection} and \code{crossing} either way. Ignored when
+#'   \code{n_meta_types} is a single value.
 #' @param linkage Passed to \code{\link[stats]{hclust}}. Default
 #'   \code{"average"}, which merges on mean overlap and does not chain the way
 #'   single linkage would.
 #' @param distance Optional precomputed \code{dist} over local types, in place of
 #'   recomputing one.
+#' @param variables Optional subset of \code{local$variables} to compare the
+#'   local types on; passed to \code{\link{compute_local_type_distance}}.
+#'   Ignored when \code{distance} is given.
 #' @return An object of class \code{"pulse_meta_types"}:
 #'   \describe{
 #'     \item{\code{memberships}}{N x n_meta_types matrix. Rows sum to one, exactly, by
@@ -220,8 +255,9 @@ compute_local_type_distance <- function(local,
 #'     \item{\code{n_meta_types}}{Number of meta-types.}
 #'     \item{\code{selection}}{Per candidate: confined mass, share of
 #'       single-region meta-types, regions per meta-type, ARI with region,
-#'       silhouette, and whether it passes. \code{NULL} for a single value
-#'       outside 2 to (number of local types - 1).}
+#'       silhouette, whether it passes, and \code{height_gap}, the jump in merge
+#'       height at that cut. \code{NULL} for a single value, and whether it passes.
+#'       \code{NULL} for a single value outside 2 to (number of local types - 1).}
 #'     \item{\code{sensitivity}}{Per threshold: chosen n_meta_types, confined mass,
 #'       unweighted and mass-weighted ARI, silhouette. Attribute \code{stable}
 #'       is TRUE if every threshold picks the same cut. \code{NULL} if
@@ -230,6 +266,13 @@ compute_local_type_distance <- function(local,
 #'     \item{\code{hclust}, \code{distance}}{The tree and the distance used.}
 #'     \item{\code{method}}{Distance method used.}
 #'     \item{\code{parent}}{The local-type key of \code{local}.}
+#'     \item{\code{gap_ratio}}{Largest height gap among the candidate cuts,
+#'       divided by their median gap. Large values mean the tree has one clear
+#'       cut; values near 1 mean no cut stands out, so treat the chosen
+#'       \code{n_meta_types} with caution. Computed under either rule.
+#'       \code{NA} with fewer than two candidates.}
+#'     \item{\code{variables}}{Variables the local-type distance was computed
+#'       on. \code{NULL} when \code{distance} was given without that attribute.}
 #'   }
 #' @importFrom stats hclust cutree as.dist
 #' @importFrom cluster silhouette
@@ -237,6 +280,7 @@ compute_local_type_distance <- function(local,
 get_meta_types <- function(local,
                            n_meta_types     = 2:12,
                            max_confined = 0.2,
+                           rule       = c("crossing", "gap"),
                            sensitivity  = c(0.1, 0.2, 0.3),
                            method     = c("bhattacharyya", "wasserstein", "empirical"),
                            env        = NULL,
@@ -244,13 +288,16 @@ get_meta_types <- function(local,
                            seed       = NULL,
                            linkage    = c("average","ward.D", "single", "complete",
                                           "mcquitty", "median", "centroid", "ward.D2"),
-                           distance   = NULL) {
+                           distance   = NULL,
+                           variables = NULL
+                           ) {
         
         stopifnot(inherits(local, "pulse_local_types"))
         method <- match.arg(method)
         linkage <- match.arg(linkage)
+        rule_arg <- match.arg(rule)
         
-        d <- if (is.null(distance)) compute_local_type_distance(local, method, env, n_sample, seed) else distance
+        d <- if (is.null(distance)) compute_local_type_distance(local, method, env, n_sample, variables = variables, seed) else distance
         C <- attr(d, "Size")
         reg <- local$key$region
         hc  <- stats::hclust(d, method = linkage)
@@ -267,19 +314,29 @@ get_meta_types <- function(local,
                              C - 1L), call. = FALSE)
         ## Unit mass of each local type: share of the N rows' membership.
         w <- colSums(local$memberships) / nrow(local$memberships)
-        sel <- if (!length(cand)) NULL else do.call(rbind, lapply(cand, function(M) {
-                cl <- stats::cutree(hc, k = M)
-                nr <- vapply(split(reg, cl), function(v) length(unique(v)), integer(1))
-                confined <- as.integer(names(nr)[nr == 1L])
-                data.frame(n_meta_types = M,
-                           mass_confined = sum(w[cl %in% confined]),
-                           frac_single_region = mean(nr == 1L),
-                           mean_regions_per_meta = mean(nr),
-                           min_regions_per_meta = min(nr),
-                           ari_with_region = .adjusted_rand_index(cl, reg),
-                           ari_with_region_w = .weighted_ari(cl, reg, w * nrow(local$memberships)),
-                           silhouette = mean(cluster::silhouette(cl, d)[, 3]))
-        }))
+        sel <- if (!length(cand)) {
+                NULL
+                } else { 
+                        do.call(rbind, lapply(cand, function(M) {
+                                cl <- stats::cutree(hc, k = M)
+                                nr <- vapply(split(reg, cl), function(v) length(unique(v)), integer(1))
+                                confined <- as.integer(names(nr)[nr == 1L])
+                
+                                data.frame(n_meta_types          = M,
+                                           mass_confined         = sum(w[cl %in% confined]),
+                                           frac_single_region    = mean(nr == 1L),
+                                           mean_regions_per_meta = mean(nr),
+                                           min_regions_per_meta  = min(nr),
+                                           ari_with_region       = .adjusted_rand_index(cl, reg),
+                                           ari_with_region_w     = .weighted_ari(cl, reg, w * nrow(local$memberships)),
+                                           silhouette            = mean(cluster::silhouette(cl, d)[, 3]),
+                                           height_gap            = hc$height[C-M+1] - hc$height[C-M]
+                                           )
+                                }
+                                )
+                                )
+                }
+        
         if (!is.null(sel)) sel$passes <- sel$mass_confined <= max_confined + 1e-9
         
         .pick <- function(t) {
@@ -297,7 +354,19 @@ get_meta_types <- function(local,
                 s
         } else NULL
         
-        if (auto) {
+        gap_ratio <- if (!is.null(sel) && nrow(sel) >= 2L)
+                max(sel$height_gap) / max(stats::median(sel$height_gap), .Machine$double.eps)
+        else NA_real_
+        if (auto && rule_arg == "gap") {
+                M <- sel$n_meta_types[which.max(sel$height_gap)]
+                if (M == max(cand) && M < C - 1L)
+                        warning(sprintf(paste0(
+                                "The largest height gap is at n_meta_types = %d, the largest ",
+                                "candidate. A finer cut may have a larger gap; extend `n_meta_types`."),
+                                M), call. = FALSE)
+                rule <- sprintf("gap: largest height gap (%.3g, %.1f x median)",
+                                max(sel$height_gap), gap_ratio)
+        } else if (auto) {
                 if (length(unique(reg)) < 2L)
                         stop("Crossing is undefined with one region; give one value in `n_meta_types`.",
                              call. = FALSE)
@@ -356,6 +425,8 @@ get_meta_types <- function(local,
                 selection    = sel,
                 sensitivity  = sens,
                 rule         = rule,
+                gap_ratio    = gap_ratio,
+                variables    = attr(d, "variables"),
                 hclust       = hc,
                 distance     = d,
                 method       = method,

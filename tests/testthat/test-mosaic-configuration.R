@@ -157,3 +157,81 @@ test_that("smoothed features still separate the arrangement zones", {
                                                configuration = cf))
         expect_gt(.adjusted_rand_index(m$hard_labels, fx$zone[m$valid]), 0.8)
 })
+
+# Three zones, same 3 types in equal shares: square blocks | bands | random.
+# Bands are tertiles of a sine of period 6, as in the simulation DGP.
+.three_zone_fixture <- function(n = 30, seed = 1, theta = 0, period = 6, block = 6) {
+        set.seed(seed)
+        g  <- igraph::make_lattice(c(3 * n, n))
+        xy <- as.matrix(expand.grid(x = 1:(3 * n), y = 1:n))
+        zone <- 1L + (xy[, 1] > n) + (xy[, 1] > 2 * n); N <- nrow(xy)
+        f <- sin(2 * pi * (xy[, 1] * cos(theta) + xy[, 2] * sin(theta)) / period)
+        tert <- function(v) {
+                r <- rank(v, ties.method = "random")
+                1L + findInterval(r, stats::quantile(r, c(1 / 3, 2 / 3)))
+        }
+        key <- paste((xy[, 1] - 1) %/% block, (xy[, 2] - 1) %/% block)
+        bt  <- stats::setNames(sample(rep_len(1:3, length(unique(key)))), unique(key))
+        lab <- integer(N)
+        lab[zone == 1] <- bt[key[zone == 1]]
+        lab[zone == 2] <- tert(f[zone == 2])
+        lab[zone == 3] <- sample(rep_len(1:3, sum(zone == 3)))
+        P <- matrix(0, N, 3); P[cbind(seq_len(N), lab)] <- 1
+        list(g = g, P = P, xy = xy, zone = zone)
+}
+
+.zone_means <- function(cf, zone) {
+        a <- apply(unclass(cf)[, , drop = FALSE], 2, function(v) tapply(v, zone, mean, na.rm = TRUE))
+        a
+}
+
+test_that("anisotropy is high for bands, low for blocks and random, and rotation-free", {
+        fx <- .three_zone_fixture(theta = 0)
+        cf <- compute_configuration(fx$P, fx$g, k_order = 3, lags = 1:2, k_reference = 8,
+                                    anisotropy_lags = 1:2, coords = fx$xy, verbose = FALSE)
+        expect_true(all(c("aniso_lag1", "aniso_lag2") %in% colnames(cf)))
+        a <- .zone_means(cf, fx$zone)
+        expect_gt(a[2, "aniso_lag1"], 3 * max(a[c(1, 3), "aniso_lag1"]))
+        ## Bands at 90 degrees give the same values.
+        fy <- .three_zone_fixture(theta = pi / 2)
+        cy <- compute_configuration(fy$P, fy$g, k_order = 3, lags = 1:2, k_reference = 8,
+                                    anisotropy_lags = 1:2, coords = fy$xy, verbose = FALSE)
+        expect_equal(.zone_means(cy, fy$zone)[2, "aniso_lag1"], a[2, "aniso_lag1"],
+                     tolerance = 0.05)
+        ## Diagonal bands: invisible at lag 1 on a rook lattice, seen at lag 2.
+        fd <- .three_zone_fixture(theta = pi / 4)
+        cd <- compute_configuration(fd$P, fd$g, k_order = 3, lags = 1:2, k_reference = 8,
+                                    anisotropy_lags = 1:2, coords = fd$xy, verbose = FALSE)
+        ad <- .zone_means(cd, fd$zone)
+        expect_gt(ad[2, "aniso_lag2"], 3 * max(ad[c(1, 3), "aniso_lag2"]))
+})
+
+test_that("anisotropy features are label-invariant and need coords", {
+        fx <- .three_zone_fixture(n = 15)
+        a <- compute_configuration(fx$P, fx$g, k_order = 2, lags = 1:2,
+                                   anisotropy_lags = 1:2, coords = fx$xy, verbose = FALSE)
+        b <- compute_configuration(fx$P[, c(3, 1, 2)], fx$g, k_order = 2, lags = 1:2,
+                                   anisotropy_lags = 1:2, coords = fx$xy, verbose = FALSE)
+        expect_equal(unclass(a)[, ], unclass(b)[, ], ignore_attr = TRUE)
+        expect_equal(attr(a, "anisotropy_lags"), 1:2)
+        expect_error(compute_configuration(fx$P, fx$g, 2, lags = 1:2, anisotropy_lags = 1,
+                                           verbose = FALSE), "coords")
+        expect_error(compute_configuration(fx$P, fx$g, 2, lags = 1:2, anisotropy_lags = 0,
+                                           coords = fx$xy, verbose = FALSE), "anisotropy_lags")
+})
+
+test_that("anisotropy lets the mixture separate bands from random mixing", {
+        fx  <- .three_zone_fixture()
+        sig <- compute_all_signatures(fx$P, fx$g, k_order = 2, verbose = FALSE)
+        fit <- function(al) {
+                cf <- compute_configuration(fx$P, fx$g, k_order = 3, lags = 1:3, k_reference = 8,
+                                            anisotropy_lags = al, coords = fx$xy, smooth_k = 2,
+                                            verbose = FALSE)
+                m <- suppressWarnings(get_mosaic_types(sig, 2:5, method = "dmm", seed = 1,
+                                                       verbose = FALSE,
+                                                       dmm_control = list(n_start = 3),
+                                                       configuration = cf))
+                .adjusted_rand_index(m$hard_labels, fx$zone[m$valid])
+        }
+        expect_gt(fit(1:2), 0.8)
+})

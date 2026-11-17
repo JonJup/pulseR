@@ -30,6 +30,7 @@ export(check_native_regions)
 export(check_signature_saturation)
 export(check_tree_novelty)
 export(compute_all_signatures)
+export(compute_configuration)
 export(compute_consensus)
 export(compute_ensemble)
 export(compute_local_type_distance)
@@ -66,8 +67,10 @@ export(tabulate_meta_regions)
 export(tune_regions)
 importFrom(Matrix,
   Diagonal,
+  colSums,
   crossprod,
   drop0,
+  rowSums,
   sparseMatrix
 )
 importFrom(cluster,

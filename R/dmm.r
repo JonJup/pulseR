@@ -33,6 +33,24 @@
                 stop("`dmm_control$n_scale` must be \"auto\" or one positive number.", call. = FALSE)
         n_scale
 }
+## Temperature tau on the per-unit evidence, r_ik ∝ pi_k * DM(x_i | alpha_k)^tau.
+## "auto" and "calibrate" both start at 1 / mean neighbourhoods per edge; "calibrate"
+## later replaces it by .calibrate_dmm_tau() for the selected k.
+.resolve_temperature <- function(temperature, signatures) {
+        if (identical(temperature, "auto") || identical(temperature, "calibrate")) {
+                m <- attr(signatures, "edge_multiplicity")
+                if (is.null(m) || !is.finite(m) || m <= 0)
+                        stop("temperature = \"", temperature, "\" needs attr(signatures, ",
+                             "\"edge_multiplicity\"). Recompute with compute_all_signatures(), ",
+                             "or pass a number.", call. = FALSE)
+                return(min(1, 1 / m))
+        }
+        if (!is.numeric(temperature) || length(temperature) != 1L || !is.finite(temperature) ||
+            temperature <= 0 || temperature > 1)
+                stop("`dmm_control$temperature` must be \"auto\", \"calibrate\" or one number in (0, 1].",
+                     call. = FALSE)
+        temperature
+}
 ## Grouped sums over contiguous blocks: one cumsum, about 5x faster than rowsum().
 ## `ends` = cumsum(tabulate(group)); empty groups return 0.
 .gsum <- function(v, ends) {
@@ -141,6 +159,50 @@
         list(R = R, theta = Th)
 }
 
+## DMM EM from given parameters. Always untempered: tempering the E-step is
+## deterministic annealing, and below a critical tau all components merge into one
+## (planted 4-zone fixture: ARI 0.93 at tau = 0.5, 0 at tau = 0.13).
+.dmm_em <- function(tr, alpha, pi_k, max_iter = 500L, tol = 1e-5,
+                    alpha_min = 1e-4, A_max = 1e6) {
+        eps <- .Machine$double.eps
+        trace <- numeric(0); converged <- FALSE
+        for (it in seq_len(max_iter)) {
+                L   <- .dmm_logdens(tr, alpha) + rep(log(pi_k), each = tr$N)
+                lse <- .lse_rows(L)
+                R   <- exp(L - lse)
+                trace[it] <- sum(lse)
+                if (it > 1L && abs(trace[it] - trace[it - 1L]) < tol * abs(trace[it])) {
+                        converged <- TRUE; break
+                }
+                pi_k <- pmax(colMeans(R), eps)
+                for (k in seq_len(nrow(alpha)))
+                        alpha[k, ] <- .dmm_update_alpha(tr, R[, k], alpha[k, ],
+                                                        alpha_min = alpha_min, A_max = A_max)
+        }
+        list(R = R, alpha = alpha, pi = pi_k, loglik = trace[length(trace)],
+             trace = trace, converged = converged)
+}
+
+## Assemble a pulse_dmm object from untempered EM output (alpha, pi, loglik, trace,
+## converged, limit). Temperature tau acts after fitting, as a power on each unit's
+## evidence: U_ik ∝ pi_k DM(x_i | alpha_k)^tau. The criteria get the composite-
+## likelihood magnitude adjustment (Pauli, Racugno & Ventura 2011): BIC uses
+## tau * loglik, and ICL adds the entropy of the tempered U. loglik stays untempered.
+.new_pulse_dmm <- function(fit, tr, K, tau, colnames_X = NULL, valid = NULL) {
+        df  <- if (fit$limit == "multinomial") K * (tr$C - 1L) + (K - 1L) else K * tr$C + (K - 1L)
+        BIC <- -2 * tau * fit$loglik + df * log(tr$N)
+        L   <- tau * .dmm_logdens(tr, fit$alpha) + rep(log(fit$pi), each = tr$N)
+        R   <- exp(L - .lse_rows(L))
+        EN  <- -sum(R[R > 0] * log(R[R > 0]))
+        colnames(fit$alpha) <- colnames_X
+        structure(list(U = R, cluster = max.col(R, ties.method = "first"),
+                       alpha = fit$alpha, pi = fit$pi, K = K, tau = tau,
+                       loglik = fit$loglik, BIC = BIC, ICL = BIC + 2 * EN, df = df,
+                       concentration = rowSums(fit$alpha), limit = fit$limit,
+                       trace = fit$trace, converged = fit$converged, valid = valid),
+                  class = "pulse_dmm")
+}
+
 #' Fit a Dirichlet-multinomial mixture
 #'
 #' Each start: k-means on the Hellinger embedding, then a multinomial mixture
@@ -158,19 +220,25 @@
 #'   alpha -> 0, which forbids any unit containing that pair from joining it.
 #' @param A_max Cap on the precision. At the cap the DMM equals a multinomial
 #'   mixture to numerical precision for any realistic count total.
+#' @param tau Temperature on the per-unit evidence, in [0, 1], applied after
+#'   fitting: alpha and pi are the untempered estimates, memberships are
+#'   U_ik ∝ pi_k DM(x_i | alpha_k)^tau (tau -> 0 sends them to \code{pi}), and
+#'   BIC uses tau * loglik. 1 is the plain DMM.
 #' @param seed Optional integer seed.
 #' @return Object of class \code{pulse_dmm}: memberships \code{U} (N x K), hard
 #'   \code{cluster}, \code{alpha} (K x C), mixing weights \code{pi}, \code{loglik},
-#'   \code{BIC}, \code{ICL} (both lower is better), \code{limit}, \code{trace},
-#'   \code{converged}.
+#'   \code{BIC}, \code{ICL} (both lower is better; magnitude-adjusted by tau),
+#'   \code{tau}, \code{limit}, \code{trace}, \code{converged}.
 #' @keywords internal
 #' @noRd
 .fit_dmm <- function(X, K, n_start = 5L, max_iter = 500L, tol = 1e-5,
-                     A_init = 50, alpha_min = 1e-4, A_max = 1e6, seed = NULL) {
+                     A_init = 50, alpha_min = 1e-4, A_max = 1e6, tau = 1, seed = NULL) {
         X <- as.matrix(X)
         if (any(X < 0, na.rm = TRUE) || anyNA(X)) stop("`X` must be non-negative with no NA.", call. = FALSE)
         if (any(rowSums(X) <= 0)) stop("Every row of `X` needs a positive total.", call. = FALSE)
         if (K < 1L || K > nrow(X)) stop("`K` must be between 1 and nrow(X).", call. = FALSE)
+        if (!is.numeric(tau) || length(tau) != 1L || !is.finite(tau) || tau < 0 || tau > 1)
+                stop("`tau` must be one number in [0, 1].", call. = FALSE)
         n_u <- nrow(unique(sqrt(X / rowSums(X))))
         if (K > n_u) stop("`K` (", K, ") exceeds the ", n_u,
                           " distinct row compositions of `X`.", call. = FALSE)
@@ -179,12 +247,6 @@
         tr  <- .dmm_triplets(X)
         H   <- sqrt(X / tr$n)                         # Hellinger embedding for initialisation
         eps <- .Machine$double.eps
-        mstep <- function(R, alpha) {
-                for (k in seq_len(K))
-                        alpha[k, ] <- .dmm_update_alpha(tr, R[, k], alpha[k, ],
-                                                        alpha_min = alpha_min, A_max = A_max)
-                alpha
-        }
         best <- NULL
         
         for (st in seq_len(n_start)) {
@@ -203,57 +265,110 @@
                         L <- .dmm_logdens(tr, alpha) + rep(log(pi_k), each = tr$N)
                         lse <- .lse_rows(L)
                         fit <- list(R = exp(L - lse), alpha = alpha, pi = pi_k, loglik = sum(lse),
-                                    trace = sum(lse), converged = TRUE, start = st,
-                                    limit = "multinomial")
+                                    trace = sum(lse), converged = TRUE)
                 } else {
-                        alpha <- mstep(R, pmax(mm$theta * A_init, alpha_min))
-                        trace <- numeric(0); converged <- FALSE
-                        for (it in seq_len(max_iter)) {
-                                L   <- .dmm_logdens(tr, alpha) + rep(log(pi_k), each = tr$N)
-                                lse <- .lse_rows(L)
-                                R   <- exp(L - lse)
-                                trace[it] <- sum(lse)
-                                if (it > 1L && abs(trace[it] - trace[it - 1L]) < tol * abs(trace[it])) {
-                                        converged <- TRUE; break
-                                }
-                                pi_k  <- pmax(colMeans(R), eps)
-                                alpha <- mstep(R, alpha)
-                        }
-                        fit <- list(R = R, alpha = alpha, pi = pi_k, loglik = trace[length(trace)],
-                                    trace = trace, converged = converged, start = st,
-                                    limit = "dirichlet-multinomial")
+                        alpha <- pmax(mm$theta * A_init, alpha_min)
+                        for (k in seq_len(K))
+                                alpha[k, ] <- .dmm_update_alpha(tr, R[, k], alpha[k, ],
+                                                                alpha_min = alpha_min, A_max = A_max)
+                        fit <- .dmm_em(tr, alpha, pi_k, max_iter = max_iter, tol = tol,
+                                       alpha_min = alpha_min, A_max = A_max)
                 }
+                fit$start <- st
+                fit$limit <- if (limit) "multinomial" else "dirichlet-multinomial"
                 if (is.null(best) || fit$loglik > best$loglik) best <- fit
         }
-        
-        ## At the cap the concentrations are not free parameters.
-        df  <- if (best$limit == "multinomial") K * (tr$C - 1L) + (K - 1L) else K * tr$C + (K - 1L)
-        BIC <- -2 * best$loglik + df * log(tr$N)
-        R   <- best$R
-        EN  <- -sum(R[R > 0] * log(R[R > 0]))
-        colnames(best$alpha) <- colnames(X)
-        structure(list(U = R, cluster = max.col(R, ties.method = "first"),
-                       alpha = best$alpha, pi = best$pi, K = K,
-                       loglik = best$loglik, BIC = BIC, ICL = BIC + 2 * EN, df = df,
-                       concentration = rowSums(best$alpha), limit = best$limit,
-                       trace = best$trace, converged = best$converged,
-                       valid = attr(X, "valid")),
-                  class = "pulse_dmm")
+        .new_pulse_dmm(best, tr, K, tau, colnames(X), attr(X, "valid"))
+}
+
+## Same fit, new temperature: recomputes U, cluster, BIC and ICL; alpha and pi unchanged.
+.temper_dmm <- function(fit, X, tau) {
+        tr <- .dmm_triplets(as.matrix(X))
+        .new_pulse_dmm(list(alpha = unname(fit$alpha), pi = fit$pi, loglik = fit$loglik,
+                            trace = fit$trace, converged = fit$converged, limit = fit$limit),
+                       tr, fit$K, tau, colnames(fit$alpha), fit$valid)
+}
+
+## Simulate counts from a fitted DMM with given row totals `n`. Fractional totals:
+## draw round(n) (at least 1) multinomial counts, then rescale each row to n.
+.dmm_simulate <- function(alpha, pi_k, n) {
+        N <- length(n); C <- ncol(alpha)
+        z <- sample.int(nrow(alpha), N, replace = TRUE, prob = pi_k)
+        G <- matrix(stats::rgamma(N * C, shape = alpha[z, , drop = FALSE]), N, C)
+        empty <- rowSums(G) <= 0                       # all shapes tiny: fall back to the mode
+        if (any(empty)) G[cbind(which(empty), max.col(alpha[z[empty], , drop = FALSE]))] <- 1
+        size <- pmax(1L, round(n))
+        X <- t(vapply(seq_len(N), function(i) as.numeric(stats::rmultinom(1L, size[i], G[i, ])),
+                      numeric(C)))
+        list(X = X * (n / size), z = z)
+}
+
+#' Temperature by parametric-bootstrap ECE
+#'
+#' Simulates \code{B} count matrices from \code{fit} with the observed row
+#' totals, refits each by (untempered) EM started at the generating
+#' parameters, so labels stay aligned with the simulated truth without
+#' matching. Each refit is rescored at every grid temperature and the
+#' top-class reliability bins are pooled over the \code{B} maps.
+#'
+#' The simulator is the fitted DMM itself: rows are independent and the model
+#' is correct by construction. The search corrects sharpness from estimating
+#' alpha and pi. It cannot see misspecification or dependence between rows.
+#' @param fit A \code{pulse_dmm} object.
+#' @param n Row totals of the fitted count matrix.
+#' @param tau_grid Candidate temperatures in (0, 1].
+#' @param B Simulated maps.
+#' @return List with the selected \code{tau} and a \code{table} (tau, ece,
+#'   mean confidence, accuracy) over the grid.
+#' @keywords internal
+#' @noRd
+.calibrate_dmm_tau <- function(fit, n, tau_grid = exp(seq(log(0.01), 0, length.out = 25L)),
+                               B = 50L, n_bins = 10L, max_iter = 200L, tol = 1e-5,
+                               alpha_min = 1e-4, A_max = 1e6, seed = NULL) {
+        .local_seed(seed)
+        G <- length(tau_grid)
+        s_conf <- s_acc <- n_bin <- matrix(0, G, n_bins)
+        alpha <- unname(fit$alpha)
+        for (b in seq_len(B)) {
+                sim <- .dmm_simulate(alpha, fit$pi, n)
+                tr  <- .dmm_triplets(sim$X)
+                em  <- .dmm_em(tr, alpha, fit$pi, max_iter = max_iter, tol = tol,
+                               alpha_min = alpha_min, A_max = A_max)
+                ld  <- .dmm_logdens(tr, em$alpha)
+                lp  <- rep(log(em$pi), each = tr$N)
+                for (g in seq_len(G)) {
+                        L    <- tau_grid[g] * ld + lp
+                        R    <- exp(L - .lse_rows(L))
+                        top  <- max.col(R, ties.method = "first")
+                        conf <- R[cbind(seq_len(tr$N), top)]
+                        bin  <- pmin(n_bins, 1L + floor(conf * n_bins))
+                        s_conf[g, ] <- s_conf[g, ] + .gsum(conf[order(bin)], cumsum(tabulate(bin, n_bins)))
+                        s_acc[g, ]  <- s_acc[g, ] + tabulate(bin[top == sim$z], n_bins)
+                        n_bin[g, ]  <- n_bin[g, ] + tabulate(bin, n_bins)
+                }
+        }
+        tot <- rowSums(n_bin)
+        tab <- data.frame(tau = tau_grid, ece = rowSums(abs(s_acc - s_conf)) / tot,
+                          mean_conf = rowSums(s_conf) / tot, accuracy = rowSums(s_acc) / tot)
+        list(tau = tab$tau[which.min(tab$ece)], table = tab, B = B)
 }
 
 #' Memberships and log predictive density for new rows (held-out blocks, unsampled units)
 #' @param fit A \code{pulse_dmm} object.
 #' @param X_new Count matrix with the same columns as the fitted \code{X}.
+#' @param tau Temperature; defaults to the one the model was fitted at.
 #' @return List with \code{U}, \code{cluster}, per-row \code{logpred} and its sum \code{loglik}.
 #' @keywords internal
 #' @noRd
-.score_dmm <- function(fit, X_new) {
+.score_dmm <- function(fit, X_new, tau = if (is.null(fit$tau)) 1 else fit$tau) {
         X_new <- as.matrix(X_new)
         if (ncol(X_new) != ncol(fit$alpha)) stop("Column mismatch with the fitted model.", call. = FALSE)
         tr  <- .dmm_triplets(X_new)
-        L   <- .dmm_logdens(tr, fit$alpha) + rep(log(fit$pi), each = tr$N)
-        lse <- .lse_rows(L)
-        U   <- exp(L - lse)
+        ld  <- .dmm_logdens(tr, fit$alpha)
+        lp  <- rep(log(fit$pi), each = tr$N)
+        lse <- .lse_rows(ld + lp)                     # predictive density: always untempered
+        L   <- tau * ld + lp
+        U   <- exp(L - .lse_rows(L))
         list(U = U, cluster = max.col(U, ties.method = "first"),
              logpred = lse, loglik = sum(lse))
 }
@@ -269,7 +384,152 @@ print.pulse_dmm <- function(x, ...) {
                     if (x$converged) "converged" else "NOT converged", length(x$trace)))
         if (identical(x$limit, "multinomial"))
                 cat("Multinomial limit: no overdispersion detected; concentrations sit at the cap.\n")
+        if (!is.null(x$tau) && x$tau != 1)
+                cat(sprintf("Temperature:   %.3g (memberships, BIC and ICL; logLik untempered)\n", x$tau))
         cat("Sizes:        ", tabulate(x$cluster, x$K), "\n")
         cat("Concentration:", signif(x$concentration, 3), "\n")
         invisible(x)
+}
+
+
+## ---------------------------------------------------------------------------*
+## Two-channel mixture: DMM on signature counts (composition) x diagonal
+## Gaussian on configuration features (arrangement). One label per unit, shared
+## by both channels. Tempered composite evidence (memberships, BIC, ICL):
+##   tau * log DM(x_i | alpha_k) + w * log N(y_i | mu_k, diag(s2_k)) + log pi_k
+## tau is the DMM temperature (edge overcounting); w weights the arrangement
+## channel against the tempered composition evidence. As in .dmm_em(), EM runs
+## untempered: it maximises log DM + (w / tau) log N, the same channel balance at
+## temperature 1. Tempering inside EM is deterministic annealing and merges all
+## components once the configuration channel carries no zone signal.
+## ---------------------------------------------------------------------------*
+
+## N x K matrix of log N(y_i | mu_k, diag(s2_k)).
+.gauss_logdens <- function(Y, mu, s2) {
+        K <- nrow(mu); out <- matrix(0, nrow(Y), K)
+        for (k in seq_len(K)) {
+                Z <- sweep(Y, 2, mu[k, ])^2
+                out[, k] <- -0.5 * (rowSums(sweep(Z, 2, s2[k, ], "/")) +
+                                    sum(log(2 * pi * s2[k, ])))
+        }
+        out
+}
+
+## Weighted means and variances per component; s2_min floors the variances.
+.gauss_mstep <- function(Y, R, s2_min) {
+        nk <- pmax(colSums(R), .Machine$double.eps)
+        mu <- crossprod(R, Y) / nk
+        s2 <- matrix(0, ncol(R), ncol(Y))
+        for (k in seq_len(ncol(R))) {
+                Z <- sweep(Y, 2, mu[k, ])^2
+                s2[k, ] <- colSums(R[, k] * Z) / nk[k]
+        }
+        list(mu = mu, s2 = sweep(s2, 2, s2_min, pmax))
+}
+
+#' Fit the two-channel (composition x configuration) mixture
+#'
+#' @param X Count matrix (N x C) from \code{.sig_to_counts()}.
+#' @param Y Configuration features (N x L), no NA.
+#' @param K Number of mosaic types.
+#' @param tau DMM temperature, in (0, 1].
+#' @param w Weight of the configuration channel, > 0.
+#' @param n_start Starts. The first three start from k-means on both channels,
+#'   on configuration only and on composition only; the rest on both.
+#' @return A \code{pulse_dmm} object with extra \code{mu}, \code{s2}, \code{w},
+#'   \code{channels = "composition+configuration"}. \code{loglik} is the
+#'   untempered composite log-likelihood log DM + (w / tau) log N; BIC uses
+#'   tau * loglik, as for the one-channel DMM.
+#' @keywords internal
+#' @noRd
+.fit_dmm2 <- function(X, Y, K, tau = 1, w = 1, n_start = 5L, max_iter = 500L, tol = 1e-5,
+                      A_init = 50, alpha_min = 1e-4, A_max = 1e6, seed = NULL) {
+        X <- as.matrix(X); Y <- as.matrix(Y)
+        if (nrow(X) != nrow(Y)) stop("`X` and `Y` need the same rows.", call. = FALSE)
+        if (anyNA(Y) || anyNA(X)) stop("`X` and `Y` must have no NA.", call. = FALSE)
+        if (any(rowSums(X) <= 0)) stop("Every row of `X` needs a positive total.", call. = FALSE)
+        if (!is.numeric(tau) || length(tau) != 1L || !is.finite(tau) || tau <= 0 || tau > 1)
+                stop("`tau` must be one number in (0, 1].", call. = FALSE)
+        if (!is.numeric(w) || length(w) != 1L || !is.finite(w) || w <= 0)
+                stop("The configuration weight must be one positive number.", call. = FALSE)
+        .local_seed(seed)
+
+        tr <- .dmm_triplets(X)
+        N  <- tr$N; eps <- .Machine$double.eps
+        s2_min <- pmax(1e-3 * apply(Y, 2, stats::var), 1e-8)
+
+        ## Initialisation embeddings, each block scaled to total variance 1.
+        H  <- sqrt(X / tr$n)
+        Hs <- H / sqrt(max(sum(apply(H, 2, stats::var)), eps))
+        Ys <- scale(Y); Ys[!is.finite(Ys)] <- 0; Ys <- Ys / sqrt(ncol(Y))
+        emb <- list(both = cbind(Hs, Ys), conf = Ys, comp = Hs)
+        n_dist <- function(M) nrow(unique(round(M, 10)))
+
+        best <- NULL
+        for (st in seq_len(n_start)) {
+                E <- emb[[c("both", "conf", "comp")[min(st, 3L)]]]
+                if (n_dist(E) < K) E <- emb$both
+                lab <- if (K == 1L) rep(1L, N) else
+                        stats::kmeans(E, centers = K, nstart = 1L, iter.max = 50L,
+                                      algorithm = "MacQueen")$cluster
+                R <- matrix(0, N, K); R[cbind(seq_len(N), lab)] <- 1
+                Th <- crossprod(R, X) + 1e-10; Th <- Th / rowSums(Th)
+                alpha <- pmax(Th * A_init, alpha_min)
+                gm <- .gauss_mstep(Y, R, s2_min)
+                pi_k <- pmax(colMeans(R), eps)
+                trace <- numeric(0); converged <- FALSE
+                for (it in seq_len(max_iter)) {
+                        ld <- .dmm_logdens(tr, alpha); lg <- .gauss_logdens(Y, gm$mu, gm$s2)
+                        L  <- ld + (w / tau) * lg + rep(log(pi_k), each = N)
+                        lse <- .lse_rows(L); R <- exp(L - lse)
+                        trace[it] <- sum(lse)
+                        if (it > 1L && abs(trace[it] - trace[it - 1L]) < tol * abs(trace[it])) {
+                                converged <- TRUE; break
+                        }
+                        pi_k <- pmax(colMeans(R), eps)
+                        for (k in seq_len(K))
+                                alpha[k, ] <- .dmm_update_alpha(tr, R[, k], alpha[k, ],
+                                                                alpha_min = alpha_min, A_max = A_max)
+                        gm <- .gauss_mstep(Y, R, s2_min)
+                }
+                fit <- list(R = R, alpha = alpha, pi = pi_k, mu = gm$mu, s2 = gm$s2,
+                            loglik = trace[length(trace)], trace = trace,
+                            converged = converged, start = st)
+                if (is.null(best) || fit$loglik > best$loglik) best <- fit
+        }
+        .new_pulse_dmm2(best, tr, Y, K, tau, w, colnames(X), colnames(Y), attr(X, "valid"))
+}
+
+## Assemble the two-channel fit. df counts alpha, Gaussian means and variances,
+## and mixing weights.
+.new_pulse_dmm2 <- function(fit, tr, Y, K, tau, w, colnames_X = NULL, colnames_Y = NULL,
+                            valid = NULL) {
+        L   <- tau * .dmm_logdens(tr, fit$alpha) + w * .gauss_logdens(Y, fit$mu, fit$s2) +
+                rep(log(fit$pi), each = tr$N)
+        R   <- exp(L - .lse_rows(L))
+        df  <- K * tr$C + 2L * K * ncol(Y) + (K - 1L)
+        BIC <- -2 * tau * fit$loglik + df * log(tr$N)
+        EN  <- -sum(R[R > 0] * log(R[R > 0]))
+        colnames(fit$alpha) <- colnames_X
+        colnames(fit$mu) <- colnames(fit$s2) <- colnames_Y
+        structure(list(U = R, cluster = max.col(R, ties.method = "first"),
+                       alpha = fit$alpha, pi = fit$pi, mu = fit$mu, s2 = fit$s2,
+                       K = K, tau = tau, w = w, loglik = fit$loglik, BIC = BIC,
+                       ICL = BIC + 2 * EN, df = df,
+                       concentration = rowSums(fit$alpha), limit = "dirichlet-multinomial",
+                       channels = "composition+configuration",
+                       trace = fit$trace, converged = fit$converged, valid = valid),
+                  class = "pulse_dmm")
+}
+
+## Memberships for new rows under a two-channel fit.
+.score_dmm2 <- function(fit, X_new, Y_new) {
+        X_new <- as.matrix(X_new); Y_new <- as.matrix(Y_new)
+        if (ncol(X_new) != ncol(fit$alpha) || ncol(Y_new) != ncol(fit$mu))
+                stop("Column mismatch with the fitted model.", call. = FALSE)
+        tr <- .dmm_triplets(X_new)
+        L  <- fit$tau * .dmm_logdens(tr, fit$alpha) + fit$w * .gauss_logdens(Y_new, fit$mu, fit$s2) +
+                rep(log(fit$pi), each = tr$N)
+        lse <- .lse_rows(L); U <- exp(L - lse)
+        list(U = U, cluster = max.col(U, ties.method = "first"), logpred = lse, loglik = sum(lse))
 }

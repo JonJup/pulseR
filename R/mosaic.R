@@ -717,16 +717,50 @@ embed_hellinger <- function(signatures) {
 #' @param dmm_control Named list overriding DMM defaults: \code{n_start} (5),
 #'   \code{max_iter} (500), \code{tol} (1e-5, relative log-likelihood change, as in mclust), \code{A_init} (50),
 #'   \code{alpha_min} (1e-4), \code{A_max} (1e6, precision cap: the multinomial
-#'   limit), \code{n_scale} (1). \code{n_scale} multiplies the
-#'   pseudo-counts; rerun at 0.5 and 2 to check that \code{k_sel} is not an
-#'   artefact of the count scale.
+#'   limit), \code{temperature} (\code{"auto"}), \code{calibration_B} (50),
+#'   \code{n_scale} (1). \code{temperature} is a power tau on each unit's
+#'   evidence, r_ik ∝ pi_k DM(x_i | alpha_k)^tau. It acts after fitting (alpha
+#'   and pi are the untempered estimates, because tempering inside EM merges
+#'   all types below a critical tau) on memberships, scoring and, as
+#'   tau * logLik, on BIC and ICL. \code{"auto"}: tau = 1 / mean neighbourhoods per edge, which
+#'   undoes the repeated counting of edges by overlapping neighbourhoods.
+#'   \code{"calibrate"}: select k at the \code{"auto"} value, then choose tau
+#'   for the selected k by minimising the expected calibration error over
+#'   \code{calibration_B} maps simulated from the fitted mixture.
+#'   The simulated maps follow the fitted model, so this corrects sharpness
+#'   from parameter estimation only, not model misspecification. A number in
+#'   (0, 1] fixes tau. \code{n_scale} multiplies the pseudo-counts; keep it at
+#'   1 when tempering, since both correct the same overcounting.
+#'   \code{conf_weight} (0.1) weights the configuration channel against the
+#'   tempered composition evidence when \code{configuration} is given. 0.1
+#'   recovered both arrangement-only and composition-only planted zones; at
+#'   0.3 and above the configuration channel starts to split zones on noise.
 #' @param seed Optional integer; the caller's RNG state is restored on exit.
 #' @param verbose Logical.
+#' @param configuration Optional label-invariant configuration features from
+#'   \code{\link{compute_configuration}}, one row per signature row
+#'   (\code{method = "dmm"} only). The mixture then has two channels: the
+#'   signatures carry composition (which types, and which types touch) and
+#'   \code{configuration} carries arrangement (patchy vs mixed, whatever the
+#'   types are called). Each mosaic type gets a configuration mean and variance.
+#'   Without it, zones with the same types in the same shares that differ only
+#'   in arrangement cannot be separated: a patch interior looks "pure 1:1" or
+#'   "pure 3:3" depending on its type, so one zone spreads over several types.
+#'   Compute the signatures over a wider window (larger \code{k_order}) than the
+#'   patch size, so composition describes the zone rather than one patch.
+#'   Rows with \code{NA} features are dropped like \code{NA} signatures.
+#'   \code{temperature = "calibrate"} is not available with this option.
+#'   Default \code{NULL} (composition only, as before).
 #' @return A list of class \code{"pulse_mosaic_types"} with \code{clusters} (PAM fit
 #'   or \code{pulse_dmm} object), \code{memberships}, \code{hard_labels},
 #'   \code{d_to_medoids}, \code{medoid_signatures} (DMM: component mean
 #'   signatures), \code{k_sel}, \code{validity}, \code{saturation},
-#'   \code{distance}, \code{method}, \code{dmm_control}, \code{sampled} and
+#'   \code{distance}, \code{method}, \code{dmm_control} (resolved; its
+#'   \code{temperature} is the one the memberships use), \code{calibration}
+#'   (\code{NULL} unless \code{temperature = "calibrate"}: selected tau, the tau
+#'   used for selection, and the ECE table over the grid), \code{configuration}
+#'   (\code{NULL}, or the feature names, channel weight, and per-type means and
+#'   variances of the configuration features), \code{sampled} and
 #'   \code{valid} (map back to rows of \code{signatures}).
 #' @importFrom cluster pam
 #' @importFrom stats complete.cases
@@ -744,7 +778,8 @@ get_mosaic_types <- function(signatures,
                              sample_size = 5000,
                              dmm_control = list(),
                              seed        = NULL,
-                             verbose     = TRUE) {
+                             verbose     = TRUE,
+                             configuration = NULL) {
         method   <- match.arg(method)
         distance <- match.arg(distance)
         metric   <- if (missing(metric) && method == "dmm") "ICL" else match.arg(metric)
@@ -758,7 +793,9 @@ get_mosaic_types <- function(signatures,
                      call. = FALSE)
         
         ctl <- list(n_start = 5L, max_iter = 500L, tol = 1e-5,
-                    A_init = 50, alpha_min = 1e-4, A_max = 1e6, n_scale = "auto")
+                    A_init = 50, alpha_min = 1e-4, A_max = 1e6,
+                    temperature = "auto", calibration_B = 50L, n_scale = 1,
+                    conf_weight = 0.1)
         bad <- setdiff(names(dmm_control), names(ctl))
         if (length(bad))
                 stop("Unknown `dmm_control` entries: ", paste(bad, collapse = ", "),
@@ -770,11 +807,35 @@ get_mosaic_types <- function(signatures,
                 stop("`signatures` has no \"totals\" attribute, which method = 'dmm' needs. ",
                      "Recompute with compute_all_signatures(); subsetting or rbind() drops it.",
                      call. = FALSE)
-        if (method == "dmm") ctl$n_scale <- .resolve_n_scale(ctl$n_scale, signatures)
+        calibrate <- method == "dmm" && identical(ctl$temperature, "calibrate")
+        if (method == "dmm") {
+                ctl$n_scale     <- .resolve_n_scale(ctl$n_scale, signatures)
+                ctl$temperature <- .resolve_temperature(ctl$temperature, signatures)
+                if (ctl$n_scale != 1 && ctl$temperature != 1)
+                        warning("Both `n_scale` and `temperature` differ from 1, so the edge ",
+                                "overcounting is corrected twice. Set one of them to 1.", call. = FALSE)
+        }
+        use_conf <- !is.null(configuration)
+        if (use_conf) {
+                if (method != "dmm")
+                        stop("`configuration` needs method = 'dmm'.", call. = FALSE)
+                if (calibrate)
+                        stop("temperature = \"calibrate\" is not available with `configuration`; ",
+                             "use \"auto\" or a number.", call. = FALSE)
+                configuration <- unclass(as.matrix(configuration))
+                if (!is.numeric(configuration) || nrow(configuration) != nrow(signatures))
+                        stop("`configuration` must be a numeric matrix with one row per ",
+                             "signature row (see compute_configuration()).", call. = FALSE)
+                if (!is.numeric(ctl$conf_weight) || length(ctl$conf_weight) != 1L ||
+                    !is.finite(ctl$conf_weight) || ctl$conf_weight <= 0)
+                        stop("`dmm_control$conf_weight` must be one positive number.", call. = FALSE)
+        }
         signatures  <- as.matrix(signatures)
         valid <- stats::complete.cases(signatures)
+        if (use_conf) valid <- valid & stats::complete.cases(configuration)
         if (sum(valid) < 2L) stop("Fewer than two complete signature rows.", call. = FALSE)
         S <- signatures[valid, , drop = FALSE]
+        Yc <- if (use_conf) configuration[valid, , drop = FALSE] else NULL
         N <- nrow(S)
         if (method == "dmm") tot <- totals[valid]
         
@@ -819,7 +880,8 @@ get_mosaic_types <- function(signatures,
         
         if (method == "dmm") {
                 X <- .sig_to_counts(S[idx, , drop = FALSE], tot[idx], ctl$n_scale)
-                n_u <- nrow(unique(sqrt(X / rowSums(X))))   # same check kmeans() uses
+                n_u <- nrow(unique(if (use_conf) cbind(sqrt(X / rowSums(X)), Yc[idx, , drop = FALSE])
+                                   else sqrt(X / rowSums(X))))   # same check kmeans() uses
                 bad <- n_mosaic_types > n_u
                 if (all(bad)) stop("Only ", n_u, " distinct signature compositions; ",
                                    "every requested n_mosaic_types exceeds this.", call. = FALSE)
@@ -851,9 +913,16 @@ get_mosaic_types <- function(signatures,
                                                 nc, rows[[i]]$R2_JS, rows[[i]]$CH_JS, rows[[i]]$GD5,
                                                 rows[[i]]$STAB, rows[[i]]$SILH_fuzzy))
                 } else {
-                        fit <- .fit_dmm(X, nc, n_start = ctl$n_start, max_iter = ctl$max_iter,
-                                        tol = ctl$tol, A_init = ctl$A_init,
-                                        alpha_min = ctl$alpha_min, A_max = ctl$A_max)
+                        fit <- if (use_conf)
+                                .fit_dmm2(X, Yc[idx, , drop = FALSE], nc, tau = ctl$temperature,
+                                          w = ctl$conf_weight, n_start = ctl$n_start,
+                                          max_iter = ctl$max_iter, tol = ctl$tol,
+                                          A_init = ctl$A_init, alpha_min = ctl$alpha_min,
+                                          A_max = ctl$A_max)
+                        else .fit_dmm(X, nc, n_start = ctl$n_start, max_iter = ctl$max_iter,
+                                      tol = ctl$tol, A_init = ctl$A_init,
+                                      alpha_min = ctl$alpha_min, A_max = ctl$A_max,
+                                      tau = ctl$temperature)
                         if (!fit$converged)
                                 warning(sprintf("DMM not converged at k = %d after %d iterations; ",
                                                 nc, ctl$max_iter),
@@ -883,11 +952,29 @@ get_mosaic_types <- function(signatures,
                 warning("Selected k is the largest candidate. Overlapping neighbourhoods count ",
                         "each edge many times, which inflates the DMM likelihood and pushes ",
                         metric, " upward. Extend `n_mosaic_types`, and rerun with ",
-                        sprintf("dmm_control = list(n_scale = %.3g) to see whether the selected count moves.",
-                                ctl$n_scale / 2),
+                        sprintf("dmm_control = list(temperature = %.3g) to see whether the selected count moves.",
+                                ctl$temperature / 2),
                         call. = FALSE)
         
         final <- fits[[best_i]]
+        calibration <- NULL
+        if (calibrate) {
+                if (verbose) message("Calibrating the temperature on ", ctl$calibration_B,
+                                     " simulated maps ...")
+                calibration <- .calibrate_dmm_tau(final, n = rowSums(X), B = ctl$calibration_B,
+                                                  alpha_min = ctl$alpha_min, A_max = ctl$A_max,
+                                                  seed = seed)
+                calibration$tau_select <- ctl$temperature
+                ctl$temperature <- calibration$tau
+                final <- .temper_dmm(final, X, calibration$tau)
+                if (verbose) {
+                        tb <- calibration$table
+                        message(sprintf("  temperature %.3g -> %.3g (simulated ECE %.3f -> %.3f)",
+                                        calibration$tau_select, calibration$tau,
+                                        stats::approx(tb$tau, tb$ece, calibration$tau_select)$y,
+                                        min(tb$ece)))
+                }
+        }
         if (method == "pam") {
                 med_sig <- S[idx, , drop = FALSE][final$pam_result$id.med, , drop = FALSE]
                 Dm <- if (sampled) {
@@ -900,7 +987,8 @@ get_mosaic_types <- function(signatures,
                 med_sig <- final$alpha / final$concentration     # E[p | type k]
                 if (sampled) {
                         if (verbose) message("Assigning the remaining ", N - length(idx), " polygons ...")
-                        U <- .score_dmm(final, .sig_to_counts(S, tot, ctl$n_scale))$U
+                        U <- if (use_conf) .score_dmm2(final, .sig_to_counts(S, tot, ctl$n_scale), Yc)$U
+                             else .score_dmm(final, .sig_to_counts(S, tot, ctl$n_scale))$U
                 } else U <- final$U
                 hard <- max.col(U, ties.method = "first")
                 Dm   <- compute_signature_distance(S, distance, signatures_ref = med_sig)
@@ -921,6 +1009,10 @@ get_mosaic_types <- function(signatures,
                        distance      = distance,
                        method        = method,
                        dmm_control   = if (method == "dmm") ctl else NULL,
+                       calibration   = calibration,
+                       configuration = if (use_conf)
+                               list(features = colnames(Yc), weight = ctl$conf_weight,
+                                    means = final$mu, variances = final$s2) else NULL,
                        sampled       = sampled,
                        valid         = valid),
                   class = "pulse_mosaic_types")

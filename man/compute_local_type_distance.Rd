@@ -9,6 +9,7 @@ compute_local_type_distance(
   method = c("bhattacharyya", "wasserstein", "empirical"),
   env = NULL,
   n_sample = 20000L,
+  variables = NULL,
   seed = NULL
 )
 }
@@ -29,6 +30,8 @@ count as similar; it needs \code{env}.}
 columns \code{local$variables}.}
 
 \item{n_sample}{Rows sampled for the empirical comparison. Default 20000.}
+
+\item{variables}{Use a subset of local$variables; the Gaussians are reduced to it, which is exact for a Gaussian.}
 
 \item{seed}{Seed for that sample, restored on exit. \code{NULL} (default)
 uses the current RNG stream.}

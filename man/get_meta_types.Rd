@@ -9,6 +9,7 @@ get_meta_types(
   local,
   n_meta_types = 2:12,
   max_confined = 0.2,
+  rule = c("crossing", "gap"),
   sensitivity = c(0.1, 0.2, 0.3),
   method = c("bhattacharyya", "wasserstein", "empirical"),
   env = NULL,
@@ -16,7 +17,8 @@ get_meta_types(
   seed = NULL,
   linkage = c("average", "ward.D", "single", "complete", "mcquitty", "median",
     "centroid", "ward.D2"),
-  distance = NULL
+  distance = NULL,
+  variables = NULL
 )
 
 \method{print}{pulse_meta_types}(x, ...)
@@ -35,6 +37,17 @@ largest one does.}
 \item{max_confined}{Threshold for candidate selection, in \eqn{[0, 1]}.
 Default 0.2. Some confinement is real, so 0 is usually too strict.}
 
+\item{rule}{How to choose among several \code{n_meta_types}.
+\code{"crossing"} (default): the finest cut whose confined mass is at most
+\code{max_confined}. \code{"gap"}: cut where the tree has its largest jump
+in merge height, that is, between the last merge of similar types and the
+first merge of dissimilar ones. Crossing only says a meta-type is not a
+stand-in for a region; it does not say the meta-type is homogeneous, so
+it keeps accepting finer splits of one recurring type. The gap rule does
+not need several regions. The crossing diagnostics stay in
+\code{selection} and \code{crossing} either way. Ignored when
+\code{n_meta_types} is a single value.}
+
 \item{sensitivity}{Thresholds at which the selection is re-read from
 \code{selection}, without refitting. Default \code{c(0.1, 0.2, 0.3)}.}
 
@@ -46,6 +59,10 @@ single linkage would.}
 
 \item{distance}{Optional precomputed \code{dist} over local types, in place of
 recomputing one.}
+
+\item{variables}{Optional subset of \code{local$variables} to compare the
+local types on; passed to \code{\link{compute_local_type_distance}}.
+Ignored when \code{distance} is given.}
 
 \item{x}{An object of class \code{"pulse_meta_types"}.}
 
@@ -66,8 +83,9 @@ is the goal: it means meta-types are not region proxies.}
 \item{\code{n_meta_types}}{Number of meta-types.}
 \item{\code{selection}}{Per candidate: confined mass, share of
 single-region meta-types, regions per meta-type, ARI with region,
-silhouette, and whether it passes. \code{NULL} for a single value
-outside 2 to (number of local types - 1).}
+silhouette, whether it passes, and \code{height_gap}, the jump in merge
+height at that cut. \code{NULL} for a single value, and whether it passes.
+\code{NULL} for a single value outside 2 to (number of local types - 1).}
 \item{\code{sensitivity}}{Per threshold: chosen n_meta_types, confined mass,
 unweighted and mass-weighted ARI, silhouette. Attribute \code{stable}
 is TRUE if every threshold picks the same cut. \code{NULL} if
@@ -76,6 +94,13 @@ is TRUE if every threshold picks the same cut. \code{NULL} if
 \item{\code{hclust}, \code{distance}}{The tree and the distance used.}
 \item{\code{method}}{Distance method used.}
 \item{\code{parent}}{The local-type key of \code{local}.}
+\item{\code{gap_ratio}}{Largest height gap among the candidate cuts,
+divided by their median gap. Large values mean the tree has one clear
+cut; values near 1 mean no cut stands out, so treat the chosen
+\code{n_meta_types} with caution. Computed under either rule.
+\code{NA} with fewer than two candidates.}
+\item{\code{variables}}{Variables the local-type distance was computed
+on. \code{NULL} when \code{distance} was given without that attribute.}
 }
 
 \code{print.pulse_meta_types} returns \code{x} invisibly.

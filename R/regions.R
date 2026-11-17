@@ -3489,6 +3489,10 @@ compute_null_baseline <- function(
   if (!is.null(cfg$rpp_per_region) && "regions_per_partition" %in% names(observed))
     observed <- observed[observed$regions_per_partition ==
                            cfg$rpp_per_region * observed$final_regions, , drop = FALSE]
+  if (!is.null(cfg$rpp_per_region) && "regions_per_partition" %in% names(observed))
+    observed <- observed[observed$regions_per_partition ==
+                           cfg$rpp_per_region * observed$final_regions, , drop = FALSE]
+  observed
 }
 
 # k values at which the null needs STAB: those with an observed STAB, or all

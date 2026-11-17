@@ -5,4 +5,4 @@
 ^simulations_tests\.*
 ^dev$
 ^data-raw$
-
+^\.github$
