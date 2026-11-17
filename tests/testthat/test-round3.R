@@ -111,7 +111,7 @@ test_that("Duplicated N_tree does not tune; one ensemble constructor", {
         tr <- sample_spanning_trees(g, n = 8, seed = 1, verbose = FALSE)
         e  <- compute_ensemble(tr, 8, g, 6, verbose = FALSE, cut_rule = "propensity")
         ref <- .new_ensemble(e$memberships, 8, 6, 4, 0, tr$n_vertices,
-                            cut_rule = "propensity", min_size = 1L)
+                            cut_rule = "propensity", min_size = 5)
         expect_identical(e, ref)
         expect_type(e$n_vertices, "integer")
         expect_type(.new_ensemble(e$memberships, 8, 6, 1, 0, 36)$n_vertices, "integer")

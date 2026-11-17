@@ -31,7 +31,8 @@ test_that("sampled path ends with no improving single move", {
         tg <- toy_graph()
         tr <- sample_spanning_trees(tg$g, n = 30, seed = 1, verbose = FALSE)
         en <- compute_ensemble(tr, N_tree = 30, graph = tg$g, cut_rule = "propensity",
-                              regions_per_partition = 8, verbose = FALSE)
+                               size_influence = 2,
+                               regions_per_partition = 8, verbose = FALSE)
         set.seed(4)
         r <- suppressWarnings(compute_consensus(en, 3, verbose = FALSE, report_native = FALSE,
                                                 large_n_threshold = 100, sample_size = 60,

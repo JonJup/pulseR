@@ -30,13 +30,13 @@ test_that("zero weight spread falls back to halvings, with one warning", {
         expect_equal(r$unit, log(2))
         x  <- .toy_trees(5, 15, prior = rep(1:3, each = 75))
         x$tr$edge_weights[] <- 1
-        expect_warning(.compute_ensemble_internal(x$g, x$tr, 5, 4, prior_strength = 1), "halvings")
+        expect_warning(.compute_ensemble_internal(x$g, x$tr, 5, 4, prior_strength = 1, cut_rule = "propensity"), "halvings")
 })
 
 test_that("lambda = 0 leaves cut selection unchanged", {
         x <- .toy_trees(10)
-        set.seed(5); a <- .compute_ensemble_internal(x$g, x$tr, 10, 8)
-        set.seed(5); b <- .compute_ensemble_internal(x$g, x$tr, 10, 8,
+        set.seed(5); a <- .compute_ensemble_internal(x$g, x$tr, 10, 8, cut_rule = "propensity")
+        set.seed(5); b <- .compute_ensemble_internal(x$g, x$tr, 10, 8,cut_rule = "propensity",
                                                                   prior_strength = 0)
         expect_identical(a, b)
 })

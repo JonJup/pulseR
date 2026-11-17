@@ -1,11 +1,11 @@
 # 4 x 4 grid of 1 m squares (x 0..4, y 0..4) plus one detached square at
 # x 6..7, y 1..2: boundary gap 2 m, centroid gap 3 m to (3.5, 1.5).
 make_island_sf <- function() {
-        grid   <- make_grid_sf(4L, 4L)
-        island <- sf::st_sfc(sf::st_polygon(list(rbind(c(6, 1), c(7, 1), c(7, 2),
-                                                        c(6, 2), c(6, 1)))),
+        grid   <- make_grid_sf(5L, 5L)
+        island <- sf::st_sfc(sf::st_polygon(list(rbind(c(7, 1), c(8, 1), c(8, 2),
+                                                       c(7, 2), c(7, 1)))),
                              crs = sf::st_crs(grid))
-        rbind(grid, sf::st_sf(ID = 17L, temp = 20, prec = 0.2, geometry = island))
+        rbind(grid, sf::st_sf(ID = 26L, temp = 20, prec = 0.2, geometry = island))
 }
 
 test_that("in-memory network flags one bridge with boundary length", {
@@ -118,7 +118,7 @@ test_that("the permutation null accepts a penalised graph", {
         g   <- add_edge_weight(net, id_col = "ID", verbose = FALSE)
         nb  <- compute_null_baseline(g, final_regions = 2, regions_per_partition = 4,
                                      N_tree = 4, B = 1, stability_B = 0, seed = 1,
-                                     verbose = FALSE)
+                                     verbose = FALSE, cut_rule = "propensity")
         expect_s3_class(nb, "pulse_null")
 })
 

@@ -114,3 +114,69 @@ test_that(".fit_dmm() gives a clear error when K exceeds distinct compositions",
         expect_error(.fit_dmm(X, 3L, seed = 1), "distinct row compositions")
         expect_silent(.fit_dmm(X, 2L, n_start = 1, max_iter = 20L, seed = 1))
 })
+## --- temperature ----------------------------------------------------------
+.dmm_sim_fixture <- function(seed = 4, N = 600, n = 150) {
+        set.seed(seed); K <- 3; C <- 20; A <- c(20, 50, 200)
+        m <- matrix(stats::rgamma(K * C, 0.7), K); m <- m / rowSums(m)
+        z <- sample(K, N, TRUE)
+        X <- t(vapply(seq_len(N), function(i) {
+                p <- stats::rgamma(C, A[z[i]] * m[z[i], ]); p <- p / sum(p)
+                as.numeric(stats::rmultinom(1, n, p))
+        }, numeric(C)))
+        list(X = X, z = z, K = K)
+}
+
+test_that("temperature 0 returns pi; certainty falls monotonically with tau", {
+        s <- .dmm_sim_fixture()
+        f <- .fit_dmm(s$X, s$K, n_start = 3, seed = 1)
+        expect_equal(f$tau, 1)
+        U0 <- .score_dmm(f, s$X, tau = 0)$U
+        expect_equal(U0, matrix(f$pi, nrow(s$X), s$K, byrow = TRUE))
+        expect_equal(.score_dmm(f, s$X, tau = 0)$logpred, .score_dmm(f, s$X)$logpred)
+        cert <- vapply(c(1, 0.5, 0.1, 0.02), function(t)
+                mean(apply(.score_dmm(f, s$X, tau = t)$U, 1, max)), numeric(1))
+        expect_true(all(diff(cert) < 0))
+})
+
+test_that("tau acts after fitting: same alpha, softer U, no collapse", {
+        s <- .dmm_sim_fixture()
+        f1 <- .fit_dmm(s$X, s$K, n_start = 3, seed = 1)
+        ft <- .fit_dmm(s$X, s$K, n_start = 3, tau = 0.1, seed = 1)
+        expect_equal(ft$tau, 0.1)
+        expect_equal(ft$alpha, f1$alpha)
+        expect_equal(ft$BIC - f1$BIC, -2 * (0.1 - 1) * f1$loglik)
+        expect_gt(.adjusted_rand_index(ft$cluster, s$z), 0.9)
+        expect_lt(mean(apply(ft$U, 1, max)), mean(apply(f1$U, 1, max)))
+        expect_equal(.score_dmm(ft, s$X)$U, ft$U, tolerance = 1e-10)  # scoring reuses fit$tau
+        expect_equal(.temper_dmm(f1, s$X, 0.1)$U, ft$U, tolerance = 1e-10)
+})
+
+test_that("calibration on a correctly specified DMM keeps tau near 1", {
+        s <- .dmm_sim_fixture(N = 400, n = 30)
+        f <- .fit_dmm(s$X, s$K, n_start = 3, seed = 1)
+        cal <- .calibrate_dmm_tau(f, rowSums(s$X), B = 10, seed = 1)
+        expect_true(cal$tau >= 0.5)
+        expect_equal(nrow(cal$table), 25L)
+        expect_lte(min(cal$table$ece), cal$table$ece[cal$table$tau == 1])
+})
+
+test_that("get_mosaic_types(): temperature 'auto' = 1/multiplicity, 'calibrate' records provenance", {
+        fx <- .dmm_fixture()
+        a <- suppressWarnings(get_mosaic_types(fx$sig, 4, method = "dmm", seed = 1, verbose = FALSE,
+                                               dmm_control = list(n_start = 1)))
+        expect_equal(a$dmm_control$temperature, 1 / attr(fx$sig, "edge_multiplicity"))
+        expect_equal(a$clusters$tau, a$dmm_control$temperature)
+        expect_null(a$calibration)
+        expect_gt(.adjusted_rand_index(a$hard_labels, fx$zone[a$valid]), 0.4)
+        cmb <- suppressWarnings(get_mosaic_types(fx$sig, 4, method = "dmm", seed = 1, verbose = FALSE,
+                                                 dmm_control = list(n_start = 1, temperature = "calibrate",
+                                                                    calibration_B = 5)))
+        expect_equal(cmb$calibration$tau_select, a$dmm_control$temperature)
+        expect_equal(cmb$clusters$tau, cmb$calibration$tau)
+        expect_equal(rowSums(cmb$memberships), rep(1, sum(cmb$valid)), tolerance = 1e-8)
+        expect_warning(get_mosaic_types(fx$sig, 4, method = "dmm", seed = 1, verbose = FALSE,
+                                        dmm_control = list(n_start = 1, n_scale = 0.5)),
+                       "corrected twice")
+        expect_error(get_mosaic_types(fx$sig, 4, method = "dmm", verbose = FALSE,
+                                      dmm_control = list(temperature = 2)), "\\(0, 1\\]")
+})
