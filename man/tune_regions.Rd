@@ -22,7 +22,7 @@ tune_regions(
   size_influence = 0,
   cut_rule = c("ssd", "propensity"),
   refine_boundary = TRUE,
-  min_size = 1L,
+  min_size = 5,
   max_configs = 64L,
   large_n_threshold = 20000,
   sample_size = 5000,

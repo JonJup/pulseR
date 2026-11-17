@@ -15,7 +15,7 @@ compute_ensemble(
   verbose = TRUE,
   size_influence = 0,
   cut_rule = c("ssd", "propensity"),
-  min_size = 1L,
+  min_size = 5,
   seed = NULL
 )
 

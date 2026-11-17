@@ -17,7 +17,7 @@ compute_null_baseline(
   target_edge_turnover = 0.1,
   cut_rule = c("ssd", "propensity"),
   refine_boundary = TRUE,
-  min_size = 1L,
+  min_size = 5,
   B = 19,
   stability_B = 10,
   stability_k = NULL,

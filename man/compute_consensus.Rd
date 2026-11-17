@@ -14,7 +14,7 @@ compute_consensus(
   refine_iter = 10L,
   enforce_contiguity = !is.null(graph),
   refine_boundary = !is.null(graph),
-  min_size = 1L,
+  min_size = 5,
   n_runs = 16L,
   n_cores = 1L,
   report_native = TRUE,

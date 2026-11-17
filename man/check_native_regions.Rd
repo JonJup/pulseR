@@ -13,7 +13,7 @@ check_native_regions(
   size_influence = 0,
   prior_strength = 0,
   cut_rule = c("ssd", "propensity"),
-  min_size = 1L,
+  min_size = 5,
   sample_size = 2000L,
   n_runs = 4L,
   n_cores = 1L,

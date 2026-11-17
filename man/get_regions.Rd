@@ -16,7 +16,7 @@ get_regions(
   size_influence = 0,
   cut_rule = c("ssd", "propensity"),
   refine_boundary = TRUE,
-  min_size = 1,
+  min_size = 5,
   prior_typology = NULL,
   prior_strength = 0,
   target_edge_turnover = 0.1,
