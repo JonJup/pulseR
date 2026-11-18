@@ -63,7 +63,9 @@ consensus fits per k and replicate, most of the run time. \code{NULL}
 \item{observed}{Optional \code{"pulse_regions"} or
 \code{"pulse_regions_tuning"} object, or a data frame
 with \code{final_regions} and validity columns (e.g. a \code{tuning_log}).
-Rows are matched on the ensemble configuration when those columns exist.}
+Rows are matched on the ensemble configuration when those columns exist.
+A \code{"pulse_regions"} object is rescored on \code{graph}, so its
+\code{STAB} halves get the same contiguity repair as the null replicate.}
 
 \item{max_fail_share}{Number in \eqn{[0, 1]}. Largest share of the
 \code{B} replicates that may fail at any one k (see Failed replicates).

@@ -87,7 +87,9 @@ test_that("A zero MAD falls back to another scale and trees still vary", {
         expect_silent(.noise_scale(w, warn = FALSE))
         g <- igraph::make_lattice(c(6, 6))
         igraph::E(g)$weight <- c(rep(1, igraph::ecount(g) - 3L), 2, 3, 4)
-        expect_warning(tr <- sample_spanning_trees(g, n = 6, seed = 1, verbose = FALSE), "MAD")
+        expect_warning(
+                expect_warning(tr <- sample_spanning_trees(g, n = 6, seed = 1, verbose = FALSE), "MAD"),
+                "did not reach")
         ids <- lapply(seq_len(tr$n_trees), function(j) sort(tr$edge_ids[, j]))
         expect_gt(length(unique(ids)), 1L)
         expect_gt(tr$noise_scale, 0)

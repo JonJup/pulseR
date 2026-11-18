@@ -79,6 +79,8 @@
 #'   \code{"pulse_regions_tuning"} object, or a data frame
 #'   with \code{final_regions} and validity columns (e.g. a \code{tuning_log}).
 #'   Rows are matched on the ensemble configuration when those columns exist.
+#'   A \code{"pulse_regions"} object is rescored on \code{graph}, so its
+#'   \code{STAB} halves get the same contiguity repair as the null replicate.
 #' @param max_fail_share Number in \eqn{[0, 1]}. Largest share of the
 #'   \code{B} replicates that may fail at any one k (see Failed replicates).
 #'   Default 0.2.
@@ -278,9 +280,17 @@ compute_null_baseline <- function(
     if (!observed$k %in% final_regions)
       warning(sprintf("`observed` has k = %d, which is not in `final_regions`; ",
                       observed$k), "`observed` will be NA.", call. = FALSE)
-    observed <- .validity_row(observed, env, stability_B = stability_B, seed = seed,
-                              large_n_threshold = large_n_threshold,
-                              sample_size = sample_size, n_cores = n_cores)
+    
+    observed <- .validity_row(
+      observed, 
+      env, 
+      graph = graph, 
+      stability_B = stability_B, 
+      seed = seed,
+      large_n_threshold = large_n_threshold,
+      sample_size = sample_size, 
+      n_cores = n_cores
+      )
   }
 
 

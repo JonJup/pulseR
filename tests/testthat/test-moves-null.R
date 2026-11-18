@@ -115,3 +115,21 @@ test_that("null baseline accepts an untuned pulse_regions as observed", {
         v <- compute_validity(res, env = tg$env, stability_B = 0)
         expect_equal(v$final_regions, 2L)
 })
+test_that("null baseline scores the observed fit on the graph (A5)", {
+  tg  <- toy_graph(n = 10)
+  res <- get_regions(tg$g, regions_per_partition = 8, final_regions = 2,
+                     N_tree = 20, seed = 1, cut_rule = "propensity",
+                     refine_boundary = FALSE, verbose = FALSE)
+  seen <- NULL
+  orig <- .validity_row
+  local_mocked_bindings(.validity_row = function(x, env, graph = NULL, ...) {
+    seen <<- graph
+    orig(x, env, graph = graph, ...)
+  })
+  compute_null_baseline(tg$g, tg$env, final_regions = 2, regions_per_partition = 8,
+                        N_tree = 20, B = 1, stability_B = 0, observed = res,
+                        seed = 1, verbose = FALSE, cut_rule = "propensity",
+                        refine_boundary = FALSE)
+  expect_s3_class(seen, "igraph")
+  expect_identical(igraph::vcount(seen), igraph::vcount(tg$g))
+})
