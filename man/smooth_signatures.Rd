@@ -20,7 +20,9 @@ diagonal. If \code{NULL}, built from \code{region_of}.}
 
 \item{region_of}{Integer parent region per class (from
 \code{\link{as_mosaic_input}}). Classes in the same region get similarity
-\code{within_region}.}
+\code{within_region}; a class with \code{NA} is similar only to itself.
+An all-\code{NA} \code{region_of} (meta-types, bare matrices) is an
+error: pass \code{class_similarity} instead.}
 
 \item{within_region}{Similarity between two local types of the same region.
 Default 0.5.}

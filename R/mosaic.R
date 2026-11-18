@@ -426,7 +426,9 @@ print.pulse_signatures <- function(x, ...) {
 #'   diagonal. If \code{NULL}, built from \code{region_of}.
 #' @param region_of Integer parent region per class (from
 #'   \code{\link{as_mosaic_input}}). Classes in the same region get similarity
-#'   \code{within_region}.
+#'   \code{within_region}; a class with \code{NA} is similar only to itself.
+#'   An all-\code{NA} \code{region_of} (meta-types, bare matrices) is an
+#'   error: pass \code{class_similarity} instead.
 #' @param within_region Similarity between two local types of the same region.
 #'   Default 0.5.
 #' @param renormalise Renormalise rows to sum to one. Default \code{TRUE}.
@@ -437,13 +439,32 @@ smooth_signatures <- function(signatures, class_similarity = NULL, region_of = N
         lab <- attr(signatures, "class_labels")
         pr  <- .parse_pair_names(colnames(signatures), lab)
         
+        nc <- if (is.null(lab)) NA_integer_ else length(lab)
         if (is.null(class_similarity)) {
                 if (is.null(region_of))
                         stop("Supply `class_similarity` or `region_of`.", call. = FALSE)
-                Sc <- outer(region_of, region_of, function(a, b) ifelse(a == b, within_region, 0))
+                if (!is.na(nc) && length(region_of) != nc)
+                        stop(sprintf("`region_of` has length %d but the signatures have %d classes.",
+                                     length(region_of), nc), call. = FALSE)
+                if (all(is.na(region_of)))
+                        stop("`region_of` is all NA, so there are no parent regions to smooth ",
+                             "within. Meta-types and bare matrices have none (see ",
+                             "as_mosaic_input()). Pass `class_similarity` instead: a ",
+                             "classes x classes similarity in [0, 1] with unit diagonal.",
+                             call. = FALSE)
+                ## A class without a region (NA) is similar only to itself.
+                same <- outer(region_of, region_of, "==")
+                same[is.na(same)] <- FALSE
+                Sc <- within_region * same
                 diag(Sc) <- 1
         } else {
                 Sc <- as.matrix(class_similarity)
+                if (!is.numeric(Sc) || anyNA(Sc) || nrow(Sc) != ncol(Sc) ||
+                    (!is.na(nc) && nrow(Sc) != nc))
+                        stop(sprintf(paste0("`class_similarity` must be a numeric %s matrix ",
+                                            "without NA."),
+                                     if (is.na(nc)) "square" else sprintf("%d x %d", nc, nc)),
+                             call. = FALSE)
         }
         
         a <- pr$a; b <- pr$b

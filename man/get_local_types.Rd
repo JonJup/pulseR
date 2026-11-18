@@ -134,10 +134,14 @@ An object of class \code{"pulse_local_types"}: a list with
     \item{\code{weighted}}{The same matrix before row-normalisation.}
     \item{\code{hard_labels}}{Integer vector: column of the most probable
       local type within the unit's Level 1 hard region
-      (\code{region_labels}), so \code{key$region[hard_labels] == region_labels}.}
+      (\code{region_labels}), so \code{key$region[hard_labels] == region_labels}.
+      \code{NA} for units without a Level 1 region (uncovered units under
+      \code{prior_strength = Inf}).}
     \item{\code{region_labels}}{Level 1 hard region per unit: the regions
-      object's \code{hard_labels}, or the row argmax of a bare weight matrix.}
-    \item{\code{certainty}}{\code{memberships} at \code{hard_labels}.}
+      object's \code{hard_labels}, or the row argmax of a bare weight matrix.
+      \code{NA} where the regions object has \code{NA}.}
+    \item{\code{certainty}}{\code{memberships} at \code{hard_labels};
+      \code{NA} where \code{hard_labels} is \code{NA}.}
     \item{\code{certainty_raw}}{\code{weighted} at \code{hard_labels}.}
     \item{\code{entropy}}{Normalized row entropy of \code{memberships}.}
     \item{\code{key}}{Data frame mapping each column to its region and local type.}

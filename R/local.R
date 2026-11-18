@@ -104,16 +104,27 @@
 
 #' Level 1 hard region per unit: the regions object's own labels when present
 #' (post contiguity repair), else the row argmax of the weight matrix.
+#'
+#' NA is kept for units with no region weight above `weight_eps`: the
+#' uncovered units of a `prior_strength = Inf` fit. An NA label on a unit
+#' that does have region weight is an error.
 #' @noRd
-.region_hard <- function(regions, W) {
+.region_hard <- function(regions, W, weight_eps = 0) {
         src <- if (inherits(regions, "pulse_regions_tuning")) regions$best_result else regions
         h <- if (is.list(src) && !is.data.frame(src))
                 .first_non_null(src$hard_labels, src$fit$hard_labels) else NULL
         if (is.null(h)) return(max.col(W, ties.method = "first"))
         h <- as.integer(h)
-        if (length(h) != nrow(W) || anyNA(h) || any(h < 1L | h > ncol(W)))
+        if (length(h) != nrow(W) || any(h < 1L | h > ncol(W), na.rm = TRUE))
                 stop("`regions$hard_labels` must be integers in 1..ncol(memberships), ",
                      "one per unit.", call. = FALSE)
+        bad <- is.na(h) & rowSums(W > weight_eps) > 0L
+        if (any(bad))
+                stop(sprintf(paste0(
+                        "%d unit(s) have an NA hard label in `regions` but region weight ",
+                        "above `weight_eps`. NA is allowed only for units without region ",
+                        "weight (uncovered units under `prior_strength = Inf`)."), sum(bad)),
+                     call. = FALSE)
         h
 }
 
@@ -225,7 +236,10 @@ print.pulse_local_types <- function(x, ...) {
         cat(sprintf("  covariance model per region: %s\n",
                     paste(sprintf("%s x%d", names(tab), tab), collapse = ", ")))
         cat(sprintf("  mean certainty = %.3f | mean normalised entropy = %.3f\n",
-                    mean(x$certainty), mean(x$entropy)))
+                    mean(x$certainty, na.rm = TRUE), mean(x$entropy)))
+        n_na <- sum(is.na(x$hard_labels))
+        if (n_na)
+                cat(sprintf("  %d unit(s) without a Level 1 region (NA labels)\n", n_na))
         invisible(x)
 }
 # -----------------------------------------------------------------------------*
@@ -363,10 +377,14 @@ print.pulse_local_types <- function(x, ...) {
 #'     \item{\code{weighted}}{The same matrix before row-normalisation.}
 #'     \item{\code{hard_labels}}{Integer vector: column of the most probable
 #'       local type within the unit's Level 1 hard region
-#'       (\code{region_labels}), so \code{key$region[hard_labels] == region_labels}.}
+#'       (\code{region_labels}), so \code{key$region[hard_labels] == region_labels}.
+#'       \code{NA} for units without a Level 1 region (uncovered units under
+#'       \code{prior_strength = Inf}).}
 #'     \item{\code{region_labels}}{Level 1 hard region per unit: the regions
-#'       object's \code{hard_labels}, or the row argmax of a bare weight matrix.}
-#'     \item{\code{certainty}}{\code{memberships} at \code{hard_labels}.}
+#'       object's \code{hard_labels}, or the row argmax of a bare weight matrix.
+#'       \code{NA} where the regions object has \code{NA}.}
+#'     \item{\code{certainty}}{\code{memberships} at \code{hard_labels};
+#'       \code{NA} where \code{hard_labels} is \code{NA}.}
 #'     \item{\code{certainty_raw}}{\code{weighted} at \code{hard_labels}.}
 #'     \item{\code{entropy}}{Normalized row entropy of \code{memberships}.}
 #'     \item{\code{key}}{Data frame mapping each column to its region and local type.}
@@ -544,11 +562,18 @@ get_local_types <- function(env,
                 stop(sprintf("Region(s) %s have an empty core: no unit reaches cutoff = %g.",
                              paste(empty, collapse = ", "), cutoff), call. = FALSE)
         
-        orphan <- which(rowSums(W > weight_eps) == 0L)
+        orphan   <- which(rowSums(W > weight_eps) == 0L)
+        reg_hard <- .region_hard(regions, W, weight_eps)
+        n_nolab  <- sum(is.na(reg_hard))
         if (length(orphan))
                 warning(sprintf("%d unit(s) have no region weight above `weight_eps`; ",
                                 length(orphan)),
-                        "their local-type rows will be all zero.", call. = FALSE)
+                        "their local-type rows will be all zero.",
+                        if (n_nolab) sprintf(paste0(
+                                " %d of them have no Level 1 region (uncovered under ",
+                                "`prior_strength = Inf`) and get NA hard_labels, ",
+                                "region_labels and certainty."), n_nolab),
+                        call. = FALSE)
         
         ## A predictor constant across all units carries no information.
         glob_const <- !(.col_var(Xdata, seq_len(N)) > 0)
@@ -778,8 +803,9 @@ get_local_types <- function(env,
         ## Within a region block Zw = z * w with w constant per row, so the
         ## block argmax equals argmax(z). A global max.col(U) could pick a type
         ## from a region the unit does not belong to.
-        reg_hard <- .region_hard(regions, W)
-        hard     <- integer(N)
+        ## Units without a Level 1 region (NA in reg_hard) keep NA here, so
+        ## certainty and certainty_raw are NA for them too.
+        hard     <- rep(NA_integer_, N)
         no_block <- integer(0)
         for (r in re) {
                 i <- which(reg_hard == r)
