@@ -45,11 +45,11 @@ single connected component of \code{graph}.}
 \item{refine_boundary}{Logical. After contiguity repair, move boundary units
 to an adjacent region when that lowers the within-region sum of squares of
 \code{graph_attr(graph, "env")}, never disconnecting a region or shrinking
-it below \code{min_size}. Default \code{TRUE}. Not to be confused with
+it below \code{min_size}. Default \code{!is.null(graph)}. Not to be confused with
 \code{refine_iter}, which counts single-unit loss moves on the sampled path.}
 
 \item{min_size}{Integer \eqn{\ge 1}. Smallest region size the boundary
-refinement may leave. Default 1.}
+refinement may leave. Default 5.}
 
 \item{n_runs, n_cores}{Passed to \code{salso::salso()}.}
 
@@ -66,34 +66,34 @@ configuration and on for the winner.}
 }
 \value{
 A \code{"pulse_consensus"} object with
-\describe{
-\item{\code{memberships}}{\eqn{N \times k} matrix \eqn{\Pi}; rows sum to 1; rows of units with \code{pi_support == 0} are filled from graph neighbours (see Details).}
-\item{\code{hard_labels}}{Final labels (after contiguity repair).}
-\item{\code{certainty}}{\eqn{\Pi_{i, \mathrm{hard}_i}}.}
-\item{\code{margin}}{Best minus second-best entry of \eqn{\Pi}.}
-\item{\code{entropy}}{Row entropy of \eqn{\Pi}, normalized by \eqn{\log k}.}
-\item{\code{pi_support}}{\eqn{M_i}, partitions in which \eqn{i} had a piece-mate.}
-\item{\code{cohesion}}{Raw \eqn{A}; not a probability.}
-\item{\code{silhouette}, \code{avg_sil_width}}{Co-association silhouette, from cohesion.}
-\item{\code{expected_vi}, \code{region_coassoc}}{Mean VI(draw, consensus); \eqn{k \times k} mean co-association.}
-\item{\code{salso_a}}{The generalized-VI parameter \eqn{a} salso settled on (on the sample, if sampled).}
-\item{\code{expected_loss}}{Generalized VI of the final labels at \code{salso_a}, per unit, in bits.}
-\item{\code{loss_gap}, \code{loss_alt}}{Change in total loss (bits) if the unit alone moved to \code{loss_alt}; negative means a single move would lower the loss.}
-\item{\code{label_step}}{Factor: last step that changed the label (salso, merge, assign, refine, contiguity).}
-\item{\code{salso_info}, \code{refine_info}}{salso's own fit summary; on the sampled path, VI-move convergence and per-round log (else \code{NULL}).}
-\item{\code{salso_native}}{\code{NULL}, or a list: \code{k}, the
-region count salso picks under VI with \eqn{a = 1} and no target;
-\code{labels}, its partition (length N, \code{NA} for units outside
-the sample, no contiguity repair); \code{sampled}; \code{n_units};
-\code{capped}, \code{TRUE} when \code{k} reached the largest piece
-count among the ensemble partitions, the most salso searches, so
-\code{k} is a lower bound.
-This count can depend strongly on \code{regions_per_partition}; check
-with \code{\link{check_native_regions}} before reading it as a
-property of the landscape.}
-}
-plus \code{k}, \code{sampled}, \code{n_eff},
-\code{n_members}, \code{ensemble_meta}.
+  \describe{
+    \item{\code{memberships}}{\eqn{N \times k} matrix \eqn{\Pi}; rows sum to 1; rows of units with \code{pi_support == 0} are filled from graph neighbours (see Details).}
+    \item{\code{hard_labels}}{Final labels (after contiguity repair).}
+    \item{\code{certainty}}{\eqn{\Pi_{i, \mathrm{hard}_i}}.}
+    \item{\code{margin}}{Best minus second-best entry of \eqn{\Pi}.}
+    \item{\code{entropy}}{Row entropy of \eqn{\Pi}, normalized by \eqn{\log k}.}
+    \item{\code{pi_support}}{\eqn{M_i}, partitions in which \eqn{i} had a piece-mate.}
+    \item{\code{cohesion}}{Raw \eqn{A}; not a probability.}
+    \item{\code{silhouette}, \code{avg_sil_width}}{Co-association silhouette, from cohesion.}
+    \item{\code{expected_vi}, \code{region_coassoc}}{Mean VI(draw, consensus); \eqn{k \times k} mean co-association.}
+    \item{\code{salso_a}}{The generalized-VI parameter \eqn{a} salso settled on (on the sample, if sampled).}
+    \item{\code{expected_loss}}{Generalized VI of the final labels at \code{salso_a}, per unit, in bits.}
+    \item{\code{loss_gap}, \code{loss_alt}}{Change in total loss (bits) if the unit alone moved to \code{loss_alt}; negative means a single move would lower the loss.}
+    \item{\code{label_step}}{Factor: last step that changed the label (salso, merge, assign, refine, contiguity).}
+    \item{\code{salso_info}, \code{refine_info}}{salso's own fit summary; on the sampled path, VI-move convergence and per-round log (else \code{NULL}).}
+    \item{\code{salso_native}}{\code{NULL}, or a list: \code{k}, the
+      region count salso picks under VI with \eqn{a = 1} and no target;
+      \code{labels}, its partition (length N, \code{NA} for units outside
+      the sample, no contiguity repair); \code{sampled}; \code{n_units};
+      \code{capped}, \code{TRUE} when \code{k} reached the largest piece
+      count among the ensemble partitions, the most salso searches, so
+      \code{k} is a lower bound.
+      This count can depend strongly on \code{regions_per_partition}; check
+      with \code{\link{check_native_regions}} before reading it as a
+      property of the landscape.}
+  }
+  plus \code{k}, \code{sampled}, \code{n_eff},
+  \code{n_members}, \code{ensemble_meta}.
 
 \code{print.pulse_consensus} returns \code{x} invisibly.
 }
@@ -115,7 +115,7 @@ which \eqn{i} has at least one piece-mate. Rows sum to 1 by construction,
 there is no tuning parameter, and a boundary unit whose pieces fall half
 into each of two regions gets 0.5 and 0.5 whatever the region sizes. Units
 with \eqn{M_i = 0} are filled from graph neighbours (see compute_consensus()
-Details).
+ Details).
 
 \strong{Cohesion.} Let \eqn{c_{im}} be the fraction of ensemble partitions
 in which \eqn{i} and \eqn{m} share a piece. The \emph{cohesion} of \eqn{i}

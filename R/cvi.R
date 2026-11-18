@@ -198,27 +198,6 @@ compute_validity <- function(x, graph = NULL, env = NULL, env_id = NULL,
 #' @noRd
 .BORDA_COLS <- c("CH_FIT", "STAB")
 
-#' Old validity names, accepted with a warning until the next release.
-#' @keywords internal
-#' @noRd
-.CVI_RENAMED <- c(CH_ENV = "CH_FIT", R2_ENV = "R2_FIT",
-                  ch_env = "ch_fit", r2_env = "r2_fit")
-
-#' Map deprecated validity names in `x` to current ones, with a warning.
-#' @keywords internal
-#' @noRd
-.renamed_cvi <- function(x, arg) {
-        hit <- x %in% names(.CVI_RENAMED)
-        if (any(hit)) {
-                warning(sprintf("`%s`: %s renamed to %s; the old names will be removed in a later version.",
-                                arg, paste(x[hit], collapse = ", "),
-                                paste(.CVI_RENAMED[x[hit]], collapse = ", ")),
-                        call. = FALSE)
-                x[hit] <- unname(.CVI_RENAMED[x[hit]])
-        }
-        x
-}
-
 #' Score column of a tuning log, higher is better
 #'
 #' \code{"borda"} is minus the mean Borda rank over \code{voters}; the other

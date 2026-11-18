@@ -71,41 +71,41 @@ expected mutual information. Above it the asymptotic approximation
 }
 \value{
 For a single object, a list of class \code{"pulse_crosswalk"}:
-\describe{
-\item{\code{level}, \code{scope}}{Level crosswalked and the local scope.}
-\item{\code{overlap}}{K x L matrices (PULSE types in rows): \code{fuzzy}
-and \code{crisp} weighted overlap, and unweighted crisp \code{counts}.}
-\item{\code{conditional}}{Row and column conditionals of both overlaps:
-\code{ext_given_pulse} (what a PULSE type contains) and
-\code{pulse_given_ext} (where an external type goes).}
-\item{\code{agreement}}{Data frame with columns \code{index},
-\code{crisp} and \code{fuzzy}. Indices: ARI, AMI, NMI (arithmetic
-normalisation), VI and its two parts \code{H_ext_given_pulse} (zero
-when PULSE types nest in external types) and \code{H_pulse_given_ext}
-(zero when external types nest in PULSE types), both in nats,
-\code{purity}, \code{inverse_purity}, Cramer's V, and the
-marginal entropies \code{H_pulse} and \code{H_ext} (nats).}
-\item{\code{by_region}}{Per-region indices (\code{"within_region"}
-only), otherwise \code{NULL}.}
-\item{\code{types}}{List with \code{pulse} and \code{external} data
-frames, one row per type and \code{basis} (fuzzy or crisp): mass,
-share, best match, share in the best match, effective number of
-partner types, and relation (\code{"1:1"}, \code{"nested"},
-\code{"contains"} or \code{"mixed"}).}
-\item{\code{units}}{One row per matched unit: \code{id}, both crisp
-labels, \code{match} (the external label equals the crisp best match
-of the unit's PULSE type), \code{support} (how strongly the fuzzy
-crosswalk predicts the unit's external label), \code{certainty}
-(row maximum of the PULSE memberships) and \code{weight}. Join it to
-your polygons by \code{id} to map disagreement.}
-\item{\code{by_certainty}}{Match rate and mean support by quintile of
-\code{certainty}.}
-\item{\code{coverage}, \code{settings}}{Matching counts and the
-settings used.}
-}
-For a list input, a \code{"pulse_crosswalk_set"} with \code{results} (one
-\code{pulse_crosswalk} per element) and \code{by_level}, a comparison
-table. Compare levels on AMI, not NMI: NMI rises with the number of types.
+  \describe{
+    \item{\code{level}, \code{scope}}{Level crosswalked and the local scope.}
+    \item{\code{overlap}}{K x L matrices (PULSE types in rows): \code{fuzzy}
+      and \code{crisp} weighted overlap, and unweighted crisp \code{counts}.}
+    \item{\code{conditional}}{Row and column conditionals of both overlaps:
+      \code{ext_given_pulse} (what a PULSE type contains) and
+      \code{pulse_given_ext} (where an external type goes).}
+    \item{\code{agreement}}{Data frame with columns \code{index},
+      \code{crisp} and \code{fuzzy}. Indices: ARI, AMI, NMI (arithmetic
+      normalisation), VI and its two parts \code{H_ext_given_pulse} (zero
+      when PULSE types nest in external types) and \code{H_pulse_given_ext}
+      (zero when external types nest in PULSE types), both in nats,
+      \code{purity}, \code{inverse_purity}, Cramer's V, and the
+      marginal entropies \code{H_pulse} and \code{H_ext} (nats).}
+    \item{\code{by_region}}{Per-region indices (\code{"within_region"}
+      only), otherwise \code{NULL}.}
+    \item{\code{types}}{List with \code{pulse} and \code{external} data
+      frames, one row per type and \code{basis} (fuzzy or crisp): mass,
+      share, best match, share in the best match, effective number of
+      partner types, and relation (\code{"1:1"}, \code{"nested"},
+      \code{"contains"} or \code{"mixed"}).}
+    \item{\code{units}}{One row per matched unit: \code{id}, both crisp
+      labels, \code{match} (the external label equals the crisp best match
+      of the unit's PULSE type), \code{support} (how strongly the fuzzy
+      crosswalk predicts the unit's external label), \code{certainty}
+      (row maximum of the PULSE memberships) and \code{weight}. Join it to
+      your polygons by \code{id} to map disagreement.}
+    \item{\code{by_certainty}}{Match rate and mean support by quintile of
+      \code{certainty}.}
+    \item{\code{coverage}, \code{settings}}{Matching counts and the
+      settings used.}
+  }
+  For a list input, a \code{"pulse_crosswalk_set"} with \code{results} (one
+  \code{pulse_crosswalk} per element) and \code{by_level}, a comparison
+  table. Compare levels on AMI, not NMI: NMI rises with the number of types.
 
 \code{print.pulse_crosswalk} and \code{print.pulse_crosswalk_set} return \code{x} invisibly.
 }

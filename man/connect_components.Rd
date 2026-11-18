@@ -30,15 +30,15 @@ its \code{sfc} are treated identically.}
 
 \item{method}{Character; nearest-neighbour backend. One of:
 \describe{
-\item{\code{"rann"}}{kd-tree lookup via \code{\link[RANN]{nn2}}. Fastest,
-but operates on planar coordinates and ignores the CRS. If \pkg{RANN}
-is not installed, \code{"sf"} is used instead, with a message.}
-\item{\code{"nngeo"}}{\code{\link[nngeo]{st_nn}}; slower, but CRS-aware
-(geodesic distances for lon/lat data).}
-\item{\code{"sf"}}{Brute-force \code{\link[sf]{st_distance}}; no extra
-dependencies. Sub-samples to 500 points per side for large components
-(deterministically, evenly spaced), so the chosen bridge is only
-approximately nearest.}
+  \item{\code{"rann"}}{kd-tree lookup via \code{\link[RANN]{nn2}}. Fastest,
+    but operates on planar coordinates and ignores the CRS. If \pkg{RANN}
+    is not installed, \code{"sf"} is used instead, with a message.}
+  \item{\code{"nngeo"}}{\code{\link[nngeo]{st_nn}}; slower, but CRS-aware
+    (geodesic distances for lon/lat data).}
+  \item{\code{"sf"}}{Brute-force \code{\link[sf]{st_distance}}; no extra
+    dependencies. Sub-samples to 500 points per side for large components
+    (deterministically, evenly spaced), so the chosen bridge is only
+    approximately nearest.}
 }}
 
 \item{verbose}{Logical scalar; if \code{TRUE} (default) progress is reported
@@ -46,13 +46,13 @@ via \code{message()}.}
 }
 \value{
 The input graph \code{g} with additional bridge edges, guaranteed to
-form a single connected component. Every edge carries the logical
-attribute \code{bridge} (\code{TRUE} for added edges, \code{FALSE}
-otherwise) and the numeric attribute \code{bridge_dist} (bridge length in
-metres; \code{NA} on non-bridges). The graph attribute
-\code{bridge_dist_method} records how the length was measured and
-\code{bridge_search_method} which backend chose the pairs. If
-\code{g} is already connected only the attributes are added.
+  form a single connected component. Every edge carries the logical
+  attribute \code{bridge} (\code{TRUE} for added edges, \code{FALSE}
+  otherwise) and the numeric attribute \code{bridge_dist} (bridge length in
+  metres; \code{NA} on non-bridges). The graph attribute
+  \code{bridge_dist_method} records how the length was measured and
+  \code{bridge_search_method} which backend chose the pairs. If
+  \code{g} is already connected only the attributes are added.
 }
 \description{
 Iteratively bridges disconnected components of an \pkg{igraph} object by
@@ -76,13 +76,13 @@ mismatch is a hard error.
 The bridged pair is always chosen by nearest centroid. Its recorded length
 (\code{bridge_dist}) depends on what is supplied:
 \describe{
-\item{\code{"boundary"}}{\code{polygons} supplied (in-memory
-\code{build_network()}): shortest distance between the two
-polygons. A topology gap or corner contact gets a length near 0.}
-\item{\code{"centroid"}}{only \code{centroids} supplied (chunked
-\code{build_network()}): centroid-to-centroid distance, which is
-always at least the boundary distance, so the same bridge receives a
-larger penalty in \code{\link{add_edge_weight}}.}
+  \item{\code{"boundary"}}{\code{polygons} supplied (in-memory
+    \code{build_network()}): shortest distance between the two
+    polygons. A topology gap or corner contact gets a length near 0.}
+  \item{\code{"centroid"}}{only \code{centroids} supplied (chunked
+    \code{build_network()}): centroid-to-centroid distance, which is
+    always at least the boundary distance, so the same bridge receives a
+    larger penalty in \code{\link{add_edge_weight}}.}
 }
 Lengths are in metres for projected and geographic CRSs (great-circle for
 lon/lat), and in raw coordinate units when the data have no CRS.
@@ -98,7 +98,7 @@ the data first.
 
 \examples{
 
-xy <- sf::st_coordinates(sf::st:centroid(sf::st_geometry(pulse_grid)))
+xy <- sf::st_coordinates(sf::st_centroid(sf::st_geometry(pulse_grid)))
 keep <- xy[,1] < 8000 | xy[,2] >11000
 sub <- pulse_grid[keep,]
 net <- build_network(sub, connect_islands = FALSE, verbose = FALSE)

@@ -44,13 +44,14 @@ tune_regions(
 \eqn{\le} \code{trees$n_trees}). Candidate ensemble size(s).}
 
 \item{regions_per_partition}{Integer or integer vector (each \eqn{\ge 2}).
-Candidate number(s) of intermediate regions per cut-set. Default 50.}
+Candidate number(s) of intermediate regions per cut-set. Default 3 times 
+the number of final regions.}
 
 \item{final_regions}{Integer or integer vector (each \eqn{\ge 2}). Candidate
 number(s) of final consensus clusters \emph{k}.}
 
 \item{weight_exponent}{Numeric or numeric vector (each \eqn{\ge 0}).
-Candidate cut-probability exponent(s) \eqn{\gamma}. Default 1.}
+Candidate cut-probability exponent(s) \eqn{\gamma}. Default 4.}
 
 \item{tuning_metric}{Character. Selection criterion, higher is better:
 \code{"borda"} (default; mean rank over \code{voters}),
@@ -87,7 +88,7 @@ only by the \code{prior_strength = Inf} short-circuit.}
 \item{max_iter}{Integer. Maximum passes for \code{"iterative"}. Default 10.}
 
 \item{size_influence}{Non-negative numeric, passed to
-\code{\link{compute_ensemble}}. Not a tuning axis. Default 2.}
+\code{\link{compute_ensemble}}. Not a tuning axis. Default 0.}
 
 \item{cut_rule, refine_boundary, min_size}{Cut rule, boundary refinement and
 smallest piece, as in \code{\link{get_regions}}. Fixed for the whole
@@ -129,21 +130,21 @@ are compared on the same column splits. Defaults to \code{seed}.}
 }
 \value{
 An object of class \code{"pulse_regions_tuning"}: a list with
-\code{best_result} (a \code{"pulse_consensus"} object), \code{best_config}
-(one-row data frame of the winning values on all four axes), the individual
-slots \code{best_regions_per_partition}, \code{best_final_regions},
-\code{best_weight_exponent},
-\code{best_N_tree}, plus \code{best_score}, \code{tuning_log} (one row per
-configuration, with all four axis columns and all CVI columns),
-\code{candidates}, \code{active_axes}, \code{n_ensembles_built},
-\code{tuning_metric}, \code{voters}, \code{tuning_strategy}, \code{prior_strength} and
-\code{ensemble} (the winner's \eqn{N \times N_{tree}} label matrix).
-\code{n_tied} counts configurations sharing the best score,
-\code{runner_up} is the best other row of \code{tuning_log}, and
-\code{tie_rule} states how ties are broken (see Details).
-When \code{prior_strength = Inf}, the object has the same class and slots,
-with the prior as \code{best_result} (one-hot \code{memberships},
-\code{hard_labels}, \code{coverage}) and no \code{tuning_log}.
+  \code{best_result} (a \code{"pulse_consensus"} object), \code{best_config}
+  (one-row data frame of the winning values on all four axes), the individual
+  slots \code{best_regions_per_partition}, \code{best_final_regions},
+  \code{best_weight_exponent},
+  \code{best_N_tree}, plus \code{best_score}, \code{tuning_log} (one row per
+  configuration, with all four axis columns and all CVI columns),
+  \code{candidates}, \code{active_axes}, \code{n_ensembles_built},
+  \code{tuning_metric}, \code{voters}, \code{tuning_strategy}, \code{prior_strength} and
+  \code{ensemble} (the winner's \eqn{N \times N_{tree}} label matrix).
+  \code{n_tied} counts configurations sharing the best score,
+  \code{runner_up} is the best other row of \code{tuning_log}, and
+  \code{tie_rule} states how ties are broken (see Details).
+  When \code{prior_strength = Inf}, the object has the same class and slots,
+  with the prior as \code{best_result} (one-hot \code{memberships},
+  \code{hard_labels}, \code{coverage}) and no \code{tuning_log}.
 }
 \description{
 Searches over up to four hyper-parameters -- \code{regions_per_partition},
@@ -215,13 +216,10 @@ just be the largest candidate. Choose it by convergence, not by tuning.
 \code{CH_FIT} and \code{R2_FIT}: pseudo-F and \eqn{R^2} of the hard labels
 on \code{env}. By default \code{env} is the matrix the edge weights were
 computed from, so these are internal fit indices: they measure how well
-the regions summarise the space the trees were cut in, not agreement with
+the regions summarize the space the trees were cut in, not agreement with
 independent data. Every column adds to the sums of squares, so \eqn{p}
 near-duplicate predictors carry about \eqn{p} times the weight of one
-independent predictor; see \code{\link{add_edge_weight}}. The former
-names \code{CH_ENV}, \code{R2_ENV}, \code{"ch_env"} and \code{"r2_env"}
-are still accepted in \code{voters} and \code{tuning_metric}, with a
-warning. \code{STAB}: split-half ensemble agreement. The ensemble
+independent predictor; see \code{\link{add_edge_weight}}. \code{STAB}: split-half ensemble agreement. The ensemble
 columns are split at random into two disjoint halves, the consensus is
 computed at the same \code{final_regions} on each half, and the ARI
 between the two partitions is averaged over \code{stability_B} splits.

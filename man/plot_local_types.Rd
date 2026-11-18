@@ -23,18 +23,18 @@ plot_local_types(
 
 \item{what}{One of:
 \describe{
-\item{\code{"map"}}{All local types, shaded within region hues.}
-\item{\code{"region"}}{One region's local types, everything else greyed
-out (see \code{which}). The readable way to show nesting when
-\eqn{\sum G_r} runs past about 30 classes.}
-\item{\code{"facet"}}{One panel per region, that region's types only.}
-\item{\code{"confidence"}}{Local-type confidence surface.}
-\item{\code{"bic"}}{Weighted BIC against G, per region — the model
-selection audit. A curve still rising at the largest candidate means
-\code{n_local_types} was capped too low for that region.}
-\item{\code{"profiles"}}{Membership-weighted predictor means per local
-type, z-scored per predictor. Requires \code{env}.}
-\item{\code{"sizes"}}{Effective size of each local type.}
+  \item{\code{"map"}}{All local types, shaded within region hues.}
+  \item{\code{"region"}}{One region's local types, everything else greyed
+    out (see \code{which}). The readable way to show nesting when
+    \eqn{\sum G_r} runs past about 30 classes.}
+  \item{\code{"facet"}}{One panel per region, that region's types only.}
+  \item{\code{"confidence"}}{Local-type confidence surface.}
+  \item{\code{"bic"}}{Weighted BIC against G, per region — the model
+    selection audit. A curve still rising at the largest candidate means
+    \code{n_local_types} was capped too low for that region.}
+  \item{\code{"profiles"}}{Membership-weighted predictor means per local
+    type, z-scored per predictor. Requires \code{env}.}
+  \item{\code{"sizes"}}{Effective size of each local type.}
 }}
 
 \item{geom}{An \code{sf} object, if not already attached.}
@@ -45,11 +45,11 @@ the hues identical to the level-1 figures.}
 \item{palette}{Local-type colors; defaults to \code{\link{local_palette}}
 built on \code{\link{pulse_palette}(regions)}.}
 
-\item{confidence}{\code{"own"} (default) uses \eqn{z_{irg}}, the
-within-region probability of the assigned local type, ignoring how sure
-Level 1 is about the region; \code{"joint"} uses \eqn{w_{ir} z_{irg}} of
+\item{confidence}{\code{"own"} (default) uses \eqn{z_{irg}}, the 
+within-region probability of the assigned local type, ignoring how sure 
+Level 1 is about the region; \code{"joint"} uses \eqn{w_{ir} z_{irg}} of 
 the assigned local type: Level 1
-region membership × within-region type probability. Use \code{"joint"} for
+region membership × within-region type probability. Use \code{"joint"} for 
 any figure that stands alone.}
 
 \item{which}{Integer region, for \code{what = "region"}.}

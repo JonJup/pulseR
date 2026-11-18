@@ -224,8 +224,8 @@ compute_local_type_distance <- function(
 #'   \code{selection}, without refitting. Default \code{c(0.1, 0.2, 0.3)}.
 #' @param method,env,n_sample,seed Passed to \code{\link{compute_local_type_distance}}.
 #' @param rule How to choose among several \code{n_meta_types}.
-#'   \code{"crossing"} (default): the finest cut whose confined mass is at most
-#'   \code{max_confined}. \code{"gap"}: cut where the tree has its largest jump
+#'   \code{"crossing"}: the finest cut whose confined mass is at most
+#'   \code{max_confined}. \code{"gap"} (default): cut where the tree has its largest jump
 #'   in merge height, that is, between the last merge of similar types and the
 #'   first merge of dissimilar ones. Crossing only says a meta-type is not a
 #'   stand-in for a region; it does not say the meta-type is homogeneous, so
@@ -240,7 +240,7 @@ compute_local_type_distance <- function(
 #'   recomputing one.
 #' @param variables Optional subset of \code{local$variables} to compare the
 #'   local types on; passed to \code{\link{compute_local_type_distance}}.
-#'   Ignored when \code{distance} is given.
+#'   Ignored when \code{distance} is given. 
 #' @return An object of class \code{"pulse_meta_types"}:
 #'   \describe{
 #'     \item{\code{memberships}}{N x n_meta_types matrix. Rows sum to one, exactly, by
@@ -280,7 +280,7 @@ compute_local_type_distance <- function(
 get_meta_types <- function(local,
                            n_meta_types     = 2:12,
                            max_confined = 0.2,
-                           rule       = c("crossing", "gap"),
+                           rule       = c("gap", "crossing"),
                            sensitivity  = c(0.1, 0.2, 0.3),
                            method     = c("bhattacharyya", "wasserstein", "empirical"),
                            env        = NULL,

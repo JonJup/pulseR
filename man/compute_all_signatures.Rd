@@ -50,9 +50,9 @@ a \code{bridge} edge attribute is used unchanged.}
 }
 \value{
 Numeric \eqn{n \times \binom{c+1}{2}} matrix with \code{"a:b"} column
-names and attribute \code{"exclude_bridges"}. Rows whose neighbourhood
-contains no edge are \code{NA}; with \code{exclude_bridges = TRUE} this
-includes units joined to the rest only by bridges.
+  names and attribute \code{"exclude_bridges"}. Rows whose neighbourhood
+  contains no edge are \code{NA}; with \code{exclude_bridges = TRUE} this
+  includes units joined to the rest only by bridges.
 }
 \description{
 For focal \eqn{f} the signature is the upper triangle of

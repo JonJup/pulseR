@@ -15,19 +15,19 @@ compute_signature_distance(
 
 \item{method}{One of
 \describe{
-\item{\code{"js"}}{Square root of the Jensen-Shannon divergence (nats).
-A proper metric, ceiling \eqn{\sqrt{\log 2}}. The default, and what the
-method was published against.}
-\item{\code{"hellinger"}}{\eqn{\|\sqrt p - \sqrt q\|_2/\sqrt 2}. A proper
-metric with ceiling 1, behaving almost identically to \code{"js"} —
-its real advantage is that it is Euclidean distance on
-\code{\link{embed_hellinger}(signatures)}, so k-means, CLARA, PCA and every
-other Euclidean tool applies without an \eqn{N \times N} matrix.}
-\item{\code{"tv"}}{Total variation, \eqn{\tfrac12\|p-q\|_1}.}
-\item{\code{"bray"}}{Bray-Curtis. On row-normalised signatures this
-equals total variation; offered because ecologists expect it.}
-\item{\code{"euclidean"}}{Plain \eqn{L_2}. Not a divergence; useful only
-as a null comparison.}
+  \item{\code{"js"}}{Square root of the Jensen-Shannon divergence (nats).
+    A proper metric, ceiling \eqn{\sqrt{\log 2}}. The default, and what the
+    method was published against.}
+  \item{\code{"hellinger"}}{\eqn{\|\sqrt p - \sqrt q\|_2/\sqrt 2}. A proper
+    metric with ceiling 1, behaving almost identically to \code{"js"} —
+    its real advantage is that it is Euclidean distance on
+    \code{\link{embed_hellinger}(signatures)}, so k-means, CLARA, PCA and every
+    other Euclidean tool applies without an \eqn{N \times N} matrix.}
+  \item{\code{"tv"}}{Total variation, \eqn{\tfrac12\|p-q\|_1}.}
+  \item{\code{"bray"}}{Bray-Curtis. On row-normalised signatures this
+    equals total variation; offered because ecologists expect it.}
+  \item{\code{"euclidean"}}{Plain \eqn{L_2}. Not a divergence; useful only
+    as a null comparison.}
 }}
 
 \item{signatures_ref}{Optional reference matrix. When supplied, returns the

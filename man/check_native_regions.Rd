@@ -81,10 +81,10 @@ keeps the sweep fast; confirm a final value with the default 16.}
 }
 \value{
 A data frame with \code{regions_per_partition}, \code{N_tree},
-\code{n_eff}, \code{native_regions}, \code{capped} (\code{TRUE} when
-salso hit its cluster cap, so \code{native_regions} is a lower bound),
-\code{ratio} (\code{native_regions / regions_per_partition}) and
-\code{seconds}.
+  \code{n_eff}, \code{native_regions}, \code{capped} (\code{TRUE} when
+  salso hit its cluster cap, so \code{native_regions} is a lower bound),
+  \code{ratio} (\code{native_regions / regions_per_partition}) and
+  \code{seconds}.
 }
 \description{
 Cuts one set of trees at each \code{regions_per_partition} (and slices each
@@ -95,8 +95,8 @@ data or follows the ensemble settings.
 }
 \details{
 On a sample, small regions can be missed, so \code{native_regions}
-is a lower bound when \code{sample_size < N}. Compare rows with each other,
-not with the full-data count.
+  is a lower bound when \code{sample_size < N}. Compare rows with each other,
+  not with the full-data count.
 }
 \examples{
 g <- build_network(pulse_grid, verbose = FALSE)

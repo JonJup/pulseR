@@ -18,15 +18,15 @@ as_mosaic_input(
 \arguments{
 \item{x}{One of:
 \describe{
-\item{\code{"pulse_meta_types"}}{Cross-region meta-types. The usual input
-once merging is in play: meta-types recur across regions, so
-neighbourhoods in different regions can share classes.}
-\item{\code{"pulse_local_types"}}{Region-nested local types. Note that a
-local type determines its region, so signatures built on these encode
-region identity and the mosaic level will tend to recover the region
-map.}
-\item{\code{"pulse_regions"} / \code{"pulse_regions_tuning"}}{Level-1 regions.}
-\item{A numeric matrix}{Used as is.}
+  \item{\code{"pulse_meta_types"}}{Cross-region meta-types. The usual input
+    once merging is in play: meta-types recur across regions, so
+    neighbourhoods in different regions can share classes.}
+  \item{\code{"pulse_local_types"}}{Region-nested local types. Note that a
+    local type determines its region, so signatures built on these encode
+    region identity and the mosaic level will tend to recover the region
+    map.}
+  \item{\code{"pulse_regions"} / \code{"pulse_regions_tuning"}}{Level-1 regions.}
+  \item{A numeric matrix}{Used as is.}
 }}
 
 \item{use}{\code{"memberships"} (default; rows sum to one),
@@ -53,8 +53,8 @@ zero bins and inflate the signature dimension. Default \code{TRUE}.}
 }
 \value{
 An object of class \code{"pulse_mosaic_input"}: a list with \code{P},
-\code{labels}, \code{region_of} (parent region per column, \code{NA} where
-the class has none) and \code{level}.
+  \code{labels}, \code{region_of} (parent region per column, \code{NA} where
+  the class has none) and \code{level}.
 
 \code{print.pulse_mosaic_input} returns \code{x} invisibly.
 }

@@ -46,12 +46,6 @@
                 memberships         = memberships,
                 hard_labels       = hard_labels,
                 coverage            = coverage,        # length-N logical
-                best_regions_per_partition = K,
-                best_final_regions  = K,
-                best_N_tree          = NA_integer_,
-                best_score          = NA_real_,
-                tuning_log          = NULL,
-                trees               = NULL,
                 prior_strength      = Inf,
                 class_levels        = classes
         )

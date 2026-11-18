@@ -140,10 +140,10 @@
 #' g_weighted <- add_edge_weight(g, variables = c("temp", "prec"))
 #' # --- Chunked across parquet files ---
 #' if (require(arrow, quietly = TRUE)){
-#'  env <- sf::st_drop_geometry(pluse_grid)
+#'  env <- sf::st_drop_geometry(pulse_grid)
 #'  files <- file.path(tempdir(), c("env1.parquet", "env2.parquet"))
 #'  arrow::write_parquet(env[1:150,], files[1])
-#'  arrow::write_parquet(env[151:300, ] files[2])
+#'  arrow::write_parquet(env[151:300, ], files[2])
 #' g_chunked <- add_edge_weight(
 #'   g,
 #'   chunked = TRUE,

@@ -9,7 +9,7 @@ get_meta_types(
   local,
   n_meta_types = 2:12,
   max_confined = 0.2,
-  rule = c("crossing", "gap"),
+  rule = c("gap", "crossing"),
   sensitivity = c(0.1, 0.2, 0.3),
   method = c("bhattacharyya", "wasserstein", "empirical"),
   env = NULL,
@@ -38,8 +38,8 @@ largest one does.}
 Default 0.2. Some confinement is real, so 0 is usually too strict.}
 
 \item{rule}{How to choose among several \code{n_meta_types}.
-\code{"crossing"} (default): the finest cut whose confined mass is at most
-\code{max_confined}. \code{"gap"}: cut where the tree has its largest jump
+\code{"crossing"}: the finest cut whose confined mass is at most
+\code{max_confined}. \code{"gap"} (default): cut where the tree has its largest jump
 in merge height, that is, between the last merge of similar types and the
 first merge of dissimilar ones. Crossing only says a meta-type is not a
 stand-in for a region; it does not say the meta-type is homogeneous, so
@@ -70,38 +70,38 @@ Ignored when \code{distance} is given.}
 }
 \value{
 An object of class \code{"pulse_meta_types"}:
-\describe{
-\item{\code{memberships}}{N x n_meta_types matrix. Rows sum to one, exactly, by
-summing local-type columns.}
-\item{\code{hard_labels}, \code{certainty}}{Row argmax and its value.}
-\item{\code{entropy}}{Row entropy of \code{memberships}, normalized by
-\eqn{\log} \code{n_meta_types}.}
-\item{\code{key}}{Local type, its region, and its meta-type.}
-\item{\code{crossing}}{Regions represented in each meta-type, and the ARI
-between the meta-type and region labelings OF THE LOCAL TYPES. Low ARI
-is the goal: it means meta-types are not region proxies.}
-\item{\code{n_meta_types}}{Number of meta-types.}
-\item{\code{selection}}{Per candidate: confined mass, share of
-single-region meta-types, regions per meta-type, ARI with region,
-silhouette, whether it passes, and \code{height_gap}, the jump in merge
-height at that cut. \code{NULL} for a single value, and whether it passes.
-\code{NULL} for a single value outside 2 to (number of local types - 1).}
-\item{\code{sensitivity}}{Per threshold: chosen n_meta_types, confined mass,
-unweighted and mass-weighted ARI, silhouette. Attribute \code{stable}
-is TRUE if every threshold picks the same cut. \code{NULL} if
-\code{n_meta_types} was fixed.}
-\item{\code{rule}}{How \code{n_meta_types} was chosen.}
-\item{\code{hclust}, \code{distance}}{The tree and the distance used.}
-\item{\code{method}}{Distance method used.}
-\item{\code{parent}}{The local-type key of \code{local}.}
-\item{\code{gap_ratio}}{Largest height gap among the candidate cuts,
-divided by their median gap. Large values mean the tree has one clear
-cut; values near 1 mean no cut stands out, so treat the chosen
-\code{n_meta_types} with caution. Computed under either rule.
-\code{NA} with fewer than two candidates.}
-\item{\code{variables}}{Variables the local-type distance was computed
-on. \code{NULL} when \code{distance} was given without that attribute.}
-}
+  \describe{
+    \item{\code{memberships}}{N x n_meta_types matrix. Rows sum to one, exactly, by
+      summing local-type columns.}
+    \item{\code{hard_labels}, \code{certainty}}{Row argmax and its value.}
+    \item{\code{entropy}}{Row entropy of \code{memberships}, normalized by
+      \eqn{\log} \code{n_meta_types}.}
+    \item{\code{key}}{Local type, its region, and its meta-type.}
+    \item{\code{crossing}}{Regions represented in each meta-type, and the ARI
+      between the meta-type and region labelings OF THE LOCAL TYPES. Low ARI
+      is the goal: it means meta-types are not region proxies.}
+    \item{\code{n_meta_types}}{Number of meta-types.}
+    \item{\code{selection}}{Per candidate: confined mass, share of
+      single-region meta-types, regions per meta-type, ARI with region,
+      silhouette, whether it passes, and \code{height_gap}, the jump in merge
+      height at that cut. \code{NULL} for a single value, and whether it passes.
+      \code{NULL} for a single value outside 2 to (number of local types - 1).}
+    \item{\code{sensitivity}}{Per threshold: chosen n_meta_types, confined mass,
+      unweighted and mass-weighted ARI, silhouette. Attribute \code{stable}
+      is TRUE if every threshold picks the same cut. \code{NULL} if
+      \code{n_meta_types} was fixed.}
+    \item{\code{rule}}{How \code{n_meta_types} was chosen.}
+    \item{\code{hclust}, \code{distance}}{The tree and the distance used.}
+    \item{\code{method}}{Distance method used.}
+    \item{\code{parent}}{The local-type key of \code{local}.}
+    \item{\code{gap_ratio}}{Largest height gap among the candidate cuts,
+      divided by their median gap. Large values mean the tree has one clear
+      cut; values near 1 mean no cut stands out, so treat the chosen
+      \code{n_meta_types} with caution. Computed under either rule.
+      \code{NA} with fewer than two candidates.}
+    \item{\code{variables}}{Variables the local-type distance was computed
+      on. \code{NULL} when \code{distance} was given without that attribute.}
+  }
 
 \code{print.pulse_meta_types} returns \code{x} invisibly.
 }

@@ -332,13 +332,13 @@ plot_regions <- function(x,
                 
                 map = .map(g,
                            fade_by_confidence(palette[x$hard_labels], conf),
-                           title    = sprintf("River ecotypes (k = %d)", x$k),
+                           title    = sprintf("Ecoregions (k = %d)", x$k),
                            subtitle = "hue = region, saturation = confidence",
                            raster = raster, raster_px = raster_px) +
                         .region_key(palette),
                 
                 crisp = .map(g, unname(palette[x$hard_labels]),
-                             title = sprintf("River ecotypes (k = %d)", x$k),
+                             title = sprintf("Ecoregions (k = %d)", x$k),
                              raster = raster, raster_px = raster_px) +
                         .region_key(palette),
                 
@@ -718,34 +718,6 @@ plot_local_types <- function(x,
 #' @noRd
 `%||%` <- function(a, b) if (is.null(a)) b else a
 
-
-# -----------------------------------------------------------------------------*
-# Both levels together
-# -----------------------------------------------------------------------------*
-
-#' Region and local-type maps side by side
-#'
-#' Uses one palette for both panels, so the nesting is visible: the right panel
-#' is the left panel subdivided into shades of the same hues.
-#'
-#' @param regions A \code{"pulse_regions"} object.
-#' @param local A \code{"pulse_local_types"} object fitted on it.
-#' @param geom An \code{sf} object, if not already attached.
-#' @param confidence Passed to both panels; \code{"joint"} on the right.
-#' @param ... Passed to both plotting calls.
-#' @return A \code{patchwork} object if \pkg{patchwork} is installed, otherwise
-#'   a list of two \code{ggplot} objects.
-#' @export
-plot_region_local <- function(regions, local, geom = NULL, confidence = "joint", ...) {
-        .need("ggplot2")
-        pal_r <- pulse_palette(regions)
-        pal_l <- local_palette(local, pal_r)
-        g <- .get_geom(regions, geom)
-        p1 <- plot_regions(regions, "map", geom = g, palette = pal_r, ...)
-        p2 <- plot_local_types(local, "map", geom = g, regions = regions,
-                               palette = pal_l, confidence = confidence, ...)
-        if (requireNamespace("patchwork", quietly = TRUE)) p1 + p2 else list(p1, p2)
-}
 
 
 # =============================================================================*

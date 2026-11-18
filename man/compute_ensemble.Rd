@@ -80,7 +80,7 @@ act on that gain in the same units. Needs the environment matrix that
 \code{\link{add_edge_weight}} stores on the graph.}
 
 \item{min_size}{Integer \eqn{\ge 1}. Smallest allowed piece. Used only by
-\code{cut_rule = "ssd"}, where cuts are sequential. Default 1.}
+\code{cut_rule = "ssd"}, where cuts are sequential. Default 5.}
 
 \item{seed}{Optional integer seed. One stream drives the whole call; the
 caller's RNG state is restored on exit. \code{NULL} (default) uses the
@@ -92,20 +92,20 @@ current stream, so \code{set.seed()} before the call still works.}
 }
 \value{
 An object of class \code{"pulse_ensemble"} — a list with:
-\describe{
-\item{\code{memberships}}{Integer matrix (\code{N x N_tree}). Each column
-is a region assignment from one spanning tree.}
-\item{\code{N_tree}}{Ensemble size used.}
-\item{\code{regions_per_partition}}{Number of regions per tree.}
-\item{\code{n_members}}{Number of columns.}
-\item{\code{weight_exponent}}{\eqn{\gamma} used.}
-\item{\code{n_vertices}}{Number of vertices.}
-\item{\code{prior_strength}}{The prior strength used.}
-\item{\code{chance_coassoc}}{Per-column chance co-association
-\eqn{p_{0,t} = \sum_r (n_r / N)^2}; its mean is the reference scale
-for cohesion.}
-\item{\code{cut_rule}, \code{min_size}}{The cut settings used.}
-}
+  \describe{
+    \item{\code{memberships}}{Integer matrix (\code{N x N_tree}). Each column
+      is a region assignment from one spanning tree.}
+    \item{\code{N_tree}}{Ensemble size used.}
+    \item{\code{regions_per_partition}}{Number of regions per tree.}
+    \item{\code{n_members}}{Number of columns.}
+    \item{\code{weight_exponent}}{\eqn{\gamma} used.}
+    \item{\code{n_vertices}}{Number of vertices.}
+    \item{\code{prior_strength}}{The prior strength used.}
+    \item{\code{chance_coassoc}}{Per-column chance co-association
+      \eqn{p_{0,t} = \sum_r (n_r / N)^2}; its mean is the reference scale
+      for cohesion.}
+    \item{\code{cut_rule}, \code{min_size}}{The cut settings used.}
+  }
 
 \code{print.pulse_ensemble} returns \code{x} invisibly.
 }

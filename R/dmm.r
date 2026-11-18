@@ -220,7 +220,7 @@
 #'   alpha -> 0, which forbids any unit containing that pair from joining it.
 #' @param A_max Cap on the precision. At the cap the DMM equals a multinomial
 #'   mixture to numerical precision for any realistic count total.
-#' @param tau Temperature on the per-unit evidence, in [0, 1], applied after
+#' @param tau Temperature on the per-unit evidence, in \[0, 1\], applied after
 #'   fitting: alpha and pi are the untempered estimates, memberships are
 #'   U_ik ∝ pi_k DM(x_i | alpha_k)^tau (tau -> 0 sends them to \code{pi}), and
 #'   BIC uses tau * loglik. 1 is the plain DMM.

@@ -23,16 +23,16 @@ plot_regions(
 
 \item{what}{One of:
 \describe{
-\item{\code{"map"}}{Hard regions, faded by confidence. The headline figure.}
-\item{\code{"crisp"}}{Hard regions at full saturation, no fading.}
-\item{\code{"confidence"}}{The \code{confidence} quantity as a continuous surface.}
-\item{\code{"entropy"}}{Normalised membership entropy.}
-\item{\code{"transition"}}{Units whose best and second-best regions are
-within \code{margin} — the fuzzy boundaries themselves.}
-\item{\code{"membership"}}{One faceted panel per region (see \code{which}).}
-\item{\code{"coassociation"}}{k x k between-region co-association heatmap.}
-\item{\code{"ordination"}}{Regions in co-association space.}
-\item{\code{"tuning"}}{Score against each searched axis.}
+  \item{\code{"map"}}{Hard regions, faded by confidence. The headline figure.}
+  \item{\code{"crisp"}}{Hard regions at full saturation, no fading.}
+  \item{\code{"confidence"}}{The \code{confidence} quantity as a continuous surface.}
+  \item{\code{"entropy"}}{Normalised membership entropy.}
+  \item{\code{"transition"}}{Units whose best and second-best regions are
+    within \code{margin} — the fuzzy boundaries themselves.}
+  \item{\code{"membership"}}{One faceted panel per region (see \code{which}).}
+  \item{\code{"coassociation"}}{k x k between-region co-association heatmap.}
+  \item{\code{"ordination"}}{Regions in co-association space.}
+  \item{\code{"tuning"}}{Score against each searched axis.}
 }}
 
 \item{geom}{An \code{sf} object, if not already attached.}

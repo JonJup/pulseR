@@ -32,8 +32,8 @@ it, so pass it if and only if \code{x} was fitted with contiguity.}
 }
 \value{
 A one-row data frame: \code{final_regions}, \code{CH_FIT},
-\code{R2_FIT}, \code{STAB}, \code{STAB_FAIL}, \code{SIL_CA}, \code{CERT},
-\code{EVI}, \code{PAC}.
+  \code{R2_FIT}, \code{STAB}, \code{STAB_FAIL}, \code{SIL_CA}, \code{CERT},
+  \code{EVI}, \code{PAC}.
 }
 \description{
 Scores a \code{"pulse_regions"} object with the same indices that

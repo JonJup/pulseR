@@ -45,5 +45,6 @@ test_that(".null_summary() counts failed replicates against the null", {
         r <- .null_summary(null, data.frame(final_regions = 2L, CH_FIT = 10), list())
         r <- r[r$criterion == "CH_FIT", ]
         expect_equal(c(r$n_null, r$n_fail, r$fail_share), c(2, 2, 0.5))
-        expect_equal(r$p, 2 / 5)
+        expect_equal(r$p, 4 / 5)
+        expect_equal(r$p_drop, 2 / 3)
 })

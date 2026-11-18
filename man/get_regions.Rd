@@ -51,7 +51,8 @@ as given: non-numeric columns are dropped and nothing is scaled.}
 validity indices, for example numeric ID columns. Default \code{NULL}.}
 
 \item{regions_per_partition}{Integer, or integer vector of candidates.
-Number of contiguous pieces each spanning tree is cut into. Default 50.}
+Number of contiguous pieces each spanning tree is cut into. Default 3 times
+the number of final regions.}
 
 \item{final_regions}{Integer, or integer vector of candidates. Number of
 consensus regions \eqn{k}.}
@@ -88,7 +89,7 @@ tree is cut. See \code{\link{compute_ensemble}}.}
 after consensus. Default \code{TRUE}. See \code{\link{compute_consensus}}.}
 
 \item{min_size}{Integer \eqn{\ge 1}. Smallest piece the \code{"ssd"} rule may
-cut off, and smallest region the boundary refinement may leave. Default 1.}
+cut off, and smallest region the boundary refinement may leave. Default 5.}
 
 \item{prior_typology}{Optional. Vertex attribute name (single character)
 or vector of length \code{vcount(graph)} giving a prior ecoregion label
@@ -146,35 +147,35 @@ caller's RNG state is restored on exit.}
 }
 \value{
 An object of class \code{"pulse_regions"}, a list with
-\describe{
-\item{\code{memberships}}{\eqn{N \times k} matrix \eqn{\Pi}. Rows sum
-to 1; filled from graph neighbours (see compute_consensus() Details);
-all-zero for uncovered units when
-\code{prior_strength = Inf}.}
-\item{\code{entropy}}{Row entropy of \code{memberships}.}
-\item{\code{hard_labels}}{Integer vector of consensus labels.}
-\item{\code{k}}{Number of regions.}
-\item{\code{config}}{One-row data frame: \code{regions_per_partition},
-\code{weight_exponent}, \code{N_tree}, \code{final_regions},
-\code{cut_rule}, \code{refine_boundary}, \code{min_size}.}
-\item{\code{tuned}}{Logical. \code{TRUE} if \code{tune_regions()} ran.}
-\item{\code{score}, \code{tuning_metric}, \code{tuning_strategy}}{Tuning result;
-\code{NA} when not tuned.}
-\item{\code{tuning_log}, \code{candidates},
-\code{n_ensembles_built}}{Search provenance; \code{NULL} or \code{NA}
-when not tuned.}
-\item{\code{prior_strength}}{\eqn{\lambda} as applied.}
-\item{\code{coverage}}{Logical per unit when
-\code{prior_strength = Inf}, else \code{NULL}.}
-\item{\code{fit}}{The \code{"pulse_consensus"} object from
-\code{\link{compute_consensus}}, with certainty, margin, cohesion,
-loss terms and diagnostics; \code{NULL} when
-\code{prior_strength = Inf}.}
-\item{\code{trees}}{The \code{"pulse_trees"} object used.}
-\item{\code{ensemble}}{The \eqn{N \times N_{tree}} label matrix.}
-\item{\code{p0}, \code{n_eff}}{Mean chance co-association of the
-ensemble and \eqn{1 / p_0}.}
-}
+  \describe{
+    \item{\code{memberships}}{\eqn{N \times k} matrix \eqn{\Pi}. Rows sum
+      to 1; filled from graph neighbours (see compute_consensus() Details);
+       all-zero for uncovered units when
+      \code{prior_strength = Inf}.}
+    \item{\code{entropy}}{Row entropy of \code{memberships}.}
+    \item{\code{hard_labels}}{Integer vector of consensus labels.}
+    \item{\code{k}}{Number of regions.}
+    \item{\code{config}}{One-row data frame: \code{regions_per_partition},
+      \code{weight_exponent}, \code{N_tree}, \code{final_regions},
+      \code{cut_rule}, \code{refine_boundary}, \code{min_size}.}
+    \item{\code{tuned}}{Logical. \code{TRUE} if \code{tune_regions()} ran.}
+    \item{\code{score}, \code{tuning_metric}, \code{tuning_strategy}}{Tuning result;
+      \code{NA} when not tuned.}
+    \item{\code{tuning_log}, \code{candidates},
+      \code{n_ensembles_built}}{Search provenance; \code{NULL} or \code{NA}
+      when not tuned.}
+    \item{\code{prior_strength}}{\eqn{\lambda} as applied.}
+    \item{\code{coverage}}{Logical per unit when
+      \code{prior_strength = Inf}, else \code{NULL}.}
+    \item{\code{fit}}{The \code{"pulse_consensus"} object from
+      \code{\link{compute_consensus}}, with certainty, margin, cohesion,
+      loss terms and diagnostics; \code{NULL} when
+      \code{prior_strength = Inf}.}
+    \item{\code{trees}}{The \code{"pulse_trees"} object used.}
+    \item{\code{ensemble}}{The \eqn{N \times N_{tree}} label matrix.}
+    \item{\code{p0}, \code{n_eff}}{Mean chance co-association of the
+      ensemble and \eqn{1 / p_0}.}
+  }
 
 \code{print.pulse_regions} returns \code{x} invisibly.
 }
@@ -200,6 +201,6 @@ table(res$hard_labels)
 }
 \seealso{
 \code{\link{sample_spanning_trees}},
-\code{\link{compute_ensemble}},
-\code{\link{compute_consensus}}, \code{\link{tune_regions}}.
+  \code{\link{compute_ensemble}},
+  \code{\link{compute_consensus}}, \code{\link{tune_regions}}.
 }

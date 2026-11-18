@@ -72,11 +72,3 @@ test_that("compute_null_baseline() refuses an env that does not reproduce the we
         expect_s3_class(nb, "pulse_null")
         expect_true(all(is.finite(nb$null$CH_FIT)))
 })
-
-test_that("deprecated CH_ENV / ch_env names map to CH_FIT / ch_fit with a warning", {
-        expect_warning(v <- .renamed_cvi(c("CH_ENV", "STAB"), "voters"), "renamed to CH_FIT")
-        expect_identical(v, c("CH_FIT", "STAB"))
-        expect_warning(m <- .renamed_cvi("r2_env", "tuning_metric"), "r2_fit")
-        expect_identical(m, "r2_fit")
-        expect_silent(.renamed_cvi(c("CH_FIT", "STAB"), "voters"))
-})

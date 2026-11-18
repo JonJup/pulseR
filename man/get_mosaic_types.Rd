@@ -62,7 +62,7 @@ memberships are hardened; selection still uses the soft fit.}
 
 \item{fuzziness}{Numeric \eqn{> 1}. Default 2. PAM only.}
 
-\item{stability_B}{PAM refits on 80\\% subsamples of the same distance
+\item{stability_B}{PAM refits on 80\% subsamples of the same distance
 matrix for \code{STAB}. 0 skips. PAM only. \code{STAB} measures how
 sensitive PAM is to the sample, not whether new data would give the same
 types. Default 10.}
@@ -117,16 +117,16 @@ Default \code{NULL} (composition only, as before).}
 \code{print.pulse_dmm} returns \code{x} invisibly.
 
 A list of class \code{"pulse_mosaic_types"} with \code{clusters} (PAM fit
-or \code{pulse_dmm} object), \code{memberships}, \code{hard_labels},
-\code{d_to_medoids}, \code{medoid_signatures} (DMM: component mean
-signatures), \code{k_sel}, \code{validity}, \code{saturation},
-\code{distance}, \code{method}, \code{dmm_control} (resolved; its
-\code{temperature} is the one the memberships use), \code{calibration}
-(\code{NULL} unless \code{temperature = "calibrate"}: selected tau, the tau
-used for selection, and the ECE table over the grid), \code{configuration}
-(\code{NULL}, or the feature names, channel weight, and per-type means and
-variances of the configuration features), \code{sampled} and
-\code{valid} (map back to rows of \code{signatures}).
+  or \code{pulse_dmm} object), \code{memberships}, \code{hard_labels},
+  \code{d_to_medoids}, \code{medoid_signatures} (DMM: component mean
+  signatures), \code{k_sel}, \code{validity}, \code{saturation},
+  \code{distance}, \code{method}, \code{dmm_control} (resolved; its
+  \code{temperature} is the one the memberships use), \code{calibration}
+  (\code{NULL} unless \code{temperature = "calibrate"}: selected tau, the tau
+  used for selection, and the ECE table over the grid), \code{configuration}
+  (\code{NULL}, or the feature names, channel weight, and per-type means and
+  variances of the configuration features), \code{sampled} and
+  \code{valid} (map back to rows of \code{signatures}).
 
 \code{print.pulse_mosaic_types} returns \code{x} invisibly.
 }

@@ -379,30 +379,6 @@ compute_all_signatures <- function(mosaic_input, graph, k_order,
                   totals = rs, edge_multiplicity = edge_mult)
 }
 
-#' Signature of one focal polygon (reference implementation)
-#'
-#' Retained for testing and teaching. \code{\link{compute_all_signatures}} does
-#' not call it.
-#' @param focal Integer vertex index.
-#' @param P Membership matrix.
-#' @param A Sparse adjacency matrix.
-#' @param W Weight matrix from \code{\link{compute_neighbourhood_weights}}.
-#' @return Numeric signature vector, or all \code{NA}.
-#' @keywords internal
-#' @noRd
-.compute_signature <- function(focal, P, A, W) {
-        nb <- which(W[, focal] != 0)
-        nc <- ncol(P); sig_len <- nc * (nc + 1) / 2
-        if (length(nb) < 2L) return(rep(NA_real_, sig_len))
-        Pw <- P[nb, , drop = FALSE] * as.numeric(W[nb, focal])
-        C  <- as.matrix(Matrix::crossprod(Pw, A[nb, nb, drop = FALSE] %*% Pw))
-        diag(C) <- diag(C) / 2
-        sig <- C[upper.tri(C, diag = TRUE)]
-        s <- sum(sig)
-        if (s > 0) sig / s else rep(NA_real_, sig_len)
-}
-
-
 # -----------------------------------------------------------------------------*
 # 4. Class-aware ground kernel and saturation
 # -----------------------------------------------------------------------------*

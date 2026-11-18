@@ -26,7 +26,7 @@ want its subtitle to carry the saturation.}
 }
 \value{
 A \code{patchwork} object if \pkg{patchwork} is installed, otherwise a
-list of \code{ggplot} objects.
+  list of \code{ggplot} objects.
 }
 \description{
 Supersedes \code{plot_region_local()}. Pass whichever levels you have; panels are

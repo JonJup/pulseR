@@ -52,9 +52,9 @@ counts as flat. Default 0.01.}
 }
 \value{
 Object of class \code{"pulse_ensemble_size"}: \code{replicates}
-(one row per size and replicate), \code{summary} (per size: mean, min
-and max ARI, gain over the previous size), \code{search_floor},
-\code{converged}, \code{k}, \code{n_members}.
+  (one row per size and replicate), \code{summary} (per size: mean, min
+  and max ARI, gain over the previous size), \code{search_floor},
+  \code{converged}, \code{k}, \code{n_members}.
 
 \code{print.pulse_ensemble_size} returns \code{x} invisibly.
 }

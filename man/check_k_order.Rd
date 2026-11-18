@@ -41,25 +41,25 @@ Passed on to \code{\link{compute_all_signatures}} and
 }
 \value{
 A data frame with one row per (\code{k_order}, \code{n_mosaic_types}),
-with attribute \code{"by_order"}: one row per order at its own
-\code{n_mosaic_types}.
+  with attribute \code{"by_order"}: one row per order at its own
+  \code{n_mosaic_types}.
 }
 \description{
 Sweep neighbourhood order and mosaic-type count
 }
 \details{
 \code{k} is bounded on both sides: too small and the signatures are
-noisy and saturate; too large and every neighbourhood converges on the
-global mixture, so the signature field goes flat and the clustering returns
-a few huge blobs. The returned \code{SAT} and \code{contrast} columns
-diagnose the two ends.
+  noisy and saturate; too large and every neighbourhood converges on the
+  global mixture, so the signature field goes flat and the clustering returns
+  a few huge blobs. The returned \code{SAT} and \code{contrast} columns
+  diagnose the two ends.
 
-\code{score} is a Borda rank among the \code{n_mosaic_types} candidates of one
-\code{k_order}, so it selects \code{n_mosaic_types} within an order and must not be
-compared across orders. The function therefore does not pick an order.
-To compare orders, use the bounded columns at a fixed type count, e.g.
-\code{subset(res, n_mosaic_types == 6)[, c("k_order", "R2_JS", "SAT", "contrast")]}.
-\code{R2_JS} rises with \code{n_mosaic_types} and may rise with \code{k_order}
-as signatures smooth, so read it together with \code{SAT} and
-\code{contrast}, not alone.
+  \code{score} is a Borda rank among the \code{n_mosaic_types} candidates of one
+  \code{k_order}, so it selects \code{n_mosaic_types} within an order and must not be
+  compared across orders. The function therefore does not pick an order.
+  To compare orders, use the bounded columns at a fixed type count, e.g.
+  \code{subset(res, n_mosaic_types == 6)[, c("k_order", "R2_JS", "SAT", "contrast")]}.
+  \code{R2_JS} rises with \code{n_mosaic_types} and may rise with \code{k_order}
+  as signatures smooth, so read it together with \code{SAT} and
+  \code{contrast}, not alone.
 }

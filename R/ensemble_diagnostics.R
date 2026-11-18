@@ -28,7 +28,8 @@
 #' @param regions_per_partition Integer \eqn{R \ge 2}.
 #' @param size_influence Numeric vector of settings to compare. 0 is always
 #'   added (it is the ceiling reference).
-#' @param weight_exponent Numeric vector of \eqn{\gamma} values to compare (inverse temperature; see compute_ensemble). Default 1.
+#' @param weight_exponent Numeric vector of \eqn{\gamma} values to compare (
+#'   inverse temperature; see compute_ensemble). Default 4.
 #' @param prior_strength \eqn{\lambda}, as in \code{\link{compute_ensemble}}.
 #' @param N_tree Number of trees to use. Default \code{min(100, n_trees)}.
 #' @param seed Optional integer; the caller's RNG state is restored.

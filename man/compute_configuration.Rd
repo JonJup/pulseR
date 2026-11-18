@@ -53,11 +53,11 @@ Default \code{TRUE}.}
 }
 \value{
 Numeric matrix, one row per polygon, with columns
-\code{"kappa_lag<d>"} and, with \code{anisotropy_lags},
-\code{"aniso_lag<d>"}; class \code{"pulse_configuration"}, and attributes
-\code{same_share} (observed \eqn{q_d}), \code{expected} (\eqn{e}),
-\code{lags} and \code{k_order}. Rows whose window has no pair at some lag
-are \code{NA}.
+  \code{"kappa_lag<d>"} and, with \code{anisotropy_lags},
+  \code{"aniso_lag<d>"}; class \code{"pulse_configuration"}, and attributes
+  \code{same_share} (observed \eqn{q_d}), \code{expected} (\eqn{e}),
+  \code{lags} and \code{k_order}. Rows whose window has no pair at some lag
+  are \code{NA}.
 }
 \description{
 For each unit and graph lag \eqn{d}, measures how often units at distance

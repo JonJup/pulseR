@@ -25,7 +25,8 @@ check_cut_placement(
 \item{size_influence}{Numeric vector of settings to compare. 0 is always
 added (it is the ceiling reference).}
 
-\item{weight_exponent}{Numeric vector of \eqn{\gamma} values to compare (inverse temperature; see compute_ensemble). Default 1.}
+\item{weight_exponent}{Numeric vector of \eqn{\gamma} values to compare (
+inverse temperature; see compute_ensemble). Default 4.}
 
 \item{prior_strength}{\eqn{\lambda}, as in \code{\link{compute_ensemble}}.}
 
@@ -39,11 +40,11 @@ added (it is the ceiling reference).}
 }
 \value{
 Object of class \code{"pulse_cut_placement"}: \code{summary} (one row per
-setting: \code{above_median} share of cuts on edges heavier than the tree
-median, \code{mean_pct}, \code{env_retained}, \code{singleton_share} share
-of cuts that split off one unit, \code{median_small_piece}),
-\code{cuts} (one row per cut: setting, tree, percentile, small-piece
-size) and \code{config}.
+  setting: \code{above_median} share of cuts on edges heavier than the tree
+  median, \code{mean_pct}, \code{env_retained}, \code{singleton_share} share
+  of cuts that split off one unit, \code{median_small_piece}),
+  \code{cuts} (one row per cut: setting, tree, percentile, small-piece
+  size) and \code{config}.
 
 \code{print.pulse_cut_placement} returns \code{x} invisibly.
 }

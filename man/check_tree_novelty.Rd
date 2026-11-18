@@ -26,11 +26,11 @@ matrix (units x partitions), rows in vertex order of \code{graph}.}
 }
 \value{
 Object of class \code{"pulse_tree_novelty"} with \code{per_tree} (one
-row per tree: \code{n_boundary}, \code{new_edges}, \code{share_new},
-\code{nn_jaccard}), \code{curve} (expected distinct edges and expected
-share new, by number of trees), \code{summary} (\code{S_obs},
-\code{S_chao2}, \code{coverage}, \code{Q1}, \code{Q2}) and \code{M}.
-Plot it with \code{plot()}.
+  row per tree: \code{n_boundary}, \code{new_edges}, \code{share_new},
+  \code{nn_jaccard}), \code{curve} (expected distinct edges and expected
+  share new, by number of trees), \code{summary} (\code{S_obs},
+  \code{S_chao2}, \code{coverage}, \code{Q1}, \code{Q2}) and \code{M}.
+  Plot it with \code{plot()}.
 
 \code{print.pulse_tree_novelty} returns \code{x} invisibly.
 
@@ -43,12 +43,12 @@ regions are contiguous (pieces of a cut spanning tree), this set
 determines the partition exactly, so nothing is lost by the change of
 representation. Then asks two questions, tree by tree:
 \describe{
-\item{Possibility space}{How many boundary edges does tree \eqn{t} use
-that no earlier tree used? Summed up, this is an accumulation curve,
-read like a species accumulation curve with edges as species and trees
-as samples.}
-\item{Difference}{How far is tree \eqn{t} from the most similar earlier
-tree (Jaccard distance between boundary-edge sets)?}
+  \item{Possibility space}{How many boundary edges does tree \eqn{t} use
+    that no earlier tree used? Summed up, this is an accumulation curve,
+    read like a species accumulation curve with edges as species and trees
+    as samples.}
+  \item{Difference}{How far is tree \eqn{t} from the most similar earlier
+    tree (Jaccard distance between boundary-edge sets)?}
 }
 }
 \details{
@@ -76,5 +76,5 @@ edge per tree (e.g. 300 MB for 500 trees with 50,000 boundary edges each).
 }
 \references{
 Chao A, Jost L (2012) Coverage-based rarefaction and
-extrapolation. \emph{Ecology} 93: 2533--2547.
+  extrapolation. \emph{Ecology} 93: 2533--2547.
 }

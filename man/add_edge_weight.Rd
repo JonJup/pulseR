@@ -19,11 +19,11 @@ add_edge_weight(
 \arguments{
 \item{g}{A list containing:
 \describe{
-\item{graph}{An \code{igraph} object representing the network structure.
-Vertices should be named (the names are propagated to the output).}
-\item{polygons}{Required when \code{chunked = FALSE}. An \pkg{sf} object
-containing environmental variables for each node. Row order must
-correspond to graph vertex order (see \strong{Node ordering}).}
+  \item{graph}{An \code{igraph} object representing the network structure.
+    Vertices should be named (the names are propagated to the output).}
+  \item{polygons}{Required when \code{chunked = FALSE}. An \pkg{sf} object
+    containing environmental variables for each node. Row order must
+    correspond to graph vertex order (see \strong{Node ordering}).}
 }}
 
 \item{chunked}{Logical scalar. If \code{FALSE} (default), environmental
@@ -66,24 +66,24 @@ This is a fixed modelling choice, not a tuning parameter:
 }
 \value{
 \code{g$graph} with edge attribute \code{weight}, the Euclidean
-distance between neighboring nodes in (optionally scaled) environmental
-space. Vertices, edges and their order are those of \code{g$graph}, and
-every existing attribute (for example \code{polygon_id}) is kept; vertices
-are named \code{"1"}, \code{"2"}, ... if unnamed. \code{eid} is set to
-the edge position. The graph attribute
-\code{env} holds the numeric matrix the distances were computed from
-(after dropping constant columns and, if \code{scale = TRUE},
-standardizing), one row per vertex. \code{\link{tune_regions}} and
-\code{\link{compute_null_baseline}} use it as their default \code{env},
-so validity indices are computed in the space the weights live in. For
-weights from another source (for example GDM), store the transformed
-predictors with \code{igraph::graph_attr(g, "env") <- X}.
+  distance between neighboring nodes in (optionally scaled) environmental
+  space. Vertices, edges and their order are those of \code{g$graph}, and
+  every existing attribute (for example \code{polygon_id}) is kept; vertices
+  are named \code{"1"}, \code{"2"}, ... if unnamed. \code{eid} is set to
+  the edge position. The graph attribute
+  \code{env} holds the numeric matrix the distances were computed from
+  (after dropping constant columns and, if \code{scale = TRUE},
+  standardizing), one row per vertex. \code{\link{tune_regions}} and
+  \code{\link{compute_null_baseline}} use it as their default \code{env},
+  so validity indices are computed in the space the weights live in. For
+  weights from another source (for example GDM), store the transformed
+  predictors with \code{igraph::graph_attr(g, "env") <- X}.
 
-Edge attributes \code{bridge}, \code{bridge_dist} and \code{weight_env}
-(the weight before the bridge penalty) are carried through, and the graph
-attributes \code{bridge_scale} (the \eqn{\lambda} used, \code{Inf} if
-none) and \code{bridge_dist_method} are set. Graphs without a
-\code{bridge} edge attribute are treated as having no bridges.
+  Edge attributes \code{bridge}, \code{bridge_dist} and \code{weight_env}
+  (the weight before the bridge penalty) are carried through, and the graph
+  attributes \code{bridge_scale} (the \eqn{\lambda} used, \code{Inf} if
+  none) and \code{bridge_dist_method} are set. Graphs without a
+  \code{bridge} edge attribute are treated as having no bridges.
 }
 \description{
 Calculates edge weights as Euclidean distances between adjacent
@@ -158,7 +158,7 @@ gw  <- add_edge_weight(g, variables = pcs, scale = TRUE)  # scale = whitening
 
 \section{Node ordering}{
 
-Rows are joined on id against polygon ID. If either is missing the function
+Rows are joined on id against polygon ID. If either is missing the function 
 assumes that the i-th row of the environmental data corresponds
 to the i-th vertex of \code{g$graph}. This contract is \emph{not} verified
 so ensure \code{g$polygons} / the stacked parquet rows are
@@ -171,10 +171,10 @@ g <- build_network(pulse_grid, verbose = FALSE)
 g_weighted <- add_edge_weight(g, variables = c("temp", "prec"))
 # --- Chunked across parquet files ---
 if (require(arrow, quietly = TRUE)){
- env <- sf::st_drop_geometry(pluse_grid)
+ env <- sf::st_drop_geometry(pulse_grid)
  files <- file.path(tempdir(), c("env1.parquet", "env2.parquet"))
  arrow::write_parquet(env[1:150,], files[1])
- arrow::write_parquet(env[151:300, ] files[2])
+ arrow::write_parquet(env[151:300, ], files[2])
 g_chunked <- add_edge_weight(
   g,
   chunked = TRUE,

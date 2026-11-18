@@ -25,21 +25,21 @@ plot_mosaic_types(
 
 \item{what}{One of:
 \describe{
-\item{\code{"map"}}{Mosaic types in space, faded by confidence. Polygons
-with no signature render in \code{na_colour}, not as a class.}
-\item{\code{"confidence"}, \code{"entropy"}}{Uncertainty surfaces.}
-\item{\code{"signatures"}}{The fingerprint figure: mean class-by-class
-co-occurrence per mosaic type, lower triangle, never-occurring
-combinations in white. Needs \code{signatures}.}
-\item{\code{"ordination"}}{Signatures in two dimensions, coloured by
-mosaic type. Needs \code{signatures}.}
-\item{\code{"validity"}}{Every validity index against \code{k}, with the
-selection marked.}
-\item{\code{"saturation"}}{Distribution of pairwise signature distances
-against the metric ceiling. Read this before any of the others: a spike
-at the ceiling means the partition is close to arbitrary. Needs
-\code{signatures}.}
-\item{\code{"sizes"}}{Effective size of each mosaic type.}
+  \item{\code{"map"}}{Mosaic types in space, faded by confidence. Polygons
+    with no signature render in \code{na_colour}, not as a class.}
+  \item{\code{"confidence"}, \code{"entropy"}}{Uncertainty surfaces.}
+  \item{\code{"signatures"}}{The fingerprint figure: mean class-by-class
+    co-occurrence per mosaic type, lower triangle, never-occurring
+    combinations in white. Needs \code{signatures}.}
+  \item{\code{"ordination"}}{Signatures in two dimensions, coloured by
+    mosaic type. Needs \code{signatures}.}
+  \item{\code{"validity"}}{Every validity index against \code{k}, with the
+    selection marked.}
+  \item{\code{"saturation"}}{Distribution of pairwise signature distances
+    against the metric ceiling. Read this before any of the others: a spike
+    at the ceiling means the partition is close to arbitrary. Needs
+    \code{signatures}.}
+  \item{\code{"sizes"}}{Effective size of each mosaic type.}
 }}
 
 \item{signatures}{The signature matrix the fit was built on, row-aligned to

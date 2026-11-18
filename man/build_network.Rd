@@ -76,28 +76,28 @@ via \code{message()} (stderr, suppressible with \code{suppressMessages()}).}
 }
 \value{
 A list with the following elements:
-\describe{
-\item{graph}{An \pkg{igraph} object representing the spatial network.
-Nodes correspond to polygons (vertex ids \code{1..n} in input order)
-and edges represent spatial contiguity or bridges. The graph is
-undirected and simplified (no multi-edges or self-loops). Edge
-attributes \code{bridge} and \code{bridge_dist}, and graph attributes
-\code{bridge_scale_default} and (when bridges were added)
-\code{bridge_dist_method} are described under \emph{Bridge edges}.}
-\item{polygons}{Returned only when \code{chunked = FALSE}: the cleaned
-\pkg{sf} polygon object actually used to build the network (after
-validity repair and empty-geometry removal).}
-\item{edge_data}{A data frame with integer columns \code{from} and
-\code{to} giving connected polygon pairs as 1-based global indices,
-logical \code{bridge} and numeric \code{bridge_dist} (metres,
-\code{NA} for contiguity edges). Bridge rows come last.}
-\item{chunk_meta}{Returned only when \code{chunked = TRUE}: a list with
-one entry per chunk recording file paths, node count, global index
-range, and bounding box.}
-\item{combined_polygons}{Returned only when \code{chunked = TRUE} and
-\code{return_combined_polygons = TRUE}: a single \pkg{sf} object
-combining all polygons processed across chunks.}
-}
+  \describe{
+    \item{graph}{An \pkg{igraph} object representing the spatial network.
+      Nodes correspond to polygons (vertex ids \code{1..n} in input order)
+      and edges represent spatial contiguity or bridges. The graph is
+      undirected and simplified (no multi-edges or self-loops). Edge
+      attributes \code{bridge} and \code{bridge_dist}, and graph attributes
+      \code{bridge_scale_default} and (when bridges were added)
+      \code{bridge_dist_method} are described under \emph{Bridge edges}.}
+    \item{polygons}{Returned only when \code{chunked = FALSE}: the cleaned
+      \pkg{sf} polygon object actually used to build the network (after
+      validity repair and empty-geometry removal).}
+    \item{edge_data}{A data frame with integer columns \code{from} and
+      \code{to} giving connected polygon pairs as 1-based global indices,
+      logical \code{bridge} and numeric \code{bridge_dist} (metres,
+      \code{NA} for contiguity edges). Bridge rows come last.}
+    \item{chunk_meta}{Returned only when \code{chunked = TRUE}: a list with
+      one entry per chunk recording file paths, node count, global index
+      range, and bounding box.}
+    \item{combined_polygons}{Returned only when \code{chunked = TRUE} and
+      \code{return_combined_polygons = TRUE}: a single \pkg{sf} object
+      combining all polygons processed across chunks.}
+  }
 }
 \description{
 Constructs an \pkg{igraph} network object from polygon geometries based on
@@ -116,21 +116,21 @@ spatial contiguity is symmetric.
 
 In chunked mode the function operates in three phases:
 \enumerate{
-\item \strong{Within-chunk edges.} Each chunk is read once through a single
-loader (\code{.load_chunk()}) that validates geometries, optionally
-filters by \code{control_paths}, and removes empties. Neighbours are
-detected locally and global index offsets are tracked so node ids remain
-unique across the full network.
-\item \strong{Cross-chunk edges.} Chunk pairs whose (buffered) bounding
-boxes overlap or touch are reloaded \emph{through the same loader} (so the
-row order matches phase 1 exactly) and the chunk-to-chunk predicate is
-evaluated. Pairs whose bounding boxes are clearly disjoint are skipped,
-which is what makes the chunked path scalable.
-\item \strong{Assembly.} Edges are concatenated, an \pkg{igraph} object is
-built directly from integer vertex ids and simplified, and -- when
-\code{connect_islands = TRUE} and more than one component remains --
-\code{connect_components()} is called using polygon centroids collected
-across chunks.
+  \item \strong{Within-chunk edges.} Each chunk is read once through a single
+    loader (\code{.load_chunk()}) that validates geometries, optionally
+    filters by \code{control_paths}, and removes empties. Neighbours are
+    detected locally and global index offsets are tracked so node ids remain
+    unique across the full network.
+  \item \strong{Cross-chunk edges.} Chunk pairs whose (buffered) bounding
+    boxes overlap or touch are reloaded \emph{through the same loader} (so the
+    row order matches phase 1 exactly) and the chunk-to-chunk predicate is
+    evaluated. Pairs whose bounding boxes are clearly disjoint are skipped,
+    which is what makes the chunked path scalable.
+  \item \strong{Assembly.} Edges are concatenated, an \pkg{igraph} object is
+    built directly from integer vertex ids and simplified, and -- when
+    \code{connect_islands = TRUE} and more than one component remains --
+    \code{connect_components()} is called using polygon centroids collected
+    across chunks.
 }
 
 If \code{min_shared_length > 0}, each candidate edge is checked by computing
@@ -144,8 +144,8 @@ mode, chunks without such a column give \code{NA} ids.
 }
 \note{
 This function depends on a package-internal \code{connect_components()}
-helper (used when \code{connect_islands = TRUE}) which must accept either a
-\code{polygons} or a \code{centroids} argument alongside the graph.
+  helper (used when \code{connect_islands = TRUE}) which must accept either a
+  \code{polygons} or a \code{centroids} argument alongside the graph.
 }
 \section{Bridge edges}{
 
@@ -155,12 +155,12 @@ carries \code{bridge} (\code{TRUE} for bridges) and \code{bridge_dist}
 differently in the two modes, recorded in the graph attribute
 \code{bridge_dist_method}:
 \describe{
-\item{In memory (\code{"boundary"})}{shortest polygon-to-polygon
-distance.}
-\item{Chunked (\code{"centroid"})}{centroid-to-centroid distance, because
-the polygons are no longer in memory. It is always at least the
-boundary distance, so the two modes do not give identical bridge
-penalties for the same data.}
+  \item{In memory (\code{"boundary"})}{shortest polygon-to-polygon
+    distance.}
+  \item{Chunked (\code{"centroid"})}{centroid-to-centroid distance, because
+    the polygons are no longer in memory. It is always at least the
+    boundary distance, so the two modes do not give identical bridge
+    penalties for the same data.}
 }
 The graph attribute \code{bridge_scale_default} holds the default length
 scale for the bridge penalty in \code{\link{add_edge_weight}}: the median,
@@ -207,5 +207,5 @@ network   <- build_network(files, chunked = TRUE, control_paths = env_files)
 }
 \seealso{
 \code{\link[spdep]{poly2nb}} for neighbour detection,
-\code{\link[igraph]{make_empty_graph}} for graph construction.
+  \code{\link[igraph]{make_empty_graph}} for graph construction.
 }

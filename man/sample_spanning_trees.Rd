@@ -65,27 +65,27 @@ for all replicates.}
 }
 \value{
 An object of class \code{"pulse_trees"} — a list with:
-\describe{
-\item{\code{edge_ids}}{Integer matrix (\code{(N - 1) x n}) of parent-edge
-positions; column j holds tree j's edges in \code{igraph::mst()} order.
-Weights: \code{edge_weights[edge_ids[, j]]}; endpoints:
-\code{edge_endpoints[edge_ids[, j], ]}.}
-\item{\code{n_trees}}{Number of trees sampled.}
-\item{\code{n_vertices}}{Number of vertices in the original graph.}
-\item{\code{edge_weights}}{Numeric vector of all parent-graph edge
-weights, ordered as \code{E(graph)}.}
-\item{\code{edge_endpoints}}{Integer matrix (\code{|E| x 2}) of edge
-endpoint vertex indices, ordered as \code{E(graph)}.}
-\item{\code{seed}}{The seed used (or \code{NULL}).}
-\item{\code{prior_labels}}{Resolved prior labels (character vector
-length N), or \code{NULL}.}
-\item{\code{within_prior_edge}}{Logical vector length |E| flagging
-within-prior edges, or \code{NULL}.}
-\item{\code{prior_strength}}{As supplied.}
-\item{\code{noise_scale}, \code{eta}}{Base unit of the weight
-perturbation (MAD of the edge weights, see Details) and the calibrated
-multiplier; the noise standard deviation is their product.}
-}
+  \describe{
+   \item{\code{edge_ids}}{Integer matrix (\code{(N - 1) x n}) of parent-edge
+      positions; column j holds tree j's edges in \code{igraph::mst()} order.
+      Weights: \code{edge_weights[edge_ids[, j]]}; endpoints:
+      \code{edge_endpoints[edge_ids[, j], ]}.}
+    \item{\code{n_trees}}{Number of trees sampled.}
+    \item{\code{n_vertices}}{Number of vertices in the original graph.}
+    \item{\code{edge_weights}}{Numeric vector of all parent-graph edge
+      weights, ordered as \code{E(graph)}.}
+    \item{\code{edge_endpoints}}{Integer matrix (\code{|E| x 2}) of edge
+      endpoint vertex indices, ordered as \code{E(graph)}.}
+    \item{\code{seed}}{The seed used (or \code{NULL}).}
+    \item{\code{prior_labels}}{Resolved prior labels (character vector
+      length N), or \code{NULL}.}
+    \item{\code{within_prior_edge}}{Logical vector length |E| flagging
+      within-prior edges, or \code{NULL}.}
+    \item{\code{prior_strength}}{As supplied.}
+    \item{\code{noise_scale}, \code{eta}}{Base unit of the weight
+      perturbation (MAD of the edge weights, see Details) and the calibrated
+      multiplier; the noise standard deviation is their product.}
+  }
 
 \code{print.pulse_trees} returns \code{x} invisibly.
 }
@@ -97,10 +97,10 @@ into a \code{"pulse_trees"} object that the rest of the pipeline consumes.
 }
 \details{
 The perturbation unit is the median absolute deviation (MAD) of
-the edge weights. When more than half of the weights are equal, the MAD
-is 0 and would remove all perturbation; the unit then falls back to
-\code{IQR / 1.349}, then the standard deviation, then 1 (all weights
-equal), with a warning.
+  the edge weights. When more than half of the weights are equal, the MAD
+  is 0 and would remove all perturbation; the unit then falls back to
+  \code{IQR / 1.349}, then the standard deviation, then 1 (all weights
+  equal), with a warning.
 }
 \examples{
 \dontrun{

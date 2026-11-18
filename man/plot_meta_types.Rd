@@ -24,21 +24,21 @@ plot_meta_types(
 
 \item{what}{One of:
 \describe{
-\item{\code{"map"}}{Meta-types in space, faded by confidence.}
-\item{\code{"composition"}}{The diagnostic figure. One bar per meta-type,
-segments coloured by the parent region of each local type it absorbed.
-Multi-coloured bars mean types recur across regions and the merge has
-decoupled class from location; single-coloured bars mean it has not,
-and the mosaic level will keep reproducing the region map.}
-\item{\code{"overlap"}}{Local-type distance matrix ordered by the merge
-tree, with a region annotation strip.}
-\item{\code{"selection"}}{Silhouette and ARI-with-region against
-\code{n_meta_types}. Choose on the second: cluster tightness is not the
-criterion here.}
-\item{\code{"confidence"}, \code{"entropy"}}{Uncertainty surfaces.}
-\item{\code{"profiles"}}{Membership-weighted predictor means per
-meta-type. Needs \code{env} and \code{variables}.}
-\item{\code{"sizes"}}{Effective size of each meta-type.}
+  \item{\code{"map"}}{Meta-types in space, faded by confidence.}
+  \item{\code{"composition"}}{The diagnostic figure. One bar per meta-type,
+    segments coloured by the parent region of each local type it absorbed.
+    Multi-coloured bars mean types recur across regions and the merge has
+    decoupled class from location; single-coloured bars mean it has not,
+    and the mosaic level will keep reproducing the region map.}
+  \item{\code{"overlap"}}{Local-type distance matrix ordered by the merge
+    tree, with a region annotation strip.}
+  \item{\code{"selection"}}{Silhouette and ARI-with-region against
+    \code{n_meta_types}. Choose on the second: cluster tightness is not the
+    criterion here.}
+  \item{\code{"confidence"}, \code{"entropy"}}{Uncertainty surfaces.}
+  \item{\code{"profiles"}}{Membership-weighted predictor means per
+    meta-type. Needs \code{env} and \code{variables}.}
+  \item{\code{"sizes"}}{Effective size of each meta-type.}
 }}
 
 \item{geom}{An \code{sf} object, if not attached.}

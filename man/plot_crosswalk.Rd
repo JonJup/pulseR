@@ -88,37 +88,37 @@ package map builder.}
 }
 \value{
 A \code{ggplot} object; for \code{what = "map"} with
-\code{panel = TRUE} and \pkg{patchwork} installed, a \code{patchwork}.
+  \code{panel = TRUE} and \pkg{patchwork} installed, a \code{patchwork}.
 }
 \description{
 Figures for the output of \code{\link{crosswalk_types}}. Each answers one
 question a crosswalk is usually run for:
 \describe{
-\item{\code{"plane"}}{What kind of relationship is this? Each crosswalk is
-a point in a unit square. x is the share of the external typology's
-information that PULSE does not capture, \eqn{H(E|P)/H(E)}; y is the
-share of PULSE information the external typology does not capture,
-\eqn{H(P|E)/H(P)}. Bottom-left: same typology. Top-left: PULSE refines
-the external typology. Bottom-right: PULSE coarsens it. Top-right:
-unrelated. Fill is crisp AMI. Accepts a \code{pulse_crosswalk_set} or a
-named list of crosswalks (several external typologies, or one run per
-part of the study area). For \code{"within_region"} results the
-per-region values are drawn as small grey points.}
-\item{\code{"matrix"}}{Which type goes where? Rows are PULSE types,
-columns external types, both ordered by the first correspondence
-analysis axis so that 1:1 relations form a diagonal and nesting forms
-blocks. Fill is the conditional share, square area the joint mass.
-Type labels carry their relation: \code{=} 1:1, \code{<} nested,
-\code{>} contains, \code{~} mixed.}
-\item{\code{"composition"}}{What does each type become? One 100\\% bar per
-type, split into its \code{top_n} partners and "other", labelled inside
-the segments. The lookup view for people who own a typology.}
-\item{\code{"map"}}{Where do the typologies disagree, and is it at
-uncertain boundaries or in confident cores? Units are classed by
-agreement and PULSE certainty; only disagreement is coloured. With
-\pkg{patchwork} installed the certainty panel is added on the right.}
-\item{\code{"certainty"}}{Match rate by PULSE certainty, with the overall
-and chance match rates. A rising curve means disagreement concentrates
-where PULSE itself is uncertain.}
+  \item{\code{"plane"}}{What kind of relationship is this? Each crosswalk is
+    a point in a unit square. x is the share of the external typology's
+    information that PULSE does not capture, \eqn{H(E|P)/H(E)}; y is the
+    share of PULSE information the external typology does not capture,
+    \eqn{H(P|E)/H(P)}. Bottom-left: same typology. Top-left: PULSE refines
+    the external typology. Bottom-right: PULSE coarsens it. Top-right:
+    unrelated. Fill is crisp AMI. Accepts a \code{pulse_crosswalk_set} or a
+    named list of crosswalks (several external typologies, or one run per
+    part of the study area). For \code{"within_region"} results the
+    per-region values are drawn as small grey points.}
+  \item{\code{"matrix"}}{Which type goes where? Rows are PULSE types,
+    columns external types, both ordered by the first correspondence
+    analysis axis so that 1:1 relations form a diagonal and nesting forms
+    blocks. Fill is the conditional share, square area the joint mass.
+    Type labels carry their relation: \code{=} 1:1, \code{<} nested,
+    \code{>} contains, \code{~} mixed.}
+  \item{\code{"composition"}}{What does each type become? One 100\% bar per
+    type, split into its \code{top_n} partners and "other", labelled inside
+    the segments. The lookup view for people who own a typology.}
+  \item{\code{"map"}}{Where do the typologies disagree, and is it at
+    uncertain boundaries or in confident cores? Units are classed by
+    agreement and PULSE certainty; only disagreement is coloured. With
+    \pkg{patchwork} installed the certainty panel is added on the right.}
+  \item{\code{"certainty"}}{Match rate by PULSE certainty, with the overall
+    and chance match rates. A rising curve means disagreement concentrates
+    where PULSE itself is uncertain.}
 }
 }

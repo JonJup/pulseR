@@ -21,8 +21,8 @@ test_that("pulse_trees holds an integer (N - 1) x n edge-id matrix and no igraph
                         x$tr$edge_endpoints[id[, j], , drop = FALSE], 100L)), 1L)
 })
 
-test_that("an old-format pulse_trees stops with a re-run hint", {
+test_that("pulse_trees without edge_ids stops", {
         x <- .golden_fixture(side = 6, n_tree = 2)
         x$tr$edge_ids <- NULL
-        expect_error(.compute_ensemble_internal(x$g, x$tr, 2, 2), "Re-run sample_spanning_trees")
+        expect_error(.compute_ensemble_internal(x$g, x$tr, 2, 2), "sample_spanning_trees")
 })

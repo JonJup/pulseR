@@ -43,11 +43,11 @@ skew) or \code{"distance"} (raw values, bin medians).}
 }
 \value{
 Object of class \code{"pulse_cut_frequency"} with \code{edges} (one row
-per edge: \code{distance}, \code{percentile}, \code{cut_freq},
-\code{ref_freq}), \code{bins} (per bin: \code{percentile},
-\code{distance}, \code{mean}, \code{q90}, \code{ref_mean}),
-\code{summary} (\code{rho}, \code{lift}, \code{mean}, \code{never_cut},
-and the same for the reference) and \code{M}. Plot it with \code{plot()}.
+  per edge: \code{distance}, \code{percentile}, \code{cut_freq},
+  \code{ref_freq}), \code{bins} (per bin: \code{percentile},
+  \code{distance}, \code{mean}, \code{q90}, \code{ref_mean}),
+  \code{summary} (\code{rho}, \code{lift}, \code{mean}, \code{never_cut},
+  and the same for the reference) and \code{M}. Plot it with \code{plot()}.
 
 \code{print.pulse_cut_frequency} returns \code{x} invisibly.
 
@@ -73,7 +73,7 @@ is the MST of perturbed weights, so it avoids heavy edges) and the cut rule
 ref <- compute_ensemble(trees, N_tree, graph, R,
                                     weight_exponent = 0)
 }
-The gap between the curves is what the cut rule adds.
+The gap between the curves is what the cut rule adds. 
 \eqn{\gamma = 0} cuts uniformly at random; \code{size_influence} is then
 ignored.
 Compare \code{lift} between the two, not \code{rho}: rank correlation

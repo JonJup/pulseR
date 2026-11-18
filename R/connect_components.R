@@ -85,7 +85,7 @@
 #'
 #' @examples
 #' 
-#' xy <- sf::st_coordinates(sf::st:centroid(sf::st_geometry(pulse_grid)))
+#' xy <- sf::st_coordinates(sf::st_centroid(sf::st_geometry(pulse_grid)))
 #' keep <- xy[,1] < 8000 | xy[,2] >11000
 #' sub <- pulse_grid[keep,]
 #' net <- build_network(sub, connect_islands = FALSE, verbose = FALSE)

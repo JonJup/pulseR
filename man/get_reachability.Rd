@@ -13,7 +13,7 @@ get_reachability(graph, k_order)
 }
 \value{
 Sparse binary symmetric \code{CsparseMatrix}: the non-zero pattern of
-\eqn{(A + I)^k}.
+  \eqn{(A + I)^k}.
 }
 \description{
 k-order reachability matrix
