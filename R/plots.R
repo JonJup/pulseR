@@ -11,7 +11,7 @@
 #    side by side. Local-type colours are shades of their parent region's hue.
 # 2. Colours are ORDERED BY SIMILARITY, not by label index. Region 3 and
 #    region 17 get neighbouring hues if the ensemble keeps confusing them.
-#    Arbitrary hues across 20+ European regions are unreadable.
+#    Arbitrary hues across 20+ regions are unreadable.
 # 3. Uncertainty is baked into the fill, not applied as ggplot `alpha`. Alpha
 #    composites against whatever is underneath and breaks the moment a second
 #    layer or a basemap appears. Every map here precomputes a hex fill and uses
@@ -36,7 +36,7 @@
 #' @param x A \code{"pulse_regions"} or \code{"pulse_local_types"} object.
 #' @param geom An \code{sf} object with one row per unit, in graph vertex order.
 #' @param simplify Numeric or \code{NULL}. If numeric, \code{sf::st_simplify}
-#'   tolerance (map units) applied once and cached. Continental coverages carry
+#'   tolerance (map units) applied once and cached. Large coverages carry
 #'   far more vertices than any figure resolves; simplifying here rather than at
 #'   draw time is the difference between seconds and minutes per panel.
 #' @return \code{x}, with geometry attached.
@@ -75,7 +75,7 @@ attach_geometry <- function(x, geom, simplify = NULL) {
 #'
 #' Regions are embedded in one or two dimensions from a between-region
 #' dissimilarity and the embedding is mapped into HCL space, so perceptually
-#' close colours mean ecologically close regions. Compute this once and pass it
+#' close colours mean similar regions. Compute this once and pass it
 #' to every plotting call for the fit; the default palette in each function is
 #' this same call, so figures agree unless you deliberately override.
 #'
@@ -332,13 +332,13 @@ plot_regions <- function(x,
                 
                 map = .map(g,
                            fade_by_confidence(palette[x$hard_labels], conf),
-                           title    = sprintf("Ecoregions (k = %d)", x$k),
+                           title    = sprintf("Regions (k = %d)", x$k),
                            subtitle = "hue = region, saturation = confidence",
                            raster = raster, raster_px = raster_px) +
                         .region_key(palette),
                 
                 crisp = .map(g, unname(palette[x$hard_labels]),
-                             title = sprintf("Ecoregions (k = %d)", x$k),
+                             title = sprintf("Regions (k = %d)", x$k),
                              raster = raster, raster_px = raster_px) +
                         .region_key(palette),
                 

@@ -105,3 +105,39 @@ test_that("SSD cut and refinement reject NA in env", {
                                        verbose = FALSE, report_native = FALSE),
                      "complete")
 })
+test_that("SSD gains at rounding-noise level are floored at the smallest real gain", {
+        expect_equal(.ssd_log_gain(c(0, 1e-30, 1, 4), 2, tol = 1e-20), 2 * log(c(1, 1, 1, 4)))
+        expect_equal(.ssd_log_gain(c(0, 1e-30), 2, tol = 1e-20), c(0, 0))
+        # Left half of the grid has identical rows, so the gains of its
+        # edges are rounding noise (true gain 0).
+        side <- 20
+        g    <- igraph::make_lattice(c(side, side))
+        xy   <- expand.grid(x = seq_len(side), y = seq_len(side))
+        set.seed(1)
+        X    <- cbind(stats::rnorm(side^2), stats::rnorm(side^2))
+        left <- xy$x <= side / 2
+        X[left, ] <- matrix(c(0.37, -1.1), sum(left), 2, byrow = TRUE)
+        tr <- igraph::mst(g, weights = stats::runif(igraph::ecount(g)))
+        ep <- igraph::ends(tr, igraph::E(tr), names = FALSE)
+        ep <- ep[left[ep[, 1]] == left[ep[, 2]], , drop = FALSE]
+        gn <- .forest_cut_gains(ep, X)$gain
+        lt <- left[ep[, 1]]
+        tol <- .ssd_gain_tol(X)
+        expect_true(all(gn[lt] <= tol))
+        expect_true(all(gn[!lt] > tol))
+        lp <- .ssd_log_gain(gn, 4, tol)
+        expect_true(all(lp[lt] == min(lp[!lt])))
+        # The race unit u = sd(lp) no longer depends on the noise level.
+        expect_lt(stats::sd(lp), stats::sd(4 * log(pmax(gn, .Machine$double.xmin))) / 3)
+})
+
+test_that("min_size does not constrain the propensity rule", {
+        x <- .ssd_fixture(n_tree = 2)                    # 400 units
+        # 100 pieces x min_size 5 > 400 units: only the ssd rule must refuse.
+        m <- .compute_ensemble_internal(x$g, x$tr, 2, 100, cut_rule = "propensity",
+                                        min_size = 5)
+        expect_identical(dim(m), c(400L, 2L))
+        expect_error(.memb_ssd(x, 100, min_size = 5), "exceeds the number of units")
+        expect_error(.compute_ensemble_internal(x$g, x$tr, 2, 4, cut_rule = "propensity",
+                                                min_size = 0), "whole number")
+})

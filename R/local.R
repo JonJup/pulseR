@@ -238,7 +238,7 @@ print.pulse_local_types <- function(x, ...) {
 #' Units with \eqn{w_{ir} \le} \code{weight_eps} are excluded from region
 #' \eqn{r}'s fit and receive a zero in that region's columns. This is exact,
 #' not an approximation: their contribution \eqn{z_{irk} w_{ir}} is negligible
-#' by construction, and it is what keeps the fit affordable at continental
+#' by construction, and it is what keeps the fit affordable at large
 #' \eqn{N}.
 #'
 #' @param env A \code{data.frame} or \code{sf} object with one row per unit, in

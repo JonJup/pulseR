@@ -66,3 +66,13 @@ test_that("check_ensemble_size returns a curve and a search floor", {
         expect_true(is.logical(chk$converged))
         expect_error(check_ensemble_size(ens, k = 3, sizes = 41), "half the ensemble")
 })
+
+test_that("check_ensemble_size does not refine boundaries, so graphs need no env", {
+        skip_if_not_installed("salso")
+        x   <- .toy_trees(40)                            # lattice without graph_attr "env"
+        expect_null(igraph::graph_attr(x$g, "env"))
+        ens <- compute_ensemble(x$tr, 40, x$g, 10, verbose = FALSE, cut_rule = "propensity")
+        chk <- check_ensemble_size(ens, k = 3, graph = x$g, sizes = c(10L, 20L), B = 1L,
+                                   seed = 1, verbose = FALSE)
+        expect_s3_class(chk, "pulse_ensemble_size")
+})

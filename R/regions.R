@@ -48,7 +48,7 @@
 #'   \eqn{\log(n_c (N - n_c) / N)} relative to the spread of the environmental
 #'   term \eqn{\gamma \log w}, per tree. The default (0) ignores piece size.
 #' @param prior_typology Optional. Vertex attribute name (single character)
-#'   or vector of length \code{vcount(graph)} giving a prior ecoregion label
+#'   or vector of length \code{vcount(graph)} giving a prior region label
 #'   at each vertex. \code{NA} means no prior at that vertex. Default
 #'   \code{NULL}.
 #' @param prior_strength Non-negative numeric scalar \eqn{\lambda}. Lowers the
@@ -254,7 +254,7 @@ get_regions <- function(graph,
     )
   }
   
-  # --- lambda_E > 0 needs prior labels; fail before any sampling ------*
+  # --- prior_strength > 0 needs prior labels; fail before any sampling -*
   # Labels come from `trees` if supplied, otherwise from `prior_typology`.
   has_prior <- if (is.null(trees)) !is.null(prior_typology) else !all(is.na(trees$prior_labels))
   if (prior_strength > 0 && !has_prior) {
@@ -398,7 +398,7 @@ get_regions <- function(graph,
 #' @param verbose Logical. Emit progress/diagnostic messages? Default
 #'   \code{TRUE}.
 #' @param prior_typology Optional. Either (a) a single character giving the
-#'   name of a vertex attribute on \code{graph} that holds prior ecoregion
+#'   name of a vertex attribute on \code{graph} that holds prior region
 #'   labels (character / factor / integer); or (b) a vector of length
 #'   \code{vcount(graph)} of such labels. \code{NA} indicates no prior at
 #'   that vertex. When supplied, edges connecting two vertices with the same
@@ -690,16 +690,12 @@ compute_ensemble <- function(trees,
   if (is.infinite(prior_strength))  stop("`prior_strength = Inf` is not supported here; use the exact-prior ", "short-circuit in get_regions()/tune_regions().", call. = FALSE)
   .local_seed(seed)
   if (verbose) {
-    msg <- sprintf(
-      "Computing ensemble memberships (N_tree = %d, regions_per_partition = %d",
-      N_tree, regions_per_partition
-    )
-    if (weight_exponent != 1)
-      msg <- paste0(msg, sprintf(", weight_exponent = %g", weight_exponent))
+    msg <- sprintf(paste0(
+      "Computing ensemble memberships (N_tree = %d, regions_per_partition = %d, ",
+      "weight_exponent = %g, cut_rule = %s"),
+      N_tree, regions_per_partition, weight_exponent, cut_rule)
     if (prior_strength > 0 && !is.null(trees$within_prior_edge))
-      msg <- paste0(msg, sprintf(", lambda_E = %g", prior_strength))
-    if (cut_rule != "propensity")
-      msg <- paste0(msg, sprintf(", cut_rule = %s", cut_rule))
+      msg <- paste0(msg, sprintf(", prior_strength = %g", prior_strength))
     message(msg, ") ...")
   }
   
@@ -845,7 +841,10 @@ compute_ensemble <- function(trees,
   }
   n_to_cut   <- n_reg - 1L
   n_fallback <- 0L
-  min_size   <- .check_min_size(min_size, n_reg, n_v)
+  # min_size bounds piece size only under the ssd rule, so only there must
+  # regions_per_partition pieces of that size fit. k = 1 checks the format.
+  min_size   <- .check_min_size(min_size,
+                                if (identical(cut_rule, "ssd")) n_reg else 1L, n_v)
   
   ep_all   <- trees$edge_endpoints
   memb_mat <- matrix(0L, nrow = n_v, ncol = n_use)
@@ -1062,11 +1061,12 @@ compute_ensemble <- function(trees,
   alive <- rep(TRUE, n_e)
   fc    <- .ssd_edge_gains(child, comp, size, S)
   gain  <- fc$gain; h <- fc$h; n_min <- fc$n_min
+  g_tol <- .ssd_gain_tol(X)
   wp    <- within_prior
   fb    <- FALSE
   for (s in seq_len(n_to_cut)) {
     live <- which(alive)
-    lp   <- weight_exponent * log(pmax(gain[live], .Machine$double.xmin))
+    lp   <- .ssd_log_gain(gain[live], weight_exponent, g_tol)
     u    <- stats::sd(lp)                 # unit: sd(gamma log g)
     ok_u <- is.finite(u) && u > 0
     if (!ok_u) u <- log(2)
@@ -1106,6 +1106,29 @@ compute_ensemble <- function(trees,
     }
   }
   list(labels = .labels_from_edges(ep[alive, , drop = FALSE], nrow(X)), fallback = fb)
+}
+
+# gamma * log of the Ward gains for the SSD race. A piece whose rows are all
+# equal has true gain 0, but its computed gains are rounding noise (about
+# 1e-30). Gains at or below `tol` are therefore floored at the smallest gain
+# above it, as .cut_log_propensity() floors zero weights. Without the floor,
+# log(1e-30) dominates sd(gamma log g), the unit of size_influence and
+# prior_strength. If no gain exceeds `tol`, every edge gets 0 (uniform race).
+.ssd_log_gain <- function(g, weight_exponent, tol = 0) {
+  pos <- g > tol
+  if (!any(pos)) return(rep(0, length(g)))
+  g[!pos] <- min(g[pos])
+  weight_exponent * log(g)
+}
+
+# Rounding-noise level of the Ward gains: machine epsilon times the squared
+# range of X, summed over columns. Prefix-sum error in a side mean is at most
+# about eps * n * range, so noise gains stay below this for n < 1 / sqrt(eps)
+# (about 6.7e7 units), while a real gain this small would mean side means that
+# differ by less than 1.5e-8 of the range.
+.ssd_gain_tol <- function(X) {
+  r <- apply(as.matrix(X), 2L, range)
+  .Machine$double.eps * sum((r[2L, ] - r[1L, ])^2)
 }
 
 # Validate min_size: one integer >= 1, and k regions of that size must fit.
@@ -2258,7 +2281,7 @@ print.pulse_trees <- function(x, ...) {
 #' A single-slot cache holds one ensemble matrix at a time, and evaluation is
 #' ordered so that configurations sharing an ensemble are visited consecutively.
 #' A keyed cache over a four-way grid would hold one N x N_tree integer
-#' matrix per ensemble pair, which at continental N is tens of gigabytes.
+#' matrix per ensemble pair, which at N = 10^5 or more is tens of gigabytes.
 #' Peak memory here is one full matrix plus at most one column slice.
 #'
 #' @section Search strategies:
@@ -2994,7 +3017,7 @@ tune_regions <- function(graph,
 #'   \code{hard_labels} must be supplied directly.
 #' @param config One-row data frame or named list giving the four tuning axes.
 #' @param trees The "pulse_trees" object used, or NULL.
-#' @param prior_strength Numeric lambda_E actually applied.
+#' @param prior_strength Numeric prior_strength (lambda) as applied.
 #' @param tuned Logical. TRUE if a search was run.
 #' @param score,tuning_metric,tuning_strategy Tuning metadata. NA in the untuned branch: the
 #'   hardened silhouette is deliberately NOT substituted, because it is not
@@ -3140,11 +3163,46 @@ print.pulse_regions <- function(x, ...) {
               cfg$regions_per_partition, cfg$weight_exponent, cfg$N_tree))
   cat(sprintf("  cut_rule = %s | refine_boundary = %s | min_size = %s\n",
               cfg$cut_rule, cfg$refine_boundary, cfg$min_size))
-  cat(sprintf("  mean normalised entropy = %.3f | prior_strength = %s",
+  cat(sprintf("  mean normalised entropy = %.3f | prior_strength = %s\n",
               mean(x$entropy, na.rm = TRUE), format(x$prior_strength)))
   if (!is.null(x$coverage))
     cat(sprintf("  prior coverage: %d/%d vertices\n",
                 sum(x$coverage), length(x$coverage)))
+  invisible(x)
+}
+
+#' @rdname tune_regions
+#' @param x An object of class \code{"pulse_regions_tuning"}.
+#' @param ... Unused.
+#' @return \code{print.pulse_regions_tuning} returns \code{x} invisibly.
+#' @export
+print.pulse_regions_tuning <- function(x, ...) {
+  if (is.infinite(x$prior_strength)) {
+    cat(sprintf("<pulse_regions_tuning>  exact prior: %d units x %d regions | no search\n",
+                nrow(x$best_result$memberships), x$best_final_regions))
+    return(invisible(x))
+  }
+  tl     <- x$tuning_log
+  metric <- if (identical(x$tuning_metric, "borda"))
+    sprintf("borda (%s)", paste(x$voters, collapse = " + ")) else x$tuning_metric
+  cat(sprintf("<pulse_regions_tuning>  %s search | metric = %s\n",
+              x$tuning_strategy, metric))
+  cat(sprintf("  %d configuration(s) evaluated, %d failed | %d ensemble(s) built | axes: %s\n",
+              nrow(tl), sum(!is.na(tl$error)), x$n_ensembles_built,
+              if (length(x$active_axes)) paste(x$active_axes, collapse = ", ") else "none"))
+  b <- x$best_config
+  cat(sprintf(paste0("  best: final_regions = %d | regions_per_partition = %d | ",
+                     "weight_exponent = %g | N_tree = %d | score = %.4f\n"),
+              b$final_regions, b$regions_per_partition, b$weight_exponent,
+              b$N_tree, x$best_score))
+  if (isTRUE(x$n_tied > 1L))
+    cat(sprintf("  %d configurations tie on the score; broken by %s\n", x$n_tied,
+                switch(x$tie_broken_by, zsum = "the mean voter z-score",
+                       rule = "the axis rule (fewest final_regions first)",
+                       x$tie_broken_by)))
+  cat(sprintf("  cut_rule = %s | refine_boundary = %s | min_size = %s\n",
+              x$cut_rule, x$refine_boundary, x$min_size))
+  cat("  Full table: x$tuning_log\n")
   invisible(x)
 }
 
@@ -3370,8 +3428,8 @@ print.pulse_regions <- function(x, ...) {
 #' Internal: parent-edge positions of tree j
 #'
 #' Column j of \code{trees$edge_ids}, in the order \code{igraph::mst()}
-#' returned the edges. Stops with a re-run hint on objects saved before the 
-#' edge-id format
+#' returned the edges. Stops if \code{trees} has no edge-id matrix or its
+#' trees do not span the parent vertex set.
 #' @keywords internal
 #' @noRd
 .tree_edge_ids <- function(trees, j) {

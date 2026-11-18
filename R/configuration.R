@@ -247,6 +247,35 @@ compute_configuration <- function(mosaic_input, graph, k_order,
                   kappa_floor = kappa_floor)
 }
 
+#' @rdname compute_configuration
+#' @param x An object of class \code{"pulse_configuration"}.
+#' @param ... Unused.
+#' @return \code{print.pulse_configuration} returns \code{x} invisibly. It
+#'   prints a summary, not the matrix; \code{head(x)} or any subset returns
+#'   plain values.
+#' @export
+print.pulse_configuration <- function(x, ...) {
+        X   <- unclass(x)
+        fmt <- function(v) if (is.null(v) || !length(v)) "none" else paste(v, collapse = ", ")
+        cat(sprintf(paste0("<pulse_configuration>  %d units x %d features | k_order = %s | ",
+                           "k_reference = %s | smooth_k = %s\n"),
+                    nrow(X), ncol(X), fmt(attr(x, "k_order")), fmt(attr(x, "k_reference")),
+                    fmt(attr(x, "smooth_k"))))
+        cat(sprintf("  kappa lags: %s | anisotropy lags: %s | kappa_floor = %s\n",
+                    fmt(attr(x, "lags")), fmt(attr(x, "anisotropy_lags")),
+                    fmt(attr(x, "kappa_floor"))))
+        n_na <- sum(!stats::complete.cases(X))
+        if (n_na)
+                cat(sprintf("  %d unit(s) with NA features (no pair at some lag)\n", n_na))
+        ok <- colSums(!is.na(X)) > 0
+        if (any(ok)) {
+                m <- colMeans(X[, ok, drop = FALSE], na.rm = TRUE)
+                cat("  column means:", paste(sprintf("%s = %.3f", names(m), m), collapse = " | "), "\n")
+        }
+        cat("  Values: head(x)\n")
+        invisible(x)
+}
+
 
 ## Per-unit sums over the pairs in shell Sh: similarity, similarity x cos 2theta,
 ## similarity x sin 2theta, cos 2theta, sin 2theta, count. n x 6. Pairs with

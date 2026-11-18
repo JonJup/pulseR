@@ -37,8 +37,8 @@
 #' every region-by-type combination is its own class, so agreement includes
 #' whatever the level 1 regions already explain. \code{"within_region"}
 #' computes the indices within each region and returns their mass-weighted
-#' means, which isolates level 2. To compare pooled river types with an
-#' external river typology, pass a \code{pulse_meta_types} object.
+#' means, which isolates level 2. To compare pooled local types with an
+#' external typology, pass a \code{pulse_meta_types} object.
 #'
 #' @section External typologies assembled from parts:
 #' An external typology built from independently defined parts (one system

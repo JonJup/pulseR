@@ -185,12 +185,11 @@ get_reachability <- function(graph, k_order) {
 #' @details
 #' \strong{Prefer a fixed \code{sigma} in map units.} An adaptive per-focal
 #' bandwidth makes the spatial extent of a "landscape" vary with unit
-#' density, so two signatures can differ because the drainage network is denser
-#' in one place, not because the configuration of types differs. That confounds
-#' the very thing the mosaic level is supposed to measure. A fixed radius (the
-#' 25--50 km scale from the work-package design is the natural starting point)
-#' keeps the unit comparable across Europe. \code{"adaptive"} is kept because it
-#' reproduces the previous default.
+#' density, so two signatures can differ because units are denser in one place,
+#' not because the configuration of types differs. That confounds the very
+#' thing the mosaic level is supposed to measure. A fixed radius, chosen at the
+#' spatial scale of the landscape patterns of interest, keeps the unit
+#' comparable across the study area.
 #' @return Sparse \code{CsparseMatrix}, same pattern as \code{Rk}.
 #' @importFrom Matrix sparseMatrix
 #' @export
@@ -254,7 +253,7 @@ compute_neighbourhood_weights <- function(Rk, coords,
 #' \deqn{C^{(f)} = \sum_{e \in N(f)} w_f(u_e)\,w_f(v_e)\, m_e}
 #' is used, where \eqn{m_e} is the class-pair contribution of edge \eqn{e}. The
 #' whole matrix is then one sparse product, which is orders of magnitude faster
-#' than the per-focal implementation at continental \eqn{N}.
+#' than the per-focal implementation at large \eqn{N}.
 #'
 #' @param mosaic_input Numeric \eqn{n \times c} membership matrix, rows in graph vertex
 #'   order, or the list returned by \code{\link{as_mosaic_input}}.
@@ -377,6 +376,31 @@ compute_all_signatures <- function(mosaic_input, graph, k_order,
                   n_classes = nc, class_labels = lab, k_order = k,
                   kernel = kernel, sigma = sigma, exclude_bridges = exclude_bridges,
                   totals = rs, edge_multiplicity = edge_mult)
+}
+
+#' @rdname compute_all_signatures
+#' @param x An object of class \code{"pulse_signatures"}.
+#' @param ... Unused.
+#' @return \code{print.pulse_signatures} returns \code{x} invisibly. It prints
+#'   a summary, not the matrix; \code{head(x)} or any subset returns plain
+#'   values.
+#' @export
+print.pulse_signatures <- function(x, ...) {
+        fmt  <- function(v) if (is.null(v)) "?" else paste(format(v), collapse = ", ")
+        kern <- attr(x, "kernel")
+        cat(sprintf("<pulse_signatures>  %d units x %d class pairs | %s classes | k_order = %s\n",
+                    nrow(x), ncol(x), fmt(attr(x, "n_classes")), fmt(attr(x, "k_order"))))
+        cat(sprintf("  kernel = %s%s | exclude_bridges = %s | mean neighbourhoods per edge = %s\n",
+                    fmt(kern),
+                    if (is.null(kern) || identical(kern, "none")) ""
+                    else sprintf(" (sigma = %s)", fmt(attr(x, "sigma"))),
+                    fmt(attr(x, "exclude_bridges")),
+                    fmt(signif(attr(x, "edge_multiplicity"), 3))))
+        n_na <- sum(!stats::complete.cases(unclass(x)))
+        if (n_na)
+                cat(sprintf("  %d unit(s) with NA signatures (no edge in neighbourhood)\n", n_na))
+        cat("  Values: head(x)\n")
+        invisible(x)
 }
 
 # -----------------------------------------------------------------------------*

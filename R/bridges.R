@@ -56,7 +56,7 @@
 #' Centroid-to-centroid distance for vertex pairs, in metres
 #'
 #' Projected (or CRS-less) data use planar coordinates directly, which is fast
-#' enough for every edge of a continental graph. Geographic data use
+#' enough for every edge of a graph with 10^5 or more units. Geographic data use
 #' \code{sf::st_distance()} (great-circle metres).
 #'
 #' @param centroids \pkg{sf} point geometry column (sfc), one per vertex.

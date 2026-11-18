@@ -185,7 +185,9 @@ print.pulse_cut_placement <- function(x, ...) {
 #'   label matrix (units x partitions).
 #' @param k Integer. Number of consensus regions.
 #' @param graph Optional \code{igraph}; if given, contiguity is repaired as in
-#'   \code{compute_consensus()} (consensus partition only).
+#'   \code{compute_consensus()} (consensus partition only). Boundary refinement
+#'   is never applied, as for \code{STAB} in \code{\link{tune_regions}}, so
+#'   \code{graph} needs no stored environment matrix.
 #' @param sizes Integer vector of half-ensemble sizes. Default: \eqn{M/16},
 #'   \eqn{M/8}, \eqn{M/4}, \eqn{M/2}, keeping sizes \eqn{\ge 10}.
 #' @param B Integer. Split-half replicates per size. Default 3.
@@ -222,8 +224,12 @@ check_ensemble_size <- function(ensemble, k, graph = NULL, sizes = NULL,
                      call. = FALSE)
         .local_seed(seed)
 
+        # No boundary refinement: it is driven by env, which every half shares,
+        # so it would raise the ARI without the ensemble agreeing more (as for
+        # STAB), and it would need graph_attr(graph, "env").
         hard_of <- function(cols)
                 compute_consensus(memb[, cols, drop = FALSE], k, graph = graph,
+                                  refine_boundary = FALSE,
                                   large_n_threshold = large_n_threshold,
                                   sample_size = sample_size, n_runs = n_runs,
                                   n_cores = n_cores, report_native = FALSE,
