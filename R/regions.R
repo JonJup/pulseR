@@ -14,10 +14,12 @@
 #' @param env Optional data frame or matrix, one row per vertex of
 #'   \code{graph} in vertex order, for the validity indices \code{CH_FIT} and
 #'   \code{R2_FIT} during tuning. \code{NULL} (default) uses the matrix
-#'   \code{\link{add_edge_weight}} stored on \code{graph}, so the indices are
+#'   stored on \code{graph} by \code{\link{add_edge_weight}} or
+#'   \code{\link{set_env}}, so the indices are
 #'   computed in the space of the edge weights. A supplied \code{env} is used
 #'   as given: non-numeric columns and columns named \code{true_*} are dropped
-#'    and nothing is scaled.
+#'    and nothing is scaled. It does not replace the stored matrix that
+#'   \code{cut_rule = "ssd"} and \code{refine_boundary = TRUE} read.
 #' @param env_id Character vector of columns in \code{env} to exclude from the
 #'   validity indices, for example numeric ID columns. Default \code{NULL}.
 #' @param regions_per_partition Integer, or integer vector of candidates.
@@ -60,9 +62,13 @@
 #'   constant weights), one unit halves the propensity instead, with a
 #'   warning.
 #' @param cut_rule \code{"propensity"} or \code{"ssd"} (default): how each
-#'   tree is cut. See \code{\link{compute_ensemble}}.
+#'   tree is cut. See \code{\link{compute_ensemble}}. \code{"ssd"} needs the
+#'   environment matrix stored on \code{graph}; for edge weights from another
+#'   source, see \code{\link{set_env}}.
 #' @param refine_boundary Logical. Contiguity-preserving boundary refinement
 #'   after consensus. Default \code{TRUE}. See \code{\link{compute_consensus}}.
+#'   Needs the environment matrix stored on \code{graph}, as \code{"ssd"}
+#'   does. Both are checked before any sampling.
 #' @param min_size Integer \eqn{\ge 1}. Smallest piece the \code{"ssd"} rule may
 #'   cut off, and smallest region the boundary refinement may leave. Default 5.
 #' @param target_edge_turnover Numeric in \eqn{[0, 1)}. Average share of the
@@ -218,6 +224,10 @@ get_regions <- function(graph,
                            min_size             = NA_integer_),
       prior_strength = Inf, tuned = FALSE))
   }
+  
+  # Both defaults read the environment matrix on `graph`: stop before any
+  # sampling if it is missing.
+  .require_env(graph, cut_rule = cut_rule, refine_boundary = refine_boundary)
   
   # --- Exact tuneable parameters  ----------------------------*
   
@@ -637,7 +647,8 @@ sample_spanning_trees <- function(graph, n, seed = NULL, verbose = TRUE,
 #'   squares of \code{graph_attr(graph, "env")}, recomputed after every cut;
 #'   \code{weight_exponent}, \code{size_influence} and \code{prior_strength}
 #'   act on that gain in the same units. Needs the environment matrix that
-#'   \code{\link{add_edge_weight}} stores on the graph.
+#'   \code{\link{add_edge_weight}} or \code{\link{set_env}} stores on the
+#'   graph.
 #' @param min_size Integer \eqn{\ge 1}. Smallest allowed piece. Used only by
 #'   \code{cut_rule = "ssd"}, where cuts are sequential. Default 5.
 #' @param seed Optional integer seed. One stream drives the whole call; the
@@ -675,6 +686,7 @@ compute_ensemble <- function(trees,
   
   stopifnot(inherits(trees, "pulse_trees"))
   cut_rule <- match.arg(cut_rule)
+  .require_env(graph, cut_rule = cut_rule)
   stopifnot(
     length(N_tree) == 1L,
     N_tree >= 2,
@@ -848,14 +860,7 @@ compute_ensemble <- function(trees,
   
   ep_all   <- trees$edge_endpoints
   memb_mat <- matrix(0L, nrow = n_v, ncol = n_use)
-  if (identical(cut_rule, "ssd")) {
-    X <- igraph::graph_attr(graph, "env")
-    if (is.null(X))
-      stop("cut_rule 'ssd' needs graph_attr(graph, 'env').", call. = FALSE)
-    if (anyNA(X))
-      stop("cut_rule 'ssd' needs complete graph_attr(graph, 'env'); ",
-           "impute or drop rows with NA first.", call. = FALSE)
-  }
+  X <- .require_env(graph, cut_rule = cut_rule)
   for (j in seq_len(n_use)) {
     edge_ids <- .tree_edge_ids(trees, j)
     w        <- trees$edge_weights[edge_ids]
@@ -1193,7 +1198,9 @@ compute_ensemble <- function(trees,
 #' @param refine_boundary Logical. After contiguity repair, move boundary units
 #'   to an adjacent region when that lowers the within-region sum of squares of
 #'   \code{graph_attr(graph, "env")}, never disconnecting a region or shrinking
-#'   it below \code{min_size}. Default \code{!is.null(graph)}. Not to be confused with
+#'   it below \code{min_size}. Default \code{!is.null(graph)}. Needs the
+#'   environment matrix stored by \code{\link{add_edge_weight}} or
+#'   \code{\link{set_env}}. Not to be confused with
 #'   \code{refine_iter}, which counts single-unit loss moves on the sampled path.
 #' @param min_size Integer \eqn{\ge 1}. Smallest region size the boundary
 #'   refinement may leave. Default 5.
@@ -1266,6 +1273,7 @@ compute_consensus <- function(ensemble,
     stop("`refine_boundary` must be TRUE or FALSE.", call. = FALSE)
   if (refine_boundary && is.null(graph))
     stop("`refine_boundary = TRUE` requires `graph`.", call. = FALSE)
+  .require_env(graph, refine_boundary = refine_boundary)
   
   sampled <- N > large_n_threshold
   if (verbose) message(sprintf(
@@ -1335,13 +1343,7 @@ compute_consensus <- function(ensemble,
   if (refine_boundary) {
     if (is.null(graph))
       stop("`refine_boundary = TRUE` requires `graph`.", call. = FALSE)
-    X <- igraph::graph_attr(graph, "env")
-    if (is.null(X))
-      stop("`refine_boundary = TRUE` needs graph_attr(graph, 'env'); ",
-           "build the graph with add_edge_weight().", call. = FALSE)
-    if (anyNA(X))
-      stop("`refine_boundary = TRUE` needs complete graph_attr(graph, 'env'); ",
-           "impute or drop rows with NA first.", call. = FALSE)
+    X       <- .require_env(graph, refine_boundary = TRUE)
     hard2   <- .refine_regions(hard, graph, X, min_size = min_size)$z
     n_moved <- sum(hard2 != hard)
     if (n_moved > 0L) {
@@ -2150,8 +2152,8 @@ print.pulse_trees <- function(x, ...) {
       return(NULL)
     }
     if (verbose)
-      message("Using the environment matrix stored on `graph` by ",
-              "add_edge_weight() for CH_FIT and R2_FIT.")
+      message("Using the environment matrix stored on `graph` ",
+              "for CH_FIT and R2_FIT.")
     env <- as.matrix(env)
   } else {
     env <- as.data.frame(env)
@@ -2336,11 +2338,14 @@ print.pulse_trees <- function(x, ...) {
 #' @param graph The parent \code{igraph} object the trees were sampled from.
 #' @param env Optional data frame or matrix, one row per vertex of
 #'   \code{graph}, for the validity indices \code{CH_FIT} and \code{R2_FIT}.
-#'   \code{NULL} (default) uses the matrix \code{\link{add_edge_weight}}
-#'   stored on \code{graph} (graph attribute \code{env}), so the indices are
+#'   \code{NULL} (default) uses the matrix stored on \code{graph} (graph
+#'   attribute \code{env}, set by \code{\link{add_edge_weight}} or
+#'   \code{\link{set_env}}), so the indices are
 #'   computed in the space of the edge weights. A supplied \code{env} is used
 #'   as given: non-numeric columns and columns named \code{true_*} are dropped 
-#'   and nothing is scaled. Columns that look like IDs trigger a warning.
+#'   and nothing is scaled. Columns that look like IDs trigger a warning. It
+#'   does not replace the stored matrix that \code{cut_rule = "ssd"} and
+#'   \code{refine_boundary = TRUE} read.
 #' @param env_id Character vector of columns in \code{env} to exclude, for
 #'   example numeric ID columns. Default \code{NULL}.
 #' @param trees A \code{"pulse_trees"} object from
@@ -2498,6 +2503,8 @@ tune_regions <- function(graph,
       min_size = NA_integer_, ensemble = NULL),
       class = "pulse_regions_tuning"))
   }
+  
+  .require_env(graph, cut_rule = cut_rule, refine_boundary = refine_boundary)
   
   # --- Normalize candidate sets ----------------------------------------*
   # weight_exponent stays double; the other four are counts.

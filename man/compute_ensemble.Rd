@@ -77,7 +77,8 @@ by an exponential race on the Ward reduction in within-piece sum of
 squares of \code{graph_attr(graph, "env")}, recomputed after every cut;
 \code{weight_exponent}, \code{size_influence} and \code{prior_strength}
 act on that gain in the same units. Needs the environment matrix that
-\code{\link{add_edge_weight}} stores on the graph.}
+\code{\link{add_edge_weight}} or \code{\link{set_env}} stores on the
+graph.}
 
 \item{min_size}{Integer \eqn{\ge 1}. Smallest allowed piece. Used only by
 \code{cut_rule = "ssd"}, where cuts are sequential. Default 5.}

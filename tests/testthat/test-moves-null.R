@@ -89,7 +89,8 @@ test_that("tune_regions() stops clearly when every configuration fails", {
         tr <- sample_spanning_trees(tg$g, n = 30, seed = 1, verbose = FALSE)
         local_mocked_bindings(.salso_k = function(...) .config_error("nope"))
         expect_error(tune_regions(tg$g, tr, N_tree = 30, regions_per_partition = 8,
-                                  final_regions = 2:3, stability_B = 0, verbose = FALSE, cut_rule = "propensity"),
+                                  final_regions = 2:3, stability_B = 0, verbose = FALSE, cut_rule = "propensity",
+                                  refine_boundary = FALSE),
                     "All 2 configurations failed")
 })
 
@@ -98,7 +99,8 @@ test_that("non-config errors inside tuning still abort", {
         tr <- sample_spanning_trees(tg$g, n = 30, seed = 1, verbose = FALSE)
         local_mocked_bindings(.salso_k = function(...) stop("genuine bug"))
         expect_error(tune_regions(tg$g, tr, N_tree = 30, regions_per_partition = 8,
-                                  final_regions = 2:3, stability_B = 0, verbose = FALSE, cut_rule = "propensity"),
+                                  final_regions = 2:3, stability_B = 0, verbose = FALSE, cut_rule = "propensity",
+                                  refine_boundary = FALSE),
                     "genuine bug")
 })
 test_that("null baseline accepts an untuned pulse_regions as observed", {

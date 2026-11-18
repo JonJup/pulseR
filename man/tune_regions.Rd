@@ -113,11 +113,14 @@ Default 20000.}
 
 \item{env}{Optional data frame or matrix, one row per vertex of
 \code{graph}, for the validity indices \code{CH_FIT} and \code{R2_FIT}.
-\code{NULL} (default) uses the matrix \code{\link{add_edge_weight}}
-stored on \code{graph} (graph attribute \code{env}), so the indices are
+\code{NULL} (default) uses the matrix stored on \code{graph} (graph
+attribute \code{env}, set by \code{\link{add_edge_weight}} or
+\code{\link{set_env}}), so the indices are
 computed in the space of the edge weights. A supplied \code{env} is used
 as given: non-numeric columns and columns named \code{true_*} are dropped 
-and nothing is scaled. Columns that look like IDs trigger a warning.}
+and nothing is scaled. Columns that look like IDs trigger a warning. It
+does not replace the stored matrix that \code{cut_rule = "ssd"} and
+\code{refine_boundary = TRUE} read.}
 
 \item{env_id}{Character vector of columns in \code{env} to exclude, for
 example numeric ID columns. Default \code{NULL}.}

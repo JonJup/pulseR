@@ -43,10 +43,12 @@ attribute (finite, non-negative).}
 \item{env}{Optional data frame or matrix, one row per vertex of
 \code{graph} in vertex order, for the validity indices \code{CH_FIT} and
 \code{R2_FIT} during tuning. \code{NULL} (default) uses the matrix
-\code{\link{add_edge_weight}} stored on \code{graph}, so the indices are
+stored on \code{graph} by \code{\link{add_edge_weight}} or
+\code{\link{set_env}}, so the indices are
 computed in the space of the edge weights. A supplied \code{env} is used
 as given: non-numeric columns and columns named \code{true_*} are dropped
- and nothing is scaled.}
+ and nothing is scaled. It does not replace the stored matrix that
+\code{cut_rule = "ssd"} and \code{refine_boundary = TRUE} read.}
 
 \item{env_id}{Character vector of columns in \code{env} to exclude from the
 validity indices, for example numeric ID columns. Default \code{NULL}.}
@@ -84,10 +86,14 @@ At \eqn{\gamma = 0} cuts are uniform and \code{size_influence} is ignored.
 term \eqn{\gamma \log w}, per tree. The default (0) ignores piece size.}
 
 \item{cut_rule}{\code{"propensity"} or \code{"ssd"} (default): how each
-tree is cut. See \code{\link{compute_ensemble}}.}
+tree is cut. See \code{\link{compute_ensemble}}. \code{"ssd"} needs the
+environment matrix stored on \code{graph}; for edge weights from another
+source, see \code{\link{set_env}}.}
 
 \item{refine_boundary}{Logical. Contiguity-preserving boundary refinement
-after consensus. Default \code{TRUE}. See \code{\link{compute_consensus}}.}
+after consensus. Default \code{TRUE}. See \code{\link{compute_consensus}}.
+Needs the environment matrix stored on \code{graph}, as \code{"ssd"}
+does. Both are checked before any sampling.}
 
 \item{min_size}{Integer \eqn{\ge 1}. Smallest piece the \code{"ssd"} rule may
 cut off, and smallest region the boundary refinement may leave. Default 5.}

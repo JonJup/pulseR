@@ -60,7 +60,7 @@
 #'   \code{\link{compute_null_baseline}} use it as their default \code{env},
 #'   so validity indices are computed in the space the weights live in. For
 #'   weights from another source (for example GDM), store the transformed
-#'   predictors with \code{igraph::graph_attr(g, "env") <- X}.
+#'   predictors with \code{\link{set_env}}, which matches rows by ID.
 #'
 #'   Edge attributes \code{bridge}, \code{bridge_dist} and \code{weight_env}
 #'   (the weight before the bridge penalty) are carried through, and the graph

@@ -155,7 +155,9 @@ compute_null_baseline <- function(
       "(correlation %.4f, need > 0.999), so the null would not test ",
       "environmental signal. Pass the matrix the weights were computed from ",
       "(scaled if add_edge_weight(scale = TRUE)), or env = NULL to use the one ",
-      "stored on `graph`."), r), call. = FALSE)
+      "stored on `graph`. Weights from another model (e.g. GDM) are not ",
+      "Euclidean distances on any stored matrix, so this null does not apply ",
+      "to them; see ?set_env."), r), call. = FALSE)
   rpp_tied <- is.null(regions_per_partition)
   rpp_of   <- function(k) if (rpp_tied) 3 * k else regions_per_partition
   cfg <-
