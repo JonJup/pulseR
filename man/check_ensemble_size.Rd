@@ -29,7 +29,9 @@ label matrix (units x partitions).}
 \item{k}{Integer. Number of consensus regions.}
 
 \item{graph}{Optional \code{igraph}; if given, contiguity is repaired as in
-\code{compute_consensus()} (consensus partition only).}
+\code{compute_consensus()} (consensus partition only). Boundary refinement
+is never applied, as for \code{STAB} in \code{\link{tune_regions}}, so
+\code{graph} needs no stored environment matrix.}
 
 \item{sizes}{Integer vector of half-ensemble sizes. Default: \eqn{M/16},
 \eqn{M/8}, \eqn{M/4}, \eqn{M/2}, keeping sizes \eqn{\ge 10}.}

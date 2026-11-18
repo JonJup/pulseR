@@ -2,6 +2,7 @@
 % Please edit documentation in R/configuration.R
 \name{compute_configuration}
 \alias{compute_configuration}
+\alias{print.pulse_configuration}
 \title{Label-invariant configuration features for every polygon}
 \usage{
 compute_configuration(
@@ -19,6 +20,8 @@ compute_configuration(
   exclude_bridges = TRUE,
   verbose = TRUE
 )
+
+\method{print}{pulse_configuration}(x, ...)
 }
 \arguments{
 \item{mosaic_input}{Numeric \eqn{n \times c} membership matrix, or the list
@@ -50,6 +53,10 @@ grows with the window size (about \eqn{2 k^2} units per window on a grid).}
 Default \code{TRUE}.}
 
 \item{verbose}{Logical.}
+
+\item{x}{An object of class \code{"pulse_configuration"}.}
+
+\item{...}{Unused.}
 }
 \value{
 Numeric matrix, one row per polygon, with columns
@@ -58,6 +65,10 @@ Numeric matrix, one row per polygon, with columns
   \code{same_share} (observed \eqn{q_d}), \code{expected} (\eqn{e}),
   \code{lags} and \code{k_order}. Rows whose window has no pair at some lag
   are \code{NA}.
+
+\code{print.pulse_configuration} returns \code{x} invisibly. It
+  prints a summary, not the matrix; \code{head(x)} or any subset returns
+  plain values.
 }
 \description{
 For each unit and graph lag \eqn{d}, measures how often units at distance

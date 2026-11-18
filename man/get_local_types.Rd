@@ -192,7 +192,7 @@ sum to 1; orphan rows (no weight above \code{weight_eps}) stay zero.
 Units with \eqn{w_{ir} \le} \code{weight_eps} are excluded from region
 \eqn{r}'s fit and receive a zero in that region's columns. This is exact,
 not an approximation: their contribution \eqn{z_{irk} w_{ir}} is negligible
-by construction, and it is what keeps the fit affordable at continental
+by construction, and it is what keeps the fit affordable at large
 \eqn{N}.
 }
 \examples{

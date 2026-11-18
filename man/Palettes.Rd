@@ -70,7 +70,7 @@ Named character vector of \code{n_mosaic_types} hex colours.
 \description{
 Regions are embedded in one or two dimensions from a between-region
 dissimilarity and the embedding is mapped into HCL space, so perceptually
-close colours mean ecologically close regions. Compute this once and pass it
+close colours mean similar regions. Compute this once and pass it
 to every plotting call for the fit; the default palette in each function is
 this same call, so figures agree unless you deliberately override.
 

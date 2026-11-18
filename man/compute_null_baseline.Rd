@@ -121,7 +121,7 @@ Edge weights are recomputed as Euclidean distance on \code{env}
   a 5\% test.
 
   The shuffle also removes spatial autocorrelation in \code{env}. Smooth
-  but ecologically meaningless gradients therefore count as signal here.
+  but substantively meaningless gradients therefore count as signal here.
 
   The tree noise multiplier \eqn{\eta} is calibrated to
   \code{target_edge_turnover} on the first replicate and reused for the

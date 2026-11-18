@@ -53,6 +53,8 @@ test_that("check_cut_placement anchors random at ~0 and size_influence = 0 at 1"
         expect_gt(s$above_median[s$setting == "0"], s$above_median[s$setting == "random"])
         # More size weight -> fewer one-unit cuts.
         expect_lt(s$singleton_share[s$setting == "2"], s$singleton_share[s$setting == "0"])
+        expect_identical(cp$config$cut_rule, "propensity")
+        expect_output(print(cp), "cut_rule = propensity")
 })
 
 test_that("check_ensemble_size returns a curve and a search floor", {

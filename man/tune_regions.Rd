@@ -2,6 +2,7 @@
 % Please edit documentation in R/regions.R
 \name{tune_regions}
 \alias{tune_regions}
+\alias{print.pulse_regions_tuning}
 \title{Tune SKATER-CON Hyperparameters}
 \usage{
 tune_regions(
@@ -33,6 +34,8 @@ tune_regions(
   stability_seed = seed,
   verbose = TRUE
 )
+
+\method{print}{pulse_regions_tuning}(x, ...)
 }
 \arguments{
 \item{graph}{The parent \code{igraph} object the trees were sampled from.}
@@ -127,6 +130,10 @@ exit.}
 are compared on the same column splits. Defaults to \code{seed}.}
 
 \item{verbose}{Logical. Default \code{TRUE}.}
+
+\item{x}{An object of class \code{"pulse_regions_tuning"}.}
+
+\item{...}{Unused.}
 }
 \value{
 An object of class \code{"pulse_regions_tuning"}: a list with
@@ -145,6 +152,8 @@ An object of class \code{"pulse_regions_tuning"}: a list with
   When \code{prior_strength = Inf}, the object has the same class and slots,
   with the prior as \code{best_result} (one-hot \code{memberships},
   \code{hard_labels}, \code{coverage}) and no \code{tuning_log}.
+
+\code{print.pulse_regions_tuning} returns \code{x} invisibly.
 }
 \description{
 Searches over up to four hyper-parameters -- \code{regions_per_partition},
@@ -179,7 +188,7 @@ realisations). When \code{N_tree} is scalar there is no penalty.
 A single-slot cache holds one ensemble matrix at a time, and evaluation is
 ordered so that configurations sharing an ensemble are visited consecutively.
 A keyed cache over a four-way grid would hold one N x N_tree integer
-matrix per ensemble pair, which at continental N is tens of gigabytes.
+matrix per ensemble pair, which at N = 10^5 or more is tens of gigabytes.
 Peak memory here is one full matrix plus at most one column slice.
 }
 

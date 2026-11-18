@@ -3,7 +3,7 @@
 \name{check_cut_placement}
 \alias{check_cut_placement}
 \alias{print.pulse_cut_placement}
-\title{Check whether cut placement follows the environment}
+\title{Check whether cut placement follows the environment (propensity rule)}
 \usage{
 check_cut_placement(
   trees,
@@ -57,6 +57,12 @@ decide where a tree is cut, or whether the environment enters mainly
 through the tree shape.
 }
 \details{
+Only \code{cut_rule = "propensity"} is simulated. The default
+\code{cut_rule = "ssd"} cuts one edge at a time on the Ward gain of
+\code{graph_attr(graph, "env")}, not on edge weights, and that gain
+already contains a size term, so the floor and ceiling below do not
+apply to it. For an SSD ensemble use \code{\link{check_cut_frequency}}
+with a \code{weight_exponent = 0} reference ensemble.
 Each cut edge gets its within-tree weight percentile (mid-ranks, 0 to 1).
 Two reference rows anchor the scale: \code{"random"} (uniform cuts, the
 floor) and \code{size_influence = 0} (environment only, the ceiling).

@@ -34,7 +34,7 @@ sampler; the caller's RNG state is restored on exit.}
 \code{TRUE}.}
 
 \item{prior_typology}{Optional. Either (a) a single character giving the
-name of a vertex attribute on \code{graph} that holds prior ecoregion
+name of a vertex attribute on \code{graph} that holds prior region
 labels (character / factor / integer); or (b) a vector of length
 \code{vcount(graph)} of such labels. \code{NA} indicates no prior at
 that vertex. When supplied, edges connecting two vertices with the same

@@ -2,6 +2,7 @@
 % Please edit documentation in R/mosaic.R
 \name{compute_all_signatures}
 \alias{compute_all_signatures}
+\alias{print.pulse_signatures}
 \title{Fuzzy co-occurrence signatures for every polygon}
 \usage{
 compute_all_signatures(
@@ -17,6 +18,8 @@ compute_all_signatures(
   exclude_bridges = TRUE,
   verbose = TRUE
 )
+
+\method{print}{pulse_signatures}(x, ...)
 }
 \arguments{
 \item{mosaic_input}{Numeric \eqn{n \times c} membership matrix, rows in graph vertex
@@ -47,12 +50,20 @@ neighbourhoods never cross a bridge. Default \code{TRUE}. A graph without
 a \code{bridge} edge attribute is used unchanged.}
 
 \item{verbose}{Logical.}
+
+\item{x}{An object of class \code{"pulse_signatures"}.}
+
+\item{...}{Unused.}
 }
 \value{
 Numeric \eqn{n \times \binom{c+1}{2}} matrix with \code{"a:b"} column
   names and attribute \code{"exclude_bridges"}. Rows whose neighbourhood
   contains no edge are \code{NA}; with \code{exclude_bridges = TRUE} this
   includes units joined to the rest only by bridges.
+
+\code{print.pulse_signatures} returns \code{x} invisibly. It prints
+  a summary, not the matrix; \code{head(x)} or any subset returns plain
+  values.
 }
 \description{
 For focal \eqn{f} the signature is the upper triangle of
@@ -61,5 +72,5 @@ distribution. Rather than looping over focals, the identity
 \deqn{C^{(f)} = \sum_{e \in N(f)} w_f(u_e)\,w_f(v_e)\, m_e}
 is used, where \eqn{m_e} is the class-pair contribution of edge \eqn{e}. The
 whole matrix is then one sparse product, which is orders of magnitude faster
-than the per-focal implementation at continental \eqn{N}.
+than the per-focal implementation at large \eqn{N}.
 }

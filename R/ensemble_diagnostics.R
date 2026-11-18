@@ -1,4 +1,4 @@
-#' Check whether cut placement follows the environment
+#' Check whether cut placement follows the environment (propensity rule)
 #'
 #' For a sweep of \code{size_influence}, cuts every tree as the ensemble does
 #' and records where the cuts land: how heavy the cut edges are relative to
@@ -8,6 +8,13 @@
 #' through the tree shape.
 #'
 #' @details
+#' Only \code{cut_rule = "propensity"} is simulated. The default
+#' \code{cut_rule = "ssd"} cuts one edge at a time on the Ward gain of
+#' \code{graph_attr(graph, "env")}, not on edge weights, and that gain
+#' already contains a size term, so the floor and ceiling below do not
+#' apply to it. For an SSD ensemble use \code{\link{check_cut_frequency}}
+#' with a \code{weight_exponent = 0} reference ensemble.
+
 #' Each cut edge gets its within-tree weight percentile (mid-ranks, 0 to 1).
 #' Two reference rows anchor the scale: \code{"random"} (uniform cuts, the
 #' floor) and \code{size_influence = 0} (environment only, the ceiling).
@@ -130,7 +137,8 @@ check_cut_placement <- function(trees, regions_per_partition,
         rownames(summary) <- NULL
         
         structure(list(summary = summary, cuts = cuts,
-                       config = list(regions_per_partition = as.integer(regions_per_partition),
+                       config = list(cut_rule = "propensity", 
+                                     regions_per_partition = as.integer(regions_per_partition),
                                      weight_exponent = ge,
                                      prior_strength = prior_strength,
                                      N_tree = as.integer(N_tree), n_vertices = n_v)),
@@ -143,7 +151,7 @@ check_cut_placement <- function(trees, regions_per_partition,
 #' @return \code{print.pulse_cut_placement} returns \code{x} invisibly.
 #' @export
 print.pulse_cut_placement <- function(x, ...) {
-        cat(sprintf("<pulse_cut_placement>  N_tree = %d | R = %d | weight_exponent = %s | N = %d\n",
+        cat(sprintf("<pulse_cut_placement> cut_rule = propensity | N_tree = %d | R = %d | weight_exponent = %s | N = %d\n",
                     x$config$N_tree, x$config$regions_per_partition,
                     paste(x$config$weight_exponent, collapse = ", "), x$config$n_vertices))
         s <- x$summary

@@ -33,10 +33,9 @@ Returns a sparse matrix with the pattern of \code{Rk} whose entry
 \details{
 \strong{Prefer a fixed \code{sigma} in map units.} An adaptive per-focal
 bandwidth makes the spatial extent of a "landscape" vary with unit
-density, so two signatures can differ because the drainage network is denser
-in one place, not because the configuration of types differs. That confounds
-the very thing the mosaic level is supposed to measure. A fixed radius (the
-25--50 km scale from the work-package design is the natural starting point)
-keeps the unit comparable across Europe. \code{"adaptive"} is kept because it
-reproduces the previous default.
+density, so two signatures can differ because units are denser in one place,
+not because the configuration of types differs. That confounds the very
+thing the mosaic level is supposed to measure. A fixed radius, chosen at the
+spatial scale of the landscape patterns of interest, keeps the unit
+comparable across the study area.
 }

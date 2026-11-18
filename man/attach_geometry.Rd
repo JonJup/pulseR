@@ -12,7 +12,7 @@ attach_geometry(x, geom, simplify = NULL)
 \item{geom}{An \code{sf} object with one row per unit, in graph vertex order.}
 
 \item{simplify}{Numeric or \code{NULL}. If numeric, \code{sf::st_simplify}
-tolerance (map units) applied once and cached. Continental coverages carry
+tolerance (map units) applied once and cached. Large coverages carry
 far more vertices than any figure resolves; simplifying here rather than at
 draw time is the difference between seconds and minutes per panel.}
 }

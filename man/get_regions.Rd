@@ -93,7 +93,7 @@ after consensus. Default \code{TRUE}. See \code{\link{compute_consensus}}.}
 cut off, and smallest region the boundary refinement may leave. Default 5.}
 
 \item{prior_typology}{Optional. Vertex attribute name (single character)
-or vector of length \code{vcount(graph)} giving a prior ecoregion label
+or vector of length \code{vcount(graph)} giving a prior region label
 at each vertex. \code{NA} means no prior at that vertex. Default
 \code{NULL}.}
 
