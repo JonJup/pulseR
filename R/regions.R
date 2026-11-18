@@ -2156,25 +2156,57 @@ print.pulse_trees <- function(x, ...) {
 .TUNE_AXES <- c("regions_per_partition", "weight_exponent",
                 "N_tree", "final_regions")
 
+
+
 #' Row of the best score, with an explicit tie-break
 #'
 #' Used by the final selection and by the coordinate-descent sweeps, so every
-#' strategy breaks ties the same way.
+#' strategy breaks ties the same way. Rows tied on \code{score} are first
+#' separated by \code{tiebreak} (under Borda: the mean z-score of the voters),
+#' then by the fixed axis rule.
 #' @param log Data frame with the four axis columns.
 #' @param score Score per row, higher is better.
+#' @param tiebreak Secondary score per row, higher is better, or \code{NULL}.
 #' @return Row index, or \code{NA_integer_} if every score is \code{NA}.
 #' @keywords internal
 #' @noRd
-.pick_best <- function(log, score = log$score) {
-  if (all(is.na(score))) return(NA_integer_)
-  top <- which(score >= max(score, na.rm = TRUE) - .TIE_TOL)
+.pick_best <- function(log, score = log$score, tiebreak = log$score_tb) {
+  top <- .tied_top(score, tiebreak)
+  if (length(top) == 0L) return(NA_integer_)
   if (length(top) == 1L) return(top)
   top[order(log$final_regions[top], log$regions_per_partition[top],
             log$weight_exponent[top], -log$N_tree[top])[1L]]
 }
+
+#' Rows still tied after the score and the tie-break score.
+#' @keywords internal
+#' @noRd
+.tied_top <- function(score, tiebreak = NULL) {
+  if (all(is.na(score))) return(integer(0))
+  top <- which(score >= max(score, na.rm = TRUE) - .TIE_TOL)
+  if (length(top) > 1L && !is.null(tiebreak) && any(is.finite(tiebreak[top]))) {
+    tb  <- tiebreak[top]; tb[!is.finite(tb)] <- -Inf
+    top <- top[tb >= max(tb) - .TIE_TOL]
+  }
+  top
+}
+
+#' How the winner was separated from rows with the same score
+#' @return \code{"none"} (no tie), \code{"zsum"} (the tie-break score
+#'   decided) or \code{"rule"} (the axis rule decided).
+#' @keywords internal
+#' @noRd
+.tie_resolution <- function(score, tiebreak = NULL) {
+  n_top <- sum(score >= max(score, na.rm = TRUE) - .TIE_TOL, na.rm = TRUE)
+  if (n_top <= 1L) return("none")
+  if (length(.tied_top(score, tiebreak)) == 1L) "zsum" else "rule"
+}
+
 .TIE_TOL  <- 1e-12
-.TIE_RULE <- paste("fewest final_regions, then fewest regions_per_partition,",
-                   "then smallest weight_exponent, then largest N_tree")
+.TIE_RULE <- paste("under Borda, highest mean z-score of the voters (CH_FIT on",
+                   "the log scale); then fewest final_regions, then fewest",
+                   "regions_per_partition, then smallest weight_exponent,",
+                   "then largest N_tree")
 
 
 
@@ -2239,11 +2271,20 @@ print.pulse_trees <- function(x, ...) {
 #'
 #' @section Ties:
 #' Several configurations can share the best score, most often under Borda,
-#' whose scores are mean ranks. Ties are broken, in every search strategy, by
-#' the fewest \code{final_regions}, then the fewest
+#' whose scores are mean ranks: with two voters, a configuration ranked
+#' (1, 3) ties with one ranked (3, 1) and one ranked (2, 2). Under Borda,
+#' tied configurations are separated by the mean z-score of the same voters
+#' (\code{tuning_log$score_tb}; each voter standardised over all evaluated
+#' configurations, \code{CH_FIT} on the log scale), so the size of a
+#' difference decides, not only its sign. The z-score never overrides a rank
+#' difference. Configurations still tied, and ties under the other metrics,
+#' go to the fewest \code{final_regions}, then the fewest
 #' \code{regions_per_partition}, then the smallest \code{weight_exponent},
-#' then the largest \code{N_tree}. The number of tied rows and the runner-up
-#' are returned.
+#' then the largest \code{N_tree}. \code{n_tied} counts configurations tied
+#' on the score and \code{tie_broken_by} says what decided
+#' (\code{"none"}, \code{"zsum"} or \code{"rule"}).
+##     and in @return, after the n_tied sentence, add
+#'   \code{tie_broken_by} is \code{"none"}, \code{"zsum"} or \code{"rule"}.
 #'
 #' @section Caveat on the ensemble-size axis:
 #' Most validity indices drift monotonically with \code{N_tree} (Monte Carlo
@@ -2425,8 +2466,8 @@ tune_regions <- function(graph,
       best_result = best, best_config = cfg,
       best_regions_per_partition = K, best_final_regions = K,
       best_weight_exponent = NA_real_, best_N_tree = NA_integer_,
-      best_score = NA_real_, n_tied = NA_integer_, runner_up = NULL,
-      tie_rule = NA_character_, tuning_log = NULL, candidates = NULL,
+      best_score = NA_real_, n_tied = NA_integer_, tie_broken_by = NA_character_, 
+      runner_up = NULL, tie_rule = NA_character_, tuning_log = NULL, candidates = NULL,
       active_axes = character(0), n_ensembles_built = 0L,
       tuning_metric = tuning_metric, voters = voters,
       tuning_strategy = tuning_strategy, prior_strength = Inf,
@@ -2571,12 +2612,16 @@ tune_regions <- function(graph,
   }
   
   # Failed rows get score NA and stay out of the Borda ranking.
+  # score_tb is the Borda tie-break (mean voter z-score); NA for other metrics.
   score_rows <- function(log) {
-    s  <- rep(NA_real_, nrow(log))
+    s <- tb <- rep(NA_real_, nrow(log))
     ok <- is.na(log$error)
-    if (any(ok)) s[ok] <- .derive_score_column(log[ok, , drop = FALSE],
-                                               tuning_metric, voters)
-    s
+    if (any(ok)) {
+      d      <- .derive_score_column(log[ok, , drop = FALSE], tuning_metric, voters)
+      s[ok]  <- as.numeric(d)
+      tb[ok] <- .first_non_null(attr(d, "tiebreak"), NA_real_)
+    }
+    list(score = s, score_tb = tb)
   }
   
   # --- Score one configuration -> one row of CVI columns ---------------*
@@ -2611,10 +2656,12 @@ tune_regions <- function(graph,
   tuning_log <- NULL
   
   rebuild_score_column <- function() {
-    # Borda ranks are computed globally over all rows evaluated so far, so
-    # the score column must be rebuilt after every batch.
+    # Borda ranks and z-scores are computed globally over all rows evaluated
+    # so far, so both columns must be rebuilt after every batch.
     if (is.null(tuning_log) || nrow(tuning_log) == 0L) return(invisible(NULL))
-    tuning_log$score <<- score_rows(tuning_log)
+    sc <- score_rows(tuning_log)
+    tuning_log$score    <<- sc$score
+    tuning_log$score_tb <<- sc$score_tb
     invisible(NULL)
   }
   
@@ -2773,7 +2820,9 @@ tune_regions <- function(graph,
   # --- Deduplicate and pick the best configuration ---------------------*
   tuning_log <- tuning_log[!duplicated(.tune_key(tuning_log)), , drop = FALSE]
   rownames(tuning_log) <- NULL
-  tuning_log$score <- score_rows(tuning_log)
+  sc <- score_rows(tuning_log)
+  tuning_log$score    <- sc$score
+  tuning_log$score_tb <- sc$score_tb
   
   failed <- !is.na(tuning_log$error)
   if (all(failed))
@@ -2796,13 +2845,16 @@ tune_regions <- function(graph,
   rownames(best_cfg) <- NULL
   best_sc  <- tuning_log$score[best_idx]
   n_tied   <- sum(tuning_log$score >= best_sc - .TIE_TOL, na.rm = TRUE)
+  tie_broken_by <- .tie_resolution(tuning_log$score, tuning_log$score_tb)
   rest     <- tuning_log[-best_idx, , drop = FALSE]
   runner_up <- if (nrow(rest) && any(!is.na(rest$score))) {
     ru <- rest[.pick_best(rest), , drop = FALSE]; rownames(ru) <- NULL; ru
   } else NULL
   if (verbose && n_tied > 1L)
-    message(sprintf("  %d configurations tie on the %s score; tie broken by: %s.",
-                    n_tied, tuning_metric, .TIE_RULE))
+    message(sprintf("  %d configurations tie on the %s score; broken by %s.",
+                    n_tied, tuning_metric,
+                    if (tie_broken_by == "zsum") "the mean voter z-score"
+                    else "the axis rule (fewest final_regions first)"))
   
   if (verbose) {
     message(sprintf(paste0(
@@ -2844,6 +2896,7 @@ tune_regions <- function(graph,
       best_N_tree                 = best_cfg$N_tree,
       best_score                = best_sc,
       n_tied                    = as.integer(n_tied),
+      tie_broken_by             = tie_broken_by,
       runner_up                 = runner_up,
       tie_rule                  = .TIE_RULE,
       tuning_log                = tuning_log,

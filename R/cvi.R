@@ -198,32 +198,6 @@ compute_validity <- function(x, graph = NULL, env = NULL, env_id = NULL,
 #' @noRd
 .BORDA_COLS <- c("CH_FIT", "STAB")
 
-#' Score column of a tuning log, higher is better
-#'
-#' \code{"borda"} is minus the mean Borda rank over \code{voters}; the other
-#' metrics return their validity column (minus \code{EVI}).
-#' @keywords internal
-#' @noRd
-.derive_score_column <- function(df, metric, voters = .BORDA_COLS) {
-        switch(metric,
-               borda = {
-                       cols <- voters[vapply(voters, function(cc) !all(is.na(df[[cc]])), logical(1))]
-                       if (!length(cols)) {
-                               warning("No external criterion available (env = NULL, stability_B = 0); ",
-                                       "Borda falls back to SIL_CA + EVI, which are only meaningful ",
-                                       "when comparing k within one ensemble.", call. = FALSE)
-                               cols <- c("SIL_CA", "EVI")
-                       }
-                       -.borda_score(df[, cols, drop = FALSE], unname(.CVI_DIRECTION[cols]))
-               },
-               ch_fit        = df$CH_FIT,
-               r2_fit        = df$R2_FIT,
-               stability     = df$STAB,
-               silhouette_ca = df$SIL_CA,
-               expected_vi   = -df$EVI,
-               stop("Unknown metric: ", metric, call. = FALSE))
-}
-
 #' Borda rank aggregation across voter columns
 #'
 #' Ranks each column of \code{df} (1 = best for its direction) and returns the
@@ -264,4 +238,86 @@ compute_validity <- function(x, graph = NULL, env = NULL, env_id = NULL,
         ranks_list <- Filter(Negate(is.null), ranks_list)
         if (!length(ranks_list)) return(rep(NA_real_, n))
         rowMeans(do.call(cbind, ranks_list))
+}
+#' Voter columns that have data; falls back to SIL_CA + EVI with a warning.
+#' @keywords internal
+#' @noRd
+.borda_voters <- function(df, voters = .BORDA_COLS) {
+        cols <- voters[vapply(voters, function(cc) !all(is.na(df[[cc]])), logical(1))]
+        if (!length(cols)) {
+                warning("No external criterion available (env = NULL, stability_B = 0); ",
+                        "Borda falls back to SIL_CA + EVI, which are only meaningful ",
+                        "when comparing k within one ensemble.", call. = FALSE)
+                cols <- c("SIL_CA", "EVI")
+        }
+        cols
+}
+
+#' Score column of a tuning log, higher is better
+#'
+#' \code{"borda"} is minus the mean Borda rank over \code{voters}, with the
+#' mean z-score of the same voters (\code{.zsum_score()}) attached as
+#' attribute \code{"tiebreak"}. The other metrics return their validity column
+#' (minus \code{EVI}) and no tie-break.
+#' @keywords internal
+#' @noRd
+.derive_score_column <- function(df, metric, voters = .BORDA_COLS) {
+        switch(metric,
+               borda = {
+                       cols <- .borda_voters(df, voters)
+                       dirs <- unname(.CVI_DIRECTION[cols])
+                       sub  <- df[, cols, drop = FALSE]
+                       structure(-.borda_score(sub, dirs),
+                                 tiebreak = .zsum_score(sub, dirs))
+               },
+               ch_fit        = df$CH_FIT,
+               r2_fit        = df$R2_FIT,
+               stability     = df$STAB,
+               silhouette_ca = df$SIL_CA,
+               expected_vi   = -df$EVI,
+               stop("Unknown metric: ", metric, call. = FALSE))
+}
+
+#' Mean z-score across voter columns (Borda tie-break)
+#'
+#' Each column is oriented so that higher is better, standardised to mean 0
+#' and sd 1 over its finite values, and the row-wise mean is returned.
+#' Columns in \code{log_cols} are log-transformed first: CH_FIT is a variance
+#' ratio, right-skewed, and one large value would otherwise set the sd.
+#' Used only to order configurations that tie on Borda, so it never
+#' overrides a rank difference.
+#'
+#' NA and -Inf get the column's lowest z, +Inf its highest. A column with
+#' fewer than two finite values or zero spread contributes 0. With two rows
+#' that each win one voter, every column gives +-1/sqrt(2) and the rows still
+#' tie; the explicit tie rule then decides.
+#'
+#' @param df Data frame, one column per voter.
+#' @param directions \code{"min"} or \code{"max"} per column.
+#' @param log_cols Column names to log-transform.
+#' @return Numeric vector of length \code{nrow(df)}, higher is better; all
+#'   \code{NA} if no column has data.
+#' @keywords internal
+#' @noRd
+.zsum_score <- function(df, directions, log_cols = "CH_FIT") {
+        stopifnot(ncol(df) == length(directions))
+        n <- nrow(df)
+        zs <- Map(function(v, dir, nm) {
+                v <- as.numeric(v)
+                if (all(is.na(v))) return(NULL)
+                if (nm %in% log_cols) v <- suppressWarnings(log(v))  # CH_FIT >= 0; 0 -> -Inf
+                if (identical(dir, "min")) v <- -v
+                else if (!identical(dir, "max"))
+                        stop("direction must be 'min' or 'max'", call. = FALSE)
+                ok <- is.finite(v)
+                s  <- if (sum(ok) >= 2L) stats::sd(v[ok]) else NA_real_
+                if (!is.finite(s) || s <= 0) return(rep(0, n))
+                z <- (v - mean(v[ok])) / s
+                z[!ok] <- min(z[ok])
+                z[!is.na(v) & v == Inf] <- max(z[ok])
+                z
+        }, df, directions, names(df))
+        zs <- Filter(Negate(is.null), zs)
+        if (!length(zs)) return(rep(NA_real_, n))
+        rowMeans(do.call(cbind, zs))
 }

@@ -196,11 +196,19 @@ the incumbent configuration stops moving or \code{max_iter} is reached.
 \section{Ties}{
 
 Several configurations can share the best score, most often under Borda,
-whose scores are mean ranks. Ties are broken, in every search strategy, by
-the fewest \code{final_regions}, then the fewest
+whose scores are mean ranks: with two voters, a configuration ranked
+(1, 3) ties with one ranked (3, 1) and one ranked (2, 2). Under Borda,
+tied configurations are separated by the mean z-score of the same voters
+(\code{tuning_log$score_tb}; each voter standardised over all evaluated
+configurations, \code{CH_FIT} on the log scale), so the size of a
+difference decides, not only its sign. The z-score never overrides a rank
+difference. Configurations still tied, and ties under the other metrics,
+go to the fewest \code{final_regions}, then the fewest
 \code{regions_per_partition}, then the smallest \code{weight_exponent},
-then the largest \code{N_tree}. The number of tied rows and the runner-up
-are returned.
+then the largest \code{N_tree}. \code{n_tied} counts configurations tied
+on the score and \code{tie_broken_by} says what decided
+(\code{"none"}, \code{"zsum"} or \code{"rule"}).
+  \code{tie_broken_by} is \code{"none"}, \code{"zsum"} or \code{"rule"}.
 }
 
 \section{Caveat on the ensemble-size axis}{
