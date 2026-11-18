@@ -26,8 +26,10 @@ comparison by where units actually are in predictor space, so two
 types whose Gaussians overlap in a region of the space that is empty do not
 count as similar; it needs \code{env}.}
 
-\item{env}{Predictor matrix for \code{method = "empirical"}, one row per unit,
-columns \code{local$variables}.}
+\item{env}{Predictor data for \code{method = "empirical"}: a data frame,
+\code{sf} object or matrix, one row per unit, in original units. Columns
+are matched by name to \code{local$variables}; column order and extra
+columns do not matter.}
 
 \item{n_sample}{Rows sampled for the empirical comparison. Default 20000.}
 

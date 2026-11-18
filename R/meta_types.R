@@ -115,8 +115,10 @@
 #'   comparison by where units actually are in predictor space, so two
 #'   types whose Gaussians overlap in a region of the space that is empty do not
 #'   count as similar; it needs \code{env}.
-#' @param env Predictor matrix for \code{method = "empirical"}, one row per unit,
-#'   columns \code{local$variables}.
+#' @param env Predictor data for \code{method = "empirical"}: a data frame,
+#'   \code{sf} object or matrix, one row per unit, in original units. Columns
+#'   are matched by name to \code{local$variables}; column order and extra
+#'   columns do not matter.
 #' @param n_sample Rows sampled for the empirical comparison. Default 20000.
 #' @param variables Use a subset of local$variables; the Gaussians are reduced to it, which is exact for a Gaussian.
 #' @param seed Seed for that sample, restored on exit. \code{NULL} (default)
@@ -126,15 +128,15 @@
 compute_local_type_distance <- function(
                 local,
                 method = c("bhattacharyya", "wasserstein", "empirical"),
-                env = NULL, 
-                n_sample = 20000L, 
+                env = NULL,
+                n_sample = 20000L,
                 variables = NULL,
                 seed = NULL) {
         method <- match.arg(method)
         gs <- .local_gaussians(local)
-        # How many components? 
+        # How many components?
         C  <- length(gs$mu)
-        # vector of local variables 
+        # vector of local variables
         vi <- seq_along(local$variables)
         if (!is.null(variables)) {
                 if (!is.character(variables) || !length(variables) || anyDuplicated(variables))
@@ -148,6 +150,16 @@ compute_local_type_distance <- function(
         }
         if (method == "empirical") {
                 if (is.null(env)) stop("`method = \"empirical\"` needs `env`.", call. = FALSE)
+                if (!is.data.frame(env) && !is.matrix(env))
+                        stop("`env` must be a data frame, sf object or matrix.", call. = FALSE)
+                ## sf keeps its geometry column under `[`, which as.matrix() would
+                ## turn into a list matrix.
+                if (inherits(env, "sf")) env <- sf::st_drop_geometry(env)
+                vars <- local$variables[vi]
+                miss <- setdiff(vars, colnames(env))
+                if (length(miss))
+                        stop("`env` lacks variable(s) used by the local types: ",
+                             paste(miss, collapse = ", "), call. = FALSE)
                 if (!is.numeric(n_sample) || length(n_sample) != 1L || is.na(n_sample) ||
                     n_sample < 2 || n_sample != round(n_sample))
                         stop("`n_sample` must be a single integer >= 2.", call. = FALSE)
@@ -156,12 +168,18 @@ compute_local_type_distance <- function(
                         .local_seed(seed)
                         env <- env[sort(sample.int(N, n_sample)), , drop = FALSE]
                 }
-                X <- as.matrix(env[, local$variables[vi], drop = FALSE])
+                ## Select by name, so column order and extra columns in `env`
+                ## do not matter.
+                X <- as.matrix(env[, vars, drop = FALSE])
+                if (!is.numeric(X))
+                        stop("`env` columns ", paste(vars, collapse = ", "),
+                             " must be numeric.", call. = FALSE)
+                ## Standardise ONCE, into the coordinates the Gaussians were fitted
+                ## in. `scaling` is stored for all of local$variables (same order),
+                ## so it is indexed by `vi` like the Gaussians above.
                 if (!is.null(local$scaling))
                         X <- sweep(sweep(X, 2L, local$scaling$center[vi], "-"), 2L,
                                    local$scaling$scale[vi], "/")
-                if (!is.null(local$scaling))
-                        X <- sweep(sweep(X, 2L, local$scaling$center, "-"), 2L, local$scaling$scale, "/")
                 ## Column c = the density of type c over the sampled units,
                 ## normalised to a distribution. Bhattacharyya coefficient between
                 ## columns then measures overlap where the data actually live.
@@ -240,7 +258,7 @@ compute_local_type_distance <- function(
 #'   recomputing one.
 #' @param variables Optional subset of \code{local$variables} to compare the
 #'   local types on; passed to \code{\link{compute_local_type_distance}}.
-#'   Ignored when \code{distance} is given. 
+#'   Ignored when \code{distance} is given.
 #' @return An object of class \code{"pulse_meta_types"}:
 #'   \describe{
 #'     \item{\code{memberships}}{N x n_meta_types matrix. Rows sum to one, exactly, by
@@ -290,7 +308,7 @@ get_meta_types <- function(local,
                                           "mcquitty", "median", "centroid", "ward.D2"),
                            distance   = NULL,
                            variables = NULL
-                           ) {
+) {
         
         stopifnot(inherits(local, "pulse_local_types"))
         method <- match.arg(method)
@@ -316,26 +334,26 @@ get_meta_types <- function(local,
         w <- colSums(local$memberships) / nrow(local$memberships)
         sel <- if (!length(cand)) {
                 NULL
-                } else { 
-                        do.call(rbind, lapply(cand, function(M) {
-                                cl <- stats::cutree(hc, k = M)
-                                nr <- vapply(split(reg, cl), function(v) length(unique(v)), integer(1))
-                                confined <- as.integer(names(nr)[nr == 1L])
-                
-                                data.frame(n_meta_types          = M,
-                                           mass_confined         = sum(w[cl %in% confined]),
-                                           frac_single_region    = mean(nr == 1L),
-                                           mean_regions_per_meta = mean(nr),
-                                           min_regions_per_meta  = min(nr),
-                                           ari_with_region       = .adjusted_rand_index(cl, reg),
-                                           ari_with_region_w     = .weighted_ari(cl, reg, w * nrow(local$memberships)),
-                                           silhouette            = mean(cluster::silhouette(cl, d)[, 3]),
-                                           height_gap            = hc$height[C-M+1] - hc$height[C-M]
-                                           )
-                                }
-                                )
-                                )
+        } else {
+                do.call(rbind, lapply(cand, function(M) {
+                        cl <- stats::cutree(hc, k = M)
+                        nr <- vapply(split(reg, cl), function(v) length(unique(v)), integer(1))
+                        confined <- as.integer(names(nr)[nr == 1L])
+                        
+                        data.frame(n_meta_types          = M,
+                                   mass_confined         = sum(w[cl %in% confined]),
+                                   frac_single_region    = mean(nr == 1L),
+                                   mean_regions_per_meta = mean(nr),
+                                   min_regions_per_meta  = min(nr),
+                                   ari_with_region       = .adjusted_rand_index(cl, reg),
+                                   ari_with_region_w     = .weighted_ari(cl, reg, w * nrow(local$memberships)),
+                                   silhouette            = mean(cluster::silhouette(cl, d)[, 3]),
+                                   height_gap            = hc$height[C-M+1] - hc$height[C-M]
+                        )
                 }
+                )
+                )
+        }
         
         if (!is.null(sel)) sel$passes <- sel$mass_confined <= max_confined + 1e-9
         
