@@ -304,3 +304,20 @@ utils::globalVariables(".data")
         if (abs(denom) < 1e-12) return(1)
         (s_ij - expected) / denom
 }
+#' Drop planted ground-truth columns from a default predictor set
+#'
+#' Columns named `true_*` hold known labels in simulated data (e.g.
+#' `pulse_grid`). They are numeric, so an "all numeric columns" default would
+#' fit on the answer. Called only when the user did not name the predictors.
+#' @param cols Character vector of candidate column names.
+#' @param hint How to include them anyway.
+#' @return `cols` without the `true_*` names.
+#' @keywords internal
+#' @noRd
+.drop_truth_cols <- function(cols, hint = "name them in `variables` to use them") {
+        truth <- grep("^true_", cols, value = TRUE)
+        if (length(truth))
+                message(sprintf("Ignoring ground-truth column(s) %s; %s.",
+                                paste(truth, collapse = ", "), hint))
+        setdiff(cols, truth)
+}

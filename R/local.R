@@ -228,9 +228,10 @@
 #' @param regions A \code{"pulse_regions"} object from \code{\link{get_regions}},
 #'   a \code{"pulse_regions_tuning"} object from \code{\link{tune_regions}}, or a bare
 #'   N x k numeric weight matrix.
-#' @param variables Character vector of predictor columns to use. \code{NULL}
-#'   (default) uses every numeric column of \code{env} that is not listed in
-#'   \code{non_value_cols}.
+#' @param variables: \code{NULL} (default) uses every numeric column of 
+#'   \code{env} except an \code{ID}/\code{id} column, columns in 
+#'   \code{non_value_cols}, and columns whose names start with \code{true_} 
+#'   (dropped with a message).
 #' @param non_value_cols Character vector of identifier columns to exclude
 #'   (e.g. \code{"ID"}). Default \code{NULL}.
 #' @param n_local_types Candidate component counts. Either an integer vector
@@ -429,7 +430,14 @@ get_local_types <- function(env,
         
         ## Default: all numeric columns except the identifiers.
         if (is.null(variables)) {
-                cand      <- setdiff(names(env), non_value_cols)
+                id_auto <- .id_col(env)
+                if (!is.na(id_auto) && !id_auto %in% non_value_cols) {
+                        non_value_cols <- c(non_value_cols, id_auto)
+                        if (verbose)
+                                message(sprintf("Excluding identifier column `%s`; name it in `variables` to use it.",
+                                                id_auto))
+                }
+                cand      <- .drop_truth_cols(setdiff(names(env), non_value_cols))
                 is_num    <- vapply(env[cand], is.numeric, logical(1))
                 variables <- cand[is_num]
                 if (verbose)

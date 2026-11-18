@@ -113,8 +113,8 @@ Default 20000.}
 \code{NULL} (default) uses the matrix \code{\link{add_edge_weight}}
 stored on \code{graph} (graph attribute \code{env}), so the indices are
 computed in the space of the edge weights. A supplied \code{env} is used
-as given: non-numeric columns are dropped and nothing is scaled. Columns
-that look like IDs trigger a warning.}
+as given: non-numeric columns and columns named \code{true_*} are dropped 
+and nothing is scaled. Columns that look like IDs trigger a warning.}
 
 \item{env_id}{Character vector of columns in \code{env} to exclude, for
 example numeric ID columns. Default \code{NULL}.}

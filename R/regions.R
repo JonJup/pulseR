@@ -16,7 +16,8 @@
 #'   \code{R2_FIT} during tuning. \code{NULL} (default) uses the matrix
 #'   \code{\link{add_edge_weight}} stored on \code{graph}, so the indices are
 #'   computed in the space of the edge weights. A supplied \code{env} is used
-#'   as given: non-numeric columns are dropped and nothing is scaled.
+#'   as given: non-numeric columns and columns named \code{true_*} are dropped
+#'    and nothing is scaled.
 #' @param env_id Character vector of columns in \code{env} to exclude from the
 #'   validity indices, for example numeric ID columns. Default \code{NULL}.
 #' @param regions_per_partition Integer, or integer vector of candidates.
@@ -2131,7 +2132,9 @@ print.pulse_trees <- function(x, ...) {
     env <- as.matrix(env)
   } else {
     env <- as.data.frame(env)
-    if (!is.null(env_id)) env <- env[, setdiff(names(env), env_id), drop = FALSE]
+    keep <- .drop_truth_cols(setdiff(names(env), env_id),
+                             hint = "rename them to use them")
+    env  <- env[, keep, drop = FALSE]
     env <- as.matrix(env[, vapply(env, is.numeric, logical(1)), drop = FALSE])
     .warn_id_like(env, "`env_id`")
   }
@@ -2272,8 +2275,8 @@ print.pulse_trees <- function(x, ...) {
 #'   \code{NULL} (default) uses the matrix \code{\link{add_edge_weight}}
 #'   stored on \code{graph} (graph attribute \code{env}), so the indices are
 #'   computed in the space of the edge weights. A supplied \code{env} is used
-#'   as given: non-numeric columns are dropped and nothing is scaled. Columns
-#'   that look like IDs trigger a warning.
+#'   as given: non-numeric columns and columns named \code{true_*} are dropped 
+#'   and nothing is scaled. Columns that look like IDs trigger a warning.
 #' @param env_id Character vector of columns in \code{env} to exclude, for
 #'   example numeric ID columns. Default \code{NULL}.
 #' @param trees A \code{"pulse_trees"} object from

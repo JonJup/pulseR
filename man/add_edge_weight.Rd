@@ -43,9 +43,11 @@ stores as \code{polygon_id}) is always excluded; name it in
 all distinct) only trigger a warning. Default \code{NULL}.}
 
 \item{variables}{Character vector of column names to use for environmental
-dissimilarity. If \code{NULL} (default), all non-geometry, non-\code{id_col}
-columns are used. If supplied, \code{id_col} is ignored. In chunked mode,
-supplying \code{variables} also restricts the columns read from disk,
+dissimilarity. If \code{NULL} (default), all non-geometry, 
+non-\code{id_col} columns are used, except columns whose names start with 
+\code{true_} (planted labels, as in \code{\link{pulse_grid}}), which are 
+dropped with a message If supplied, \code{id_col} is ignored. In chuncked 
+mode. Supplying \code{variables} also restricts the columns read from disc,
 which can substantially reduce memory use on wide parquet files.}
 
 \item{scale}{Logical scalar. Standardize variables (subtract mean, divide by

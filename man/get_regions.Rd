@@ -45,7 +45,8 @@ attribute (finite, non-negative).}
 \code{R2_FIT} during tuning. \code{NULL} (default) uses the matrix
 \code{\link{add_edge_weight}} stored on \code{graph}, so the indices are
 computed in the space of the edge weights. A supplied \code{env} is used
-as given: non-numeric columns are dropped and nothing is scaled.}
+as given: non-numeric columns and columns named \code{true_*} are dropped
+ and nothing is scaled.}
 
 \item{env_id}{Character vector of columns in \code{env} to exclude from the
 validity indices, for example numeric ID columns. Default \code{NULL}.}

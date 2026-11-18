@@ -35,10 +35,6 @@ dropped automatically.}
 a \code{"pulse_regions_tuning"} object from \code{\link{tune_regions}}, or a bare
 N x k numeric weight matrix.}
 
-\item{variables}{Character vector of predictor columns to use. \code{NULL}
-(default) uses every numeric column of \code{env} that is not listed in
-\code{non_value_cols}.}
-
 \item{non_value_cols}{Character vector of identifier columns to exclude
 (e.g. \code{"ID"}). Default \code{NULL}.}
 
@@ -114,6 +110,11 @@ forces \code{drop_constant = TRUE} behaviour, see above).}
 \item{x}{An object of class \code{"pulse_local_types"}.}
 
 \item{...}{Unused.}
+
+\item{variables:}{\code{NULL} (default) uses every numeric column of 
+\code{env} except an \code{ID}/\code{id} column, columns in 
+\code{non_value_cols}, and columns whose names start with \code{true_} 
+(dropped with a message).}
 }
 \value{
 An object of class \code{"pulse_local_types"}: a list with

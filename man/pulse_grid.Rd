@@ -10,7 +10,7 @@ An `sf` data frame with 300 rows:
   \item{ID}{Integer cell ID.}
   \item{temp}{Simulated temperature; carries the region signal.}
   \item{prec}{Simulated precipitation; carries the local-type signal.}
-  \item{true_region, true_local}{Planted labels. Exclude from analysis variables.}
+  \item{true_region, true_local}{Planted labels for checking results. Columns named \code{true_*} are never used as predictors unless named in \code{variables}.}
 }
 }
 \source{
