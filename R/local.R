@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------------*
-# Helpers
+# Helpers ----
 # -----------------------------------------------------------------------------*
 
 #' First non-NULL argument.
@@ -169,10 +169,29 @@
         prior
 }
 
-
-# -----------------------------------------------------------------------------
-# Main function
-# -----------------------------------------------------------------------------
+#' @rdname get_local_types
+#' @param x An object of class \code{"pulse_local_types"}.
+#' @param ... Unused.
+#' @return \code{print.pulse_local_types} returns \code{x} invisibly.
+#' @export
+print.pulse_local_types <- function(x, ...) {
+        cat(sprintf("<pulse_local_types>  %d units x %d local types across %d regions\n",
+                    nrow(x$memberships), ncol(x$memberships), length(x$n_local_types)))
+        cat(sprintf("  types per region: %s\n",
+                    paste(x$n_local_types, collapse = ", ")))
+        cat(sprintf("  weights = %s | cutoff = %g | %d predictor(s)\n",
+                    x$weights, x$cutoff, length(x$variables)))
+        sel <- if (is.null(x$model_names)) x$model_name else x$model_names
+        tab <- table(factor(sel, levels = unique(sel)))
+        cat(sprintf("  covariance model per region: %s\n",
+                    paste(sprintf("%s x%d", names(tab), tab), collapse = ", ")))
+        cat(sprintf("  mean certainty = %.3f | mean normalised entropy = %.3f\n",
+                    mean(x$certainty), mean(x$entropy)))
+        invisible(x)
+}
+# -----------------------------------------------------------------------------*
+# Main function ---- 
+# -----------------------------------------------------------------------------*
 
 #' Local Types within Regions via Weighted Gaussian Mixture Models
 #'
@@ -343,7 +362,7 @@ get_local_types <- function(env,
                             regions,
                             variables      = NULL,
                             non_value_cols = NULL,
-                            n_local_types  = 2:9,
+                            n_local_types  = 1:9,
                             cutoff         = 0.1,
                             weights        = c("memberships", "cohesion"),
                             model_name     = c("VVV", "EEE", "VVI", "VII"),
@@ -757,26 +776,4 @@ get_local_types <- function(env,
                 model_name    = models
         )
         structure(out, class = "pulse_local_types")
-}
-
-
-#' @rdname get_local_types
-#' @param x An object of class \code{"pulse_local_types"}.
-#' @param ... Unused.
-#' @return \code{print.pulse_local_types} returns \code{x} invisibly.
-#' @export
-print.pulse_local_types <- function(x, ...) {
-        cat(sprintf("<pulse_local_types>  %d units x %d local types across %d regions\n",
-                    nrow(x$memberships), ncol(x$memberships), length(x$n_local_types)))
-        cat(sprintf("  types per region: %s\n",
-                    paste(x$n_local_types, collapse = ", ")))
-        cat(sprintf("  weights = %s | cutoff = %g | %d predictor(s)\n",
-                    x$weights, x$cutoff, length(x$variables)))
-        sel <- if (is.null(x$model_names)) x$model_name else x$model_names
-        tab <- table(factor(sel, levels = unique(sel)))
-        cat(sprintf("  covariance model per region: %s\n",
-                    paste(sprintf("%s x%d", names(tab), tab), collapse = ", ")))
-        cat(sprintf("  mean certainty = %.3f | mean normalised entropy = %.3f\n",
-                    mean(x$certainty), mean(x$entropy)))
-        invisible(x)
 }
