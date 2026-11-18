@@ -183,7 +183,7 @@ get_regions <- function(graph,
     is.numeric(prior_strength) | is.infinite(prior_strength), 
     length(prior_strength) == 1L,
     prior_strength >= 0,
-    is.numeric(regions_per_partition)|| is.null(regions_per_partition),
+    is.numeric(regions_per_partition) || is.null(regions_per_partition),
     is.numeric(N_tree),
     is.numeric(final_regions)
     
