@@ -340,7 +340,7 @@ crosswalk_types <- function(x, external, label, units, id = NULL, weights = NULL
 #' Unit identifiers in graph vertex order
 #' @keywords internal
 #' @noRd
-.cw_unit_ids <- function(units, n) {
+.cw_unit_ids <- function(units, n, what = "`x`") {
         if (missing(units) || is.null(units))
                 stop("`units` is required: the unit IDs of `x` in graph vertex order, ",
                      "or the graph from build_network().", call. = FALSE)
@@ -355,7 +355,7 @@ crosswalk_types <- function(x, external, label, units, id = NULL, weights = NULL
                 stop("`units` must be a vector of IDs or an igraph object.", call. = FALSE)
         }
         if (length(ids) != n)
-                stop(sprintf("`units` has %d IDs but `x` has %d units.", length(ids), n),
+                stop(sprintf("`units` has %d IDs but %s has %d units.", length(ids), what, n),
                      call. = FALSE)
         ids <- as.character(ids)
         if (anyNA(ids)) stop("`units` contains NA IDs.", call. = FALSE)

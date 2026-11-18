@@ -304,6 +304,27 @@ utils::globalVariables(".data")
         if (abs(denom) < 1e-12) return(1)
         (s_ij - expected) / denom
 }
+#' Package state for once-per-session warnings
+#' @keywords internal
+#' @noRd
+.pulse_state <- new.env(parent = emptyenv())
+
+#' Warn once per R session
+#'
+#' The first call with a given `key` warns; later calls are silent. Tests
+#' reset a key with `rm(list = key, envir = .pulse_state)`.
+#' @param key Character scalar naming the warning.
+#' @param msg Warning text.
+#' @return `TRUE` if it warned, invisibly.
+#' @keywords internal
+#' @noRd
+.warn_once <- function(key, msg) {
+        if (isTRUE(.pulse_state[[key]])) return(invisible(FALSE))
+        assign(key, TRUE, envir = .pulse_state)
+        warning(msg, " (Shown once per session.)", call. = FALSE)
+        invisible(TRUE)
+}
+
 #' Drop planted ground-truth columns from a default predictor set
 #'
 #' Columns named `true_*` hold known labels in simulated data (e.g.

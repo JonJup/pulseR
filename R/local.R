@@ -63,6 +63,45 @@
         as.matrix(W)
 }
 
+#' Put the rows of `env` in the row order of the region weights
+#'
+#' Joins on IDs when both sides carry them: `units` (IDs in region-weight row
+#' order, or a graph with a `polygon_id` vertex attribute) and an `ID`/`id`
+#' column in `env`. Without `units` the rows are taken in the order given, the
+#' counts must match, and a warning says so once per session.
+#' @param env Data frame (geometry already dropped).
+#' @param units `NULL`, an ID vector, or an igraph object.
+#' @param N Number of rows of the region weights.
+#' @return `env`, one row per unit in region-weight order.
+#' @keywords internal
+#' @noRd
+.align_local_env <- function(env, units, N, verbose = FALSE) {
+        id_env <- .id_col(env)
+        if (!is.null(units)) {
+                ids <- .cw_unit_ids(units, N, what = "the region weights")
+                if (is.na(id_env))
+                        stop("`units` was given but `env` has no `ID`/`id` column to match ",
+                             "it on. Add one, or drop `units` to use row order.", call. = FALSE)
+                out <- .align_env_rows(env, env[[id_env]], ids, N, verbose = verbose)
+                if (verbose && !identical(as.character(env[[id_env]]), ids))
+                        message(sprintf("Reordered `env` rows to the region weights by `%s`.",
+                                        id_env))
+                rownames(out) <- NULL
+                return(out)
+        }
+        if (N != nrow(env))
+                stop(sprintf("Region weights have %d rows but `env` has %d; they must match.",
+                             N, nrow(env)), call. = FALSE)
+        .warn_once("local_row_order", paste0(
+                "get_local_types() matched `env` to the region weights by row position. ",
+                "If `env` was sorted, filtered or joined after the network was built, ",
+                "the local types are wrong. Pass `units` (the graph from ",
+                "add_edge_weight(), or the unit IDs in graph vertex order)",
+                if (is.na(id_env)) " and give `env` an `ID` column" else "",
+                " to match by ID."))
+        env
+}
+
 #' Level 1 hard region per unit: the regions object's own labels when present
 #' (post contiguity repair), else the row argmax of the weight matrix.
 #' @noRd
@@ -241,9 +280,16 @@ print.pulse_local_types <- function(x, ...) {
 #' by construction, and it is what keeps the fit affordable at large
 #' \eqn{N}.
 #'
-#' @param env A \code{data.frame} or \code{sf} object with one row per unit, in
-#'   the same order as the rows of the region weight matrix. Geometry is
-#'   dropped automatically.
+#' @param env A \code{data.frame} or \code{sf} object with one row per unit.
+#'   Geometry is dropped automatically. With \code{units}, rows are matched
+#'   to the region weights by the \code{ID} (or \code{id}) column, so row
+#'   order does not matter and extra rows are ignored. Without \code{units},
+#'   rows must be in the row order of the region weights (graph vertex
+#'   order); a warning says so once per session.
+#' @param units Optional. The unit IDs in the row order of the region weights,
+#'   or the \code{igraph} object from \code{\link{add_edge_weight}} (its
+#'   \code{polygon_id} vertex attribute is used). Requires an
+#'   \code{ID}/\code{id} column in \code{env}. Default \code{NULL}.
 #' @param regions A \code{"pulse_regions"} object from \code{\link{get_regions}},
 #'   a \code{"pulse_regions_tuning"} object from \code{\link{tune_regions}}, or a bare
 #'   N x k numeric weight matrix.
@@ -351,7 +397,7 @@ print.pulse_local_types <- function(x, ...) {
 #'                   rainfall = stats::rnorm(n))
 #' W <- matrix(stats::runif(n * 2), ncol = 2)
 #' W <- W / rowSums(W)
-#' res <- get_local_types(env, regions = W, non_value_cols = "ID",
+#' res <- get_local_types(env, regions = W, units = env$ID,
 #'                        n_local_types = 2:3)
 #' res
 #'
@@ -360,6 +406,7 @@ print.pulse_local_types <- function(x, ...) {
 #' @export
 get_local_types <- function(env,
                             regions,
+                            units          = NULL,
                             variables      = NULL,
                             non_value_cols = NULL,
                             n_local_types  = 1:9,
@@ -388,6 +435,7 @@ get_local_types <- function(env,
         ## ---- 0. Input validation -------------------------------------------*
         if (!is.data.frame(env))
                 stop("`env` must be a data.frame or sf object.", call. = FALSE)
+        if (inherits(env, "sf")) env <- sf::st_drop_geometry(env)
         if (!is.logical(verbose) || length(verbose) != 1L || is.na(verbose))
                 stop("`verbose` must be a single TRUE/FALSE value.", call. = FALSE)
         ## n_local_types: one shared candidate vector, or a list with one
@@ -431,9 +479,7 @@ get_local_types <- function(env,
         W         <- .region_weights(regions, weights)
         n_regions <- ncol(W)
         N         <- nrow(W)
-        if (N != nrow(env))
-                stop(sprintf("Region weights have %d rows but `env` has %d; they must match.",
-                             N, nrow(env)), call. = FALSE)
+        env       <- .align_local_env(env, units, N, verbose)
         if (n_regions < 1L) stop("Region weight matrix has no columns.", call. = FALSE)
         G_list <- if (G_per_region) {
                 if (length(n_local_types) != n_regions)
@@ -445,7 +491,6 @@ get_local_types <- function(env,
         } else rep(list(n_local_types), n_regions)
         G_all <- sort(unique(unlist(G_list)))
         ## ---- 2. Predictors --------------------------------------------------*
-        if (inherits(env, "sf")) env <- sf::st_drop_geometry(env)
         
         ## Default: all numeric columns except the identifiers.
         if (is.null(variables)) {

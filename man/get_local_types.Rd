@@ -10,6 +10,7 @@
 get_local_types(
   env,
   regions,
+  units = NULL,
   variables = NULL,
   non_value_cols = NULL,
   n_local_types = 1:9,
@@ -31,13 +32,21 @@ get_local_types(
 
 \item{...}{Unused.}
 
-\item{env}{A \code{data.frame} or \code{sf} object with one row per unit, in
-the same order as the rows of the region weight matrix. Geometry is
-dropped automatically.}
+\item{env}{A \code{data.frame} or \code{sf} object with one row per unit.
+Geometry is dropped automatically. With \code{units}, rows are matched
+to the region weights by the \code{ID} (or \code{id}) column, so row
+order does not matter and extra rows are ignored. Without \code{units},
+rows must be in the row order of the region weights (graph vertex
+order); a warning says so once per session.}
 
 \item{regions}{A \code{"pulse_regions"} object from \code{\link{get_regions}},
 a \code{"pulse_regions_tuning"} object from \code{\link{tune_regions}}, or a bare
 N x k numeric weight matrix.}
+
+\item{units}{Optional. The unit IDs in the row order of the region weights,
+or the \code{igraph} object from \code{\link{add_edge_weight}} (its
+\code{polygon_id} vertex attribute is used). Requires an
+\code{ID}/\code{id} column in \code{env}. Default \code{NULL}.}
 
 \item{non_value_cols}{Character vector of identifier columns to exclude
 (e.g. \code{"ID"}). Default \code{NULL}.}
@@ -204,7 +213,7 @@ env <- data.frame(ID = seq_len(n),
                   rainfall = stats::rnorm(n))
 W <- matrix(stats::runif(n * 2), ncol = 2)
 W <- W / rowSums(W)
-res <- get_local_types(env, regions = W, non_value_cols = "ID",
+res <- get_local_types(env, regions = W, units = env$ID,
                        n_local_types = 2:3)
 res
 
