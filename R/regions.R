@@ -2669,6 +2669,7 @@ tune_regions <- function(graph,
                               refine_boundary = refine_boundary,
                               min_size = min_size,
                               report_native = FALSE, verbose = FALSE)
+    .check_effective_regions(res$hard_labels, cfg$final_regions)
     fit$step <- as.raw(fit$step)
     cvis <- .consensus_cvis(
       res, memb = memb_mat$memberships, env = env,

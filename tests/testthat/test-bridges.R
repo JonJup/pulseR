@@ -29,7 +29,7 @@ test_that("in-memory network flags one bridge with boundary length", {
 test_that("centroid-only bridging records centroid length", {
         x  <- make_island_sf()
         nb <- suppressWarnings(spdep::poly2nb(x, queen = FALSE))
-        el <- nb_to_edgelist(nb)
+        el <- .nb_to_edgelist(nb)
         g0 <- igraph::make_graph(as.vector(t(as.matrix(el))), n = nrow(x), directed = FALSE)
         g  <- connect_components(g0, centroids = sf::st_centroid(sf::st_geometry(x)),
                                  verbose = FALSE)

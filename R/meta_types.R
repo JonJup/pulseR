@@ -253,7 +253,11 @@ compute_local_type_distance <- function(
 #'   \code{n_meta_types} is a single value.
 #' @param linkage Passed to \code{\link[stats]{hclust}}. Default
 #'   \code{"average"}, which merges on mean overlap and does not chain the way
-#'   single linkage would.
+#'   single linkage would. \code{"centroid"} and \code{"median"} are not
+#'   monotone: a later merge can sit lower than an earlier one (an inversion),
+#'   so height gaps can be negative. If the tree has inversions,
+#'   \code{rule = "gap"} stops, and the other rules warn and set
+#'   \code{gap_ratio} to \code{NA}.
 #' @param distance Optional precomputed \code{dist} over local types, in place of
 #'   recomputing one.
 #' @param variables Optional subset of \code{local$variables} to compare the
@@ -288,7 +292,8 @@ compute_local_type_distance <- function(
 #'       divided by their median gap. Large values mean the tree has one clear
 #'       cut; values near 1 mean no cut stands out, so treat the chosen
 #'       \code{n_meta_types} with caution. Computed under either rule.
-#'       \code{NA} with fewer than two candidates.}
+#'       \code{NA} with fewer than two candidates or when the tree has
+#'       inversions (see \code{linkage}).}
 #'     \item{\code{variables}}{Variables the local-type distance was computed
 #'       on. \code{NULL} when \code{distance} was given without that attribute.}
 #'   }
@@ -326,6 +331,19 @@ get_meta_types <- function(local,
                 stop("`n_meta_types` must be one or more integers.", call. = FALSE)
         n_meta_types <- sort(unique(as.integer(n_meta_types)))
         auto   <- length(n_meta_types) > 1L
+        inv    <- .n_inversions(hc)
+        if (inv > 0L) {
+                msg <- sprintf(paste0(
+                        "The %s-linkage tree has %d inversion(s): a merge sits lower than ",
+                        "the one before it, so height gaps can be negative"),
+                        linkage, inv)
+                if (auto && rule_arg == "gap")
+                        stop(msg, ". The gap rule needs a monotone tree. Use a monotone ",
+                             "`linkage` (\"average\", \"complete\", \"single\", \"ward.D\", ",
+                             "\"ward.D2\", \"mcquitty\") or `rule = \"crossing\"`.", call. = FALSE)
+                warning(msg, "; `height_gap` is not a jump in similarity and ",
+                        "`gap_ratio` is set to NA.", call. = FALSE)
+        }
         cand   <- n_meta_types[n_meta_types >= 2L & n_meta_types < C]
         if (auto && !length(cand))
                 stop(sprintf("No candidate in `n_meta_types` lies in 2..%d (the number of local types minus one).",
@@ -372,7 +390,7 @@ get_meta_types <- function(local,
                 s
         } else NULL
         
-        gap_ratio <- if (!is.null(sel) && nrow(sel) >= 2L)
+        gap_ratio <- if (!is.null(sel) && nrow(sel) >= 2L && inv == 0L)
                 max(sel$height_gap) / max(stats::median(sel$height_gap), .Machine$double.eps)
         else NA_real_
         if (auto && rule_arg == "gap") {
@@ -489,3 +507,19 @@ print.pulse_meta_types <- function(x, ...) {
 #' @return A table of local-type counts, meta-types by region.
 #' @export
 tabulate_meta_regions <- function(meta) table(meta = meta$key$meta, region = meta$key$region)
+
+#' Number of inversions in an hclust tree
+#'
+#' Counts merges that sit below the merge before them, beyond rounding.
+#' Centroid and median linkage can produce them; the other
+#' \code{stats::hclust} methods are monotone.
+#' @param hc An \code{hclust} object.
+#' @return Integer count, 0 for a monotone tree.
+#' @keywords internal
+#' @noRd
+.n_inversions <- function(hc) {
+        h <- hc$height
+        if (length(h) < 2L) return(0L)
+        tol <- sqrt(.Machine$double.eps) * max(abs(h), 1)
+        sum(diff(h) < -tol)
+}

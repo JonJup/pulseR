@@ -2,6 +2,13 @@
 #' `env` should be the same transformed predictors whose Euclidean distance is
 #' the edge dissimilarity (e.g. the GDM I-spline-transformed predictor matrix),
 #' so that this is a PERMANOVA-style criterion in the space the trees were cut in.
+#'
+#' CH_FIT is \code{NA} when it is undefined: fewer than two non-empty regions
+#' (no between-region variance, 0/0 or x/0) or one unit per region (no
+#' within-region degrees of freedom). R2_FIT is \code{NA} when \code{env} is
+#' constant. Neither returns \code{Inf} or \code{NaN}, so a degenerate
+#' partition cannot rank first in Borda. Attribute \code{k_eff} is the number
+#' of non-empty regions.
 #' @keywords internal
 #' @noRd
 .pseudo_F_env <- function(env, hard, k) {
@@ -18,8 +25,29 @@
         SST <- sum(scale(X, scale = FALSE)^2)
         SSB <- SST - SSW
         k_eff <- sum(n_k > 0)
-        c(CH_FIT = (SSB / (k_eff - 1)) / (SSW / (N - k_eff)),
-          R2_FIT = SSB / SST)
+        ch <- if (k_eff >= 2L && N > k_eff) (SSB / (k_eff - 1)) / (SSW / (N - k_eff)) else NA_real_
+        r2 <- if (SST > 0) SSB / SST else NA_real_
+        structure(c(CH_FIT = ch, R2_FIT = r2), k_eff = k_eff)
+}
+
+#' Stop a scoring run whose consensus has fewer than two regions
+#'
+#' A one-region consensus has no between-region variance, so CH_FIT is
+#' undefined and STAB is trivially 1. Raised as a \code{pulseR_config_error},
+#' so \code{tune_regions()} logs the configuration as failed (score NA, out
+#' of the Borda ranking) and \code{compute_null_baseline()} counts the
+#' replicate as failed.
+#' @param hard Hard labels of the consensus.
+#' @param k Requested number of regions.
+#' @keywords internal
+#' @noRd
+.check_effective_regions <- function(hard, k) {
+        k_eff <- length(unique(hard[!is.na(hard)]))
+        if (k_eff < 2L)
+                .config_error(sprintf(paste0(
+                        "the consensus for final_regions = %d has %d non-empty region(s); ",
+                        "CH_FIT is undefined"), k, k_eff))
+        invisible(k_eff)
 }
 
 #' Proportion of ambiguous co-association (Senbabaoglu et al. 2014), estimated
@@ -177,6 +205,9 @@ compute_validity <- function(x, graph = NULL, env = NULL, env_id = NULL,
                      "indices are undefined.", call. = FALSE)
         if (!is.null(env) && nrow(env) != length(x$hard_labels))
                 stop("`env` must have one row per unit of `x`.", call. = FALSE)
+        if (length(unique(stats::na.omit(x$fit$hard_labels))) < 2L)
+                warning("`x` has fewer than two non-empty regions; CH_FIT is NA and ",
+                        "STAB is trivially 1.", call. = FALSE)
         v <- .consensus_cvis(x$fit, x$ensemble, env = env, stability_B = stability_B,
                              graph = graph, stability_seed = seed, large_n_threshold = large_n_threshold,
                              sample_size = sample_size, n_cores = n_cores)

@@ -213,13 +213,16 @@ compute_null_baseline <- function(
       # Only a configuration error (the null ensemble cannot support k
       # regions) is a failed replicate. Anything else is a bug or bad
       # input and must not count in favour of the observed data.
-      res <- tryCatch(
-        compute_consensus(ens, k, graph = g_b,
-                          refine_boundary = refine_boundary,
-                          min_size = min_size,
-                          large_n_threshold = large_n_threshold,
-                          sample_size = sample_size, n_cores = n_cores,
-                          report_native = FALSE, verbose = FALSE),
+      res <- tryCatch({
+        r <- compute_consensus(ens, k, graph = g_b,
+                               refine_boundary = refine_boundary,
+                               min_size = min_size,
+                               large_n_threshold = large_n_threshold,
+                               sample_size = sample_size, n_cores = n_cores,
+                               report_native = FALSE, verbose = FALSE)
+        .check_effective_regions(r$hard_labels, k)
+        r
+      },
         pulseR_config_error = function(e) e,
         error = function(e)
           stop(sprintf("Null replicate %d, k = %d: %s", b, k,

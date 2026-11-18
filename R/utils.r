@@ -21,7 +21,7 @@
 #'
 #' @keywords internal
 #' @noRd
-nb_to_edgelist <- function(nb) {
+.nb_to_edgelist <- function(nb) {
         if (!inherits(nb, "nb"))
                 stop("`nb` must be a neighbour list (an spdep 'nb' object).", call. = FALSE)
         

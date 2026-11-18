@@ -20,3 +20,10 @@ test_that("true_* columns named in `variables` are still used", {
         gw  <- add_edge_weight(net, variables = c("temp", "true_region"), verbose = FALSE)
         expect_identical(colnames(igraph::graph_attr(gw, "env")), c("temp", "true_region"))
 })
+test_that("variables = NULL ignores ground-truth columns in pulse_grid", {
+        n    <- nrow(pulse_grid)
+        half <- seq_len(n) <= n / 2
+        W    <- cbind(as.numeric(half), as.numeric(!half))
+        loc  <- suppressWarnings(get_local_types(pulse_grid, W, n_local_types = 1:2))
+        expect_false(any(grepl("^true_", loc$variables)))
+})

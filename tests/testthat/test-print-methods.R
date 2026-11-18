@@ -44,3 +44,10 @@ test_that("print.pulse_signatures and print.pulse_configuration do not dump the 
         expect_lte(length(out), 6L)
         expect_false(inherits(head(cf), "pulse_configuration"))
 })
+test_that("every exported class has a print method", {
+        for (cl in c("pulse_regions_tuning", "pulse_signatures",
+                     "pulse_configuration")) {
+                expect_false(is.null(utils::getS3method("print", cl, optional = TRUE)),
+                             info = cl)
+        }
+})

@@ -55,7 +55,11 @@ not need several regions. The crossing diagnostics stay in
 
 \item{linkage}{Passed to \code{\link[stats]{hclust}}. Default
 \code{"average"}, which merges on mean overlap and does not chain the way
-single linkage would.}
+single linkage would. \code{"centroid"} and \code{"median"} are not
+monotone: a later merge can sit lower than an earlier one (an inversion),
+so height gaps can be negative. If the tree has inversions,
+\code{rule = "gap"} stops, and the other rules warn and set
+\code{gap_ratio} to \code{NA}.}
 
 \item{distance}{Optional precomputed \code{dist} over local types, in place of
 recomputing one.}
@@ -98,7 +102,8 @@ An object of class \code{"pulse_meta_types"}:
       divided by their median gap. Large values mean the tree has one clear
       cut; values near 1 mean no cut stands out, so treat the chosen
       \code{n_meta_types} with caution. Computed under either rule.
-      \code{NA} with fewer than two candidates.}
+      \code{NA} with fewer than two candidates or when the tree has
+      inversions (see \code{linkage}).}
     \item{\code{variables}}{Variables the local-type distance was computed
       on. \code{NULL} when \code{distance} was given without that attribute.}
   }
