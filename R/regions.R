@@ -239,17 +239,6 @@ get_regions <- function(graph,
   } else {
     sort(unique(as.integer(regions_per_partition)))
   }
-  
-  if (any(regions_per_partition >= igraph::vcount(graph))){
-    stop(
-      "`regions_per_partition` (",
-      paste0(regions_per_partition),
-      ") must be smaller than the number of units (",
-      paste(igraph::vcount(graph)),
-      ").",
-      call. = FALSE
-    )
-  }
   if (!rpp_tied && length(regions_per_partition) == 1 && regions_per_partition < max(final_regions)){
     stop(
       sprintf(
@@ -1582,9 +1571,6 @@ check_native_regions <- function(trees, graph,
          call. = FALSE)
   }
 }
-
-.xlogx <- function(p) { out <- p * log(p); out[!(p > 0)] <- 0; out }
-.xlog2x <- function(p) { out <- p * log2(p); out[!(p > 0)] <- 0; out }
 
 # Steps that can set a consensus label, in pipeline order. `label_step` records
 # the LAST step that changed a unit's label.
@@ -3301,38 +3287,6 @@ print.pulse_regions_tuning <- function(x, ...) {
       target, best_tm, best_eta, max_iter, why), call. = FALSE)
   }
   best_eta
-}
-
-# Observed validity rows for the null configuration. Accepts a tuning object
-# or a data frame; rows are kept where the configuration columns match `cfg`.
-#' @keywords internal
-#' @noRd
-.match_observed_config <- function(observed, cfg) {
-  if (inherits(observed, "pulse_regions_tuning")) observed <- observed$tuning_log
-  if (is.null(observed)) return(NULL)
-  observed <- as.data.frame(observed)
-  for (ax in setdiff(names(cfg), "rpp_per_region"))
-    if (ax %in% names(observed))
-      observed <- observed[abs(observed[[ax]] - cfg[[ax]]) < 1e-9, , drop = FALSE]
-  if (!is.null(cfg$rpp_per_region) && "regions_per_partition" %in% names(observed))
-    observed <- observed[observed$regions_per_partition ==
-                           cfg$rpp_per_region * observed$final_regions, , drop = FALSE]
-  if (!is.null(cfg$rpp_per_region) && "regions_per_partition" %in% names(observed))
-    observed <- observed[observed$regions_per_partition ==
-                           cfg$rpp_per_region * observed$final_regions, , drop = FALSE]
-  observed
-}
-
-# k values at which the null needs STAB: those with an observed STAB, or all
-# final_regions when nothing is observed.
-#' @keywords internal
-#' @noRd
-.null_stab_k <- function(observed, cfg, final_regions) {
-  if (is.null(observed)) return(final_regions)
-  if (inherits(observed, "pulse_regions")) return(intersect(final_regions, observed$k))
-  observed <- .match_observed_config(observed, cfg)
-  if (!"STAB" %in% names(observed)) return(integer(0))
-  intersect(final_regions, observed$final_regions[is.finite(observed$STAB)])
 }
 
 # Contiguity-preserving SSD descent on a hard partition. Moves a boundary

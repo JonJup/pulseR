@@ -54,7 +54,7 @@ test_that("exact EMI equals the mean MI over all permutations", {
                 do.call(c, lapply(seq_along(v), function(i)
                         lapply(perms(v[-i]), function(p) c(v[i], p))))
         mi <- function(a, b) { C <- table(a, b) / length(a)
-                .cw_h(rowSums(C)) + .cw_h(colSums(C)) - .cw_h(C) }
+                .entropy(rowSums(C)) + .entropy(colSums(C)) - .entropy(C) }
         brute <- mean(vapply(perms(y), function(p) mi(x, p), numeric(1)))
         expect_equal(.cw_emi_exact(as.numeric(table(x)), as.numeric(table(y)), 7), brute,
                      tolerance = 1e-12)

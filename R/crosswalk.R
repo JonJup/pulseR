@@ -424,12 +424,8 @@ crosswalk_types <- function(x, external, label, units, id = NULL, weights = NULL
 
 
 # -----------------------------------------------------------------------------*
-# Indices
+# Indices ----
 # -----------------------------------------------------------------------------*
-
-#' @keywords internal
-#' @noRd
-.cw_h <- function(p) { p <- p[p > 0]; -sum(p * log(p)) }
 
 #' Row-conditional table; all-zero rows stay zero
 #' @keywords internal
@@ -448,7 +444,9 @@ crosswalk_types <- function(x, external, label, units, id = NULL, weights = NULL
         if (!(tot > 0)) return(stats::setNames(rep(NA_real_, length(nm)), nm))
         P  <- J / tot
         pr <- rowSums(P); pc <- colSums(P)
-        Hr <- .cw_h(pr); Hc <- .cw_h(pc); Hj <- .cw_h(P)
+        Hr <- .entropy(pr)
+        Hc <- .entropy(pc)
+        Hj <- .entropy(P)
         MI <- max(Hr + Hc - Hj, 0)
         kr <- pr > 0; kc <- pc > 0
         q  <- min(sum(kr), sum(kc)) - 1L
@@ -463,21 +461,6 @@ crosswalk_types <- function(x, external, label, units, id = NULL, weights = NULL
           cramers_v         = cv,
           H_pulse           = Hr,
           H_ext             = Hc)
-}
-
-#' Adjusted Rand index from a count table
-#' @keywords internal
-#' @noRd
-.cw_ari <- function(C) {
-        n <- sum(C)
-        if (n < 2) return(NA_real_)
-        s  <- sum(choose(C, 2))
-        sa <- sum(choose(rowSums(C), 2))
-        sb <- sum(choose(colSums(C), 2))
-        ex <- sa * sb / choose(n, 2)
-        mx <- (sa + sb) / 2
-        if (mx - ex == 0) return(1)
-        (s - ex) / (mx - ex)
 }
 
 #' Exact expected mutual information under the permutation model
@@ -510,9 +493,11 @@ crosswalk_types <- function(x, external, label, units, id = NULL, weights = NULL
         C <- C[rowSums(C) > 0, colSums(C) > 0, drop = FALSE]
         N <- sum(C)
         if (N < 2) return(list(ARI = NA_real_, AMI = NA_real_, method = "none"))
-        a  <- rowSums(C); b <- colSums(C)
-        Ha <- .cw_h(a / N); Hb <- .cw_h(b / N)
-        MI <- max(Ha + Hb - .cw_h(C / N), 0)
+        a  <- rowSums(C)
+        b <- colSums(C)
+        Ha <- .entropy(a / N)
+        Hb <- .entropy(b / N)
+        MI <- max(Ha + Hb - .entropy(C / N), 0)
         terms  <- sum(pmax(outer(a, b, pmin) - pmax(outer(a, b, "+") - N, 1) + 1, 0))
         method <- if (terms <= max_terms) "exact" else "approx"
         emi <- if (method == "exact") .cw_emi_exact(a, b, N)
@@ -521,7 +506,7 @@ crosswalk_types <- function(x, external, label, units, id = NULL, weights = NULL
         ami <- if (length(a) == 1L && length(b) == 1L) 1
         else if (abs(den) < 1e-12) NA_real_
         else (MI - emi) / den
-        list(ARI = .cw_ari(C), AMI = ami, method = method)
+        list(ARI = .ari_table(C), AMI = ami, method = method)
 }
 
 #' Agreement table for one overlap
@@ -541,12 +526,17 @@ crosswalk_types <- function(x, external, label, units, id = NULL, weights = NULL
 #' @keywords internal
 #' @noRd
 .cw_types <- function(J, nesting, basis) {
-        K <- nrow(J); L <- ncol(J)
-        rs <- rowSums(J); cs <- colSums(J); tot <- sum(J)
+        K <- nrow(J)
+        L <- ncol(J)
+        rs <- rowSums(J)
+        cs <- colSums(J)
+        tot <- sum(J)
         Pr <- .cw_cond_rows(J)
         Pc <- t(.cw_cond_rows(t(J)))
-        br <- max.col(J, ties.method = "first");    br[!(rs > 0)] <- NA
-        bc <- max.col(t(J), ties.method = "first"); bc[!(cs > 0)] <- NA
+        br <- max.col(J, ties.method = "first")
+        br[!(rs > 0)] <- NA
+        bc <- max.col(t(J), ties.method = "first")
+        bc[!(cs > 0)] <- NA
         pr <- ifelse(is.na(br), NA_real_, Pr[cbind(seq_len(K), ifelse(is.na(br), 1L, br))])
         pc <- ifelse(is.na(bc), NA_real_, Pc[cbind(ifelse(is.na(bc), 1L, bc), seq_len(L))])
         rn <- !is.na(pr) & pr >= nesting           # row type lies within one column type
@@ -561,18 +551,34 @@ crosswalk_types <- function(x, external, label, units, id = NULL, weights = NULL
                 ifelse(!(mass > 0), NA_character_,
                        ifelse(one, "1:1", ifelse(nest, "nested",
                                                  ifelse(cont, "contains", "mixed"))))
-        eff <- function(P) exp(apply(P, 1, .cw_h))
-        rows <- data.frame(type = rownames(J), basis = basis, mass = rs,
-                           share = rs / tot, best_match = colnames(J)[br],
-                           p_best = pr, n_partners = eff(Pr),
-                           relation = rel(r_11, rn, r_cont, rs),
-                           stringsAsFactors = FALSE, row.names = NULL)
-        cols <- data.frame(type = colnames(J), basis = basis, mass = cs,
-                           share = cs / tot, best_match = rownames(J)[bc],
-                           p_best = pc, n_partners = eff(t(Pc)),
-                           relation = rel(c_11, cn, c_cont, cs),
-                           stringsAsFactors = FALSE, row.names = NULL)
-        rows$n_partners[!(rs > 0)] <- NA; cols$n_partners[!(cs > 0)] <- NA
+        eff <- function(P) exp(apply(P, 1, .entropy))
+        rows <- data.frame(
+                type = rownames(J),
+                basis = basis,
+                mass = rs,
+                share = rs / tot,
+                best_match = colnames(J)[br],
+                p_best = pr,
+                n_partners = eff(Pr),
+                relation = rel(r_11, rn, r_cont, rs),
+                stringsAsFactors = FALSE,
+                row.names = NULL
+        )
+        
+        cols <- data.frame(
+                type = colnames(J), 
+                basis = basis, 
+                mass = cs,
+                share = cs / tot, 
+                best_match = rownames(J)[bc],
+                p_best = pc, 
+                n_partners = eff(t(Pc)),
+                relation = rel(c_11, cn, c_cont, cs),
+                stringsAsFactors = FALSE,
+                row.names = NULL
+                )
+        rows$n_partners[!(rs > 0)] <- NA
+        cols$n_partners[!(cs > 0)] <- NA
         list(rows = rows, cols = cols)
 }
 

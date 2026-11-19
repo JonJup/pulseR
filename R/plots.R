@@ -106,35 +106,9 @@ pulse_palette <- function(x,
                           hue_range     = c(10, 340)) {
         method <- match.arg(method)
         k <- if (inherits(x, "pulse_regions")) x$k else length(x$n_local_types)
-        
         D <- .region_dissimilarity(x, dissimilarity, env, k)
-        if (method == "auto") method <- if (k <= 8 || is.null(D)) "qualitative" else "hue2d"
-        if (is.null(D) && method != "qualitative") {
-                warning("No region dissimilarity available; falling back to a qualitative palette.",
-                        call. = FALSE)
-                method <- "qualitative"
-        }
-        
-        cols <- switch(
-                method,
-                qualitative = grDevices::hcl(h = seq(15, 375, length.out = k + 1)[seq_len(k)],
-                                             c = chroma + 30, l = luminance),
-                ramp1d = {
-                        s <- stats::cmdscale(stats::as.dist(D), k = 1)[, 1]
-                        h <- hue_range[1] + diff(hue_range) * .rescale01(s)
-                        grDevices::hcl(h = h, c = chroma + 20, l = luminance)
-                },
-                hue2d = {
-                        cfg <- stats::cmdscale(stats::as.dist(D), k = 2)
-                        ## Angle -> hue, radius -> chroma. Regions at the centre of the
-                        ## ordination are intermediate and correctly come out muted;
-                        ## extreme regions get saturated, unmistakable colours.
-                        h <- (atan2(cfg[, 2], cfg[, 1]) * 180 / pi) %% 360
-                        r <- sqrt(rowSums(cfg^2))
-                        cc <- 20 + (chroma + 20 - 20) * .rescale01(r)
-                        grDevices::hcl(h = h, c = cc, l = luminance)
-                })
-        stats::setNames(cols, seq_len(k))
+        .similarity_palette(D, k, method, chroma = chroma, luminance = luminance,
+                            hue_range = hue_range)
 }
 
 #' @keywords internal
@@ -578,11 +552,8 @@ plot_local_types <- function(x,
         confidence <- match.arg(confidence)
         
         if (is.null(palette)) {
-                rc <- if (!is.null(regions)) pulse_palette(regions) else
-                        stats::setNames(grDevices::hcl(
-                                h = seq(15, 375, length.out = length(x$n_local_types) + 1)[
-                                        seq_len(length(x$n_local_types))],
-                                c = 95, l = 65), seq_along(x$n_local_types))
+                rc <- if (!is.null(regions)) pulse_palette(regions)
+                else .similarity_palette(NULL, length(x$n_local_types), "qualitative")
                 palette <- local_palette(x, rc)
         }
         conf <- .local_confidence(x, regions, confidence)
@@ -1687,9 +1658,11 @@ plot_crosswalk <- function(x,
 #' @noRd
 .cw_partner_cols <- function(palette, labels) {
         if (is.null(palette)) {
-                n <- length(labels)
-                return(stats::setNames(grDevices::hcl(h = seq(15, 375, length.out = n + 1L)[seq_len(n)],
-                                                      c = 55, l = 68), labels))
+                ## Qualitative branch adds 30 to chroma: chroma 25 gives c = 55,
+                ## lighter and softer than the map palettes, so text stays legible.
+                cols <- .similarity_palette(NULL, length(labels), "qualitative",
+                                            chroma = 25, luminance = 68)
+                return(stats::setNames(unname(cols), labels))
         }
         if (!is.null(names(palette)) && all(labels %in% names(palette)))
                 return(palette[labels])

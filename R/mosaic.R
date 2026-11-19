@@ -1,25 +1,10 @@
-# =============================================================================
+# =============================================================================*
 # pulseR — LEVEL 3: mosaic types from fuzzy co-occurrence signatures
-#
-# INPUT      as_mosaic_input() adapts pulse_regions / pulse_local_types /
-#            pulse_meta_types / bare matrices, and records which level and
-#            which class labels the signatures are built from.
-# SPEED      The signature of focal f is the sum of per-edge class-pair outer
-#            products over edges inside its neighbourhood, so the whole matrix
-#            is  crossprod(B, M)  with B[e, f] = w_f(u_e) w_f(v_e).
-# SCALE      Distances are O(N^2), so clustering runs on a sample of
-#            `sample_size` rows and assigns the rest by the fitted model
-#            (DMM) or by distance to medoids (PAM).
-# METRIC     sqrt-JSD saturates at log 2 when two signatures have disjoint
-#            support; Hellinger, total variation, Bray-Curtis and Euclidean
-#            are also available.
-#
-# Requires: Matrix, igraph, cluster, stats.
-# =============================================================================
+# =============================================================================*
 
 
 # -----------------------------------------------------------------------------*
-# 1. Input adapters
+# 1. Input adapters ----
 # -----------------------------------------------------------------------------*
 
 #' Membership matrix for the mosaic level
@@ -589,19 +574,15 @@ embed_hellinger <- function(signatures) {
 
 #' @keywords internal
 #' @noRd
-.ent <- function(p) { z <- p * log(p); z[!(p > 0)] <- 0; -rowSums(z) }
-
-#' @keywords internal
-#' @noRd
 .js_pairwise <- function(P) {
         n <- nrow(P)
-        H <- .ent(P)
+        H <- .ent_rows(P)
         out <- numeric(n * (n - 1) / 2)
         pos <- 1L
         for (i in seq_len(n - 1L)) {
                 j  <- (i + 1L):n
                 Mx <- (P[j, , drop = FALSE] + rep(P[i, ], each = length(j))) / 2
-                jsd <- .ent(Mx) - (H[i] + H[j]) / 2
+                jsd <- .ent_rows(Mx) - (H[i] + H[j]) / 2
                 out[pos:(pos + length(j) - 1L)] <- sqrt(pmax(jsd, 0))
                 pos <- pos + length(j)
         }
@@ -611,11 +592,11 @@ embed_hellinger <- function(signatures) {
 #' @keywords internal
 #' @noRd
 .js_cross <- function(P, R) {
-        HP <- .ent(P); HR <- .ent(R)
+        HP <- .ent_rows(P); HR <- .ent_rows(R)
         out <- matrix(0, nrow(P), nrow(R))
         for (r in seq_len(nrow(R))) {
                 Mx <- (P + rep(R[r, ], each = nrow(P))) / 2
-                out[, r] <- sqrt(pmax(.ent(Mx) - (HP + HR[r]) / 2, 0))
+                out[, r] <- sqrt(pmax(.ent_rows(Mx) - (HP + HR[r]) / 2, 0))
         }
         out
 }
@@ -1058,10 +1039,6 @@ print.pulse_mosaic_types <- function(x, ...) {
 # -----------------------------------------------------------------------------*
 # 8. Validity indices
 # -----------------------------------------------------------------------------*
-
-#' @keywords internal
-#' @noRd
-.ent_rows <- function(P) { P <- as.matrix(P); -rowSums(P * log(P + (P == 0))) }
 
 #' @keywords internal
 #' @noRd

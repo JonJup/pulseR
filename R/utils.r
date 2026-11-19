@@ -154,19 +154,76 @@ utils::globalVariables(".data")
         sprintf("%dh %02dm %02ds", seconds %/% 3600, (seconds %% 3600) %/% 60, seconds %% 60)
 }
 
+#' Elementwise x log x with 0 log 0 = 0
+#'
+#' Entries that are not > 0 (zero, negative) contribute 0. NA stays NA.
+#' Keeps dim and dimnames, so it works on vectors, matrices and tables.
+#' @keywords internal
+#' @noRd
+.xlogx  <- function(p) { 
+        out <- p * log(p)
+        out[!(p > 0)] <- 0
+        out 
+}
 
+#' @rdname dot-xlogx
+#' @keywords internal
+#' @noRd
+.xlog2x <- function(p) {
+        out <- p * log2(p)
+        out[!(p > 0)] <- 0
+        out
+}
+
+#' Shannon entropy (nats) of all entries of p, taken as one distribution
+#' @keywords internal
+#' @noRd
+.entropy <- function(p) -sum(.xlogx(p))
+
+#' Row-wise Shannon entropy (nats), rows not renormalised
+#'
+#' Not the same as .row_entropy() in regions.R, which renormalises rows and
+#' divides by log(k).
+#' @keywords internal
+#' @noRd
+.ent_rows <- function(P) -rowSums(.xlogx(as.matrix(P)))
 
 # Partition comparison helpers ---------------------------------------------
 
-#' Adjusted Rand Index (Hubert & Arabie 1985)
+#' Adjusted Rand index from a contingency table (Hubert & Arabie 1985)
 #'
-#' Pure-base implementation. Permutation-invariant; ARI = 1 for identical
-#' partitions (up to label permutation), expected ARI = 0 under random
-#' assignment.
+#' Single implementation behind every ARI in the package. Counts may be
+#' non-integer (mass-weighted tables), so pairs are counted as x(x-1)/2
+#' rather than choose(x, 2); for integer counts the two are identical.
+#'
+#' @param tab Numeric K x L table, matrix or array of (possibly weighted)
+#'   counts. Empty rows and columns are harmless.
+#' @return Numeric scalar in approximately \code{[-0.5, 1]}. \code{NA_real_}
+#'   if the total is below 2. 1 when the denominator vanishes (both
+#'   partitions are a single block, or both are all singletons).
+#' @keywords internal
+#' @noRd
+.ari_table <- function(tab) {
+        n <- sum(tab)
+        if (!(n >= 2)) return(NA_real_)
+        c2   <- function(x) sum(x * (x - 1) / 2)
+        s_ij <- c2(tab)
+        s_a  <- c2(rowSums(tab))
+        s_b  <- c2(colSums(tab))
+        expected <- s_a * s_b / (n * (n - 1) / 2)
+        denom    <- 0.5 * (s_a + s_b) - expected
+        if (abs(denom) < 1e-12) return(1)
+        (s_ij - expected) / denom
+}
+
+#' Adjusted Rand index of two label vectors
+#'
+#' Permutation-invariant; ARI = 1 for identical partitions (up to label
+#' permutation), expected ARI = 0 under random assignment. NA labels are
+#' dropped by \code{table()}.
 #'
 #' @param a,b Integer or character label vectors of equal length.
-#' @return Numeric scalar in approximately \code{[-0.5, 1]}; \code{NA_real_}
-#'   if input length < 2.
+#' @return See \code{.ari_table()}; \code{NA_real_} if input length < 2.
 #'
 #' @details Used by the STAB indices (\code{.stability_consensus()},
 #'   \code{.stability_pam_diss()}) and the meta-type crossing summary. Crisp ARI
@@ -181,19 +238,20 @@ utils::globalVariables(".data")
 .adjusted_rand_index <- function(a, b) {
         stopifnot(length(a) == length(b))
         if (length(a) < 2) return(NA_real_)
-        tab <- table(a, b)
-        n   <- sum(tab)
-        if (n < 2) return(NA_real_)
-        sum_nij <- sum(choose(tab, 2))
-        ai <- rowSums(tab); bj <- colSums(tab)
-        sum_ai <- sum(choose(ai, 2))
-        sum_bj <- sum(choose(bj, 2))
-        expected <- (sum_ai * sum_bj) / choose(n, 2)
-        max_idx  <- 0.5 * (sum_ai + sum_bj)
-        denom    <- max_idx - expected
-        # Degenerate case: both partitions are singletons or a single block.
-        if (denom == 0) return(1)
-        (sum_nij - expected) / denom
+        .ari_table(table(a, b))
+}
+
+#' Adjusted Rand index on a mass-weighted contingency table
+#'
+#' \code{wt} is the soft unit count per element (e.g. per local type), so a
+#' type holding 1\% of units counts 1\%, not 1/C.
+#' @param a,b Label vectors of equal length.
+#' @param wt Non-negative weights, same length.
+#' @keywords internal
+#' @noRd
+.weighted_ari <- function(a, b, wt) {
+        stopifnot(length(a) == length(b), length(a) == length(wt))
+        .ari_table(tapply(wt, list(a, b), sum, default = 0))
 }
 
 #' Crisp Rousseeuw silhouette from a dissimilarity matrix
@@ -289,21 +347,7 @@ utils::globalVariables(".data")
         }
         invisible(X)
 }
-## ARI on a mass-weighted contingency table. `wt` = soft unit count per
-## element (local type), so a type holding 1% of units counts 1%, not 1/C.
-## choose(x, 2) generalised to real x as x(x-1)/2.
-.weighted_ari <- function(a, b, wt) {
-        stopifnot(length(a) == length(b), length(a) == length(wt))
-        tab <- tapply(wt, list(a, b), sum, default = 0)
-        c2  <- function(x) sum(x * (x - 1) / 2)
-        n <- sum(tab)
-        if (n < 2) return(NA_real_)
-        s_ij <- c2(tab); s_a <- c2(rowSums(tab)); s_b <- c2(colSums(tab))
-        expected <- s_a * s_b / (n * (n - 1) / 2)
-        denom <- 0.5 * (s_a + s_b) - expected
-        if (abs(denom) < 1e-12) return(1)
-        (s_ij - expected) / denom
-}
+
 #' Package state for once-per-session warnings
 #' @keywords internal
 #' @noRd
