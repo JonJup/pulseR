@@ -75,3 +75,22 @@ test_that("max_fail_share is validated", {
   expect_error(run_null(tg, final_regions = 2, B = 2, max_fail_share = 1.5),
                "max_fail_share")
 })
+
+## A5 (round 5): the observed pulse_regions used to be rescored without
+## `graph`, so its STAB halves skipped contiguity repair while every null
+## replicate got it. Every STAB evaluation in the call must see the graph.
+test_that("A5: observed and null STAB fits both get the graph", {
+  tg  <- null_toy()
+  res <- get_regions(tg$g, regions_per_partition = 8, final_regions = 2,
+                     N_tree = 20, seed = 1, cut_rule = "propensity",
+                     refine_boundary = FALSE, verbose = FALSE)
+  orig <- .stability_consensus
+  got  <- logical(0)
+  local_mocked_bindings(.stability_consensus = function(memb, k, B = 10L, ..., graph = NULL) {
+    got <<- c(got, inherits(graph, "igraph"))
+    orig(memb, k, B = B, ..., graph = graph)
+  })
+  run_null(tg, final_regions = 2, B = 3, observed = res)
+  expect_length(got, 4L)                 # 3 null replicates + 1 observed rescore
+  expect_true(all(got))
+})

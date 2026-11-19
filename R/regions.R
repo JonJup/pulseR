@@ -332,6 +332,7 @@ get_regions <- function(graph,
       n_ensembles_built = tr$n_ensembles_built,
       ensemble          = tr$ensemble))
   } else {
+    ens_seed <- sample.int(.Machine$integer.max, 1L)
     if (verbose) message("Single configuration; no tuning.")
     
     ensemble <- compute_ensemble(
@@ -343,7 +344,10 @@ get_regions <- function(graph,
       prior_strength        = prior_strength,
       size_influence        = size_influence,
       cut_rule              = cut_rule,
-      min_size              = min_size, verbose = verbose)
+      min_size              = min_size, 
+      verbose = verbose,
+      seed = ens_seed
+      )
     
     fit <- compute_consensus(
       ensemble, 
