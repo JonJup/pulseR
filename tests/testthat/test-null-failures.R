@@ -94,3 +94,10 @@ test_that("A5: observed and null STAB fits both get the graph", {
   expect_length(got, 4L)                 # 3 null replicates + 1 observed rescore
   expect_true(all(got))
 })
+test_that("compute_null_baseline() refuses N above spectral_max", {
+  g <- add_edge_weight(suppressMessages(build_network(make_grid_sf(), verbose = FALSE)),
+                       id_col = "ID", verbose = FALSE)
+  expect_error(compute_null_baseline(g, final_regions = 2, regions_per_partition = 6,
+                                     N_tree = 8, B = 1, stability_B = 0,
+                                     spectral_max = 10, verbose = FALSE), "spectral_max")
+})

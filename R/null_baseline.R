@@ -1,12 +1,14 @@
-#' Permutation null baseline for the Level 1 validity criteria
+#' Spatial null baseline for the Level 1 validity criteria
 #'
-#' Shuffles the rows of \code{env} among units, recomputes every edge weight
-#' as the Euclidean distance between the shuffled rows of its two end units,
-#' and reruns the Level 1 pipeline (spanning trees, ensemble, consensus,
-#' validity criteria) at one ensemble configuration and every requested
-#' \code{final_regions}. Contiguity is kept and environmental structure is
-#' removed, so each replicate shows what the criteria report when only the
-#' map drives the result: the "contiguity-only" floor.
+#' Randomises \code{env} by random sign flips of its Moran eigenvector
+#' coefficients (spectral randomisation; Wagner and Dray 2015). This keeps
+#' column means, variances, covariances and each column's Moran's I, and
+#' removes the arrangement. Every edge weight is then recomputed as the
+#' Euclidean distance between the randomised rows of its two end units, and
+#' the Level 1 pipeline (spanning trees, ensemble, consensus, validity
+#' criteria) is rerun at one ensemble configuration and every requested
+#' \code{final_regions}. Each replicate shows what the criteria report for
+#' data that are as spatially smooth as \code{env} but have no discrete regions.
 #'
 #' @details Edge weights are recomputed as Euclidean distance on \code{env}
 #'   plus the bridge penalty stored on \code{graph} (\code{bridge},
@@ -14,21 +16,20 @@
 #'   \code{\link{add_edge_weight}} uses. This tests
 #'   environmental signal only if \code{env} is the matrix the observed
 #'   weights were computed from, so the function first recomputes the weights
-#'   from the unshuffled \code{env} and stops unless they correlate with
+#'   from the unrandomized \code{env} and stops unless they correlate with
 #'   \code{E(graph)$weight} above 0.999. The default \code{env = NULL} uses
 #'   the matrix \code{add_edge_weight()} stored on \code{graph}, which always
-#'   passes. Shuffling leaves column means and standard deviations unchanged,
+#'   passes. Spectral randomization leaves column means and standard deviations unchanged,
 #'   so no rescaling is needed. A prior
 #'   typology is not used in the null. With \code{B} replicates the smallest
 #'   attainable p-value is \eqn{1 / (B + 1)}; \code{B = 19} is the minimum for
 #'   a 5\% test.
-#'
-#'   The shuffle also removes spatial autocorrelation in \code{env}. Smooth
-#'   but substantively meaningless gradients therefore count as signal here.
+#'   
+#'   Smooth gradients without discrete regions are therefore part of the null. 
 #'
 #'   The tree noise multiplier \eqn{\eta} is calibrated to
 #'   \code{target_edge_turnover} on the first replicate and reused for the
-#'   others. Replicates are exchangeable permutations of the same matrix, so
+#'   others. Replicates are exchangeable draws from the same spectral null, so
 #'   one calibration serves all of them; the noise scale itself is still each
 #'   replicate's own weight MAD. The value is returned in \code{settings$eta}.
 #'
@@ -84,6 +85,8 @@
 #' @param max_fail_share Number in \eqn{[0, 1]}. Largest share of the
 #'   \code{B} replicates that may fail at any one k (see Failed replicates).
 #'   Default 0.2.
+#' @param spectral_max Largest number of units for the dense eigen
+#'   decomposition. Default 5000 (about 200 MB).
 #' @param large_n_threshold,sample_size,n_cores As in \code{\link{tune_regions}}.
 #' @param seed Optional integer seed; the caller's RNG state is restored.
 #' @param verbose Logical.
@@ -117,6 +120,7 @@ compute_null_baseline <- function(
     stability_k = NULL,
     observed = NULL,
     max_fail_share = 0.2,
+    spectral_max = 5000,
     large_n_threshold = 20000,
     sample_size = 5000,
     n_cores = 1,
@@ -181,15 +185,30 @@ compute_null_baseline <- function(
   # certain to exceed max_fail_share, instead of finishing all B replicates.
   n_fail_k <- stats::setNames(integer(length(final_regions)), final_regions)
 
+  N <- nrow(env)
+  if (N > spectral_max){
+    stop(
+      sprintf(
+        "The spatial null needs a dense eigen decomposition of %d units 
+        (limit `spectral_max` = %d). Use suggest_regions(coarse = 500) for
+        large N, or raise `spectral_max` if memory allows.", 
+        N, 
+        spectral_max
+        ), 
+      call. = FALSE
+      )
+  }
+  U <- .moran_basis(.unit_adjacency(graph))
+  
   eta_null <- NULL
   out <- vector("list", B)
   for (b in seq_len(B)) {
     if (verbose) message(sprintf("Null replicate %d / %d ...", b, B))
-    env_b <- env[sample.int(nrow(env)), , drop = FALSE]
+    env_b <- .spectral_randomise(env, U)
     g_b   <- graph
     igraph::E(g_b)$weight <- .null_weights(env_b)
-    ## The ssd rule and the boundary refinement read the environment
-    ## from the graph, so it must be permuted there too.
+    ## The SSD rule and the boundary refinement read the environment
+    ## from the graph, so it must be randomized there too
     g_b   <- igraph::set_graph_attr(g_b, "env", env_b)
     tr  <- sample_spanning_trees(g_b, n = N_tree, verbose = FALSE,
                                  target_edge_turnover = target_edge_turnover,
@@ -214,12 +233,24 @@ compute_null_baseline <- function(
       # regions) is a failed replicate. Anything else is a bug or bad
       # input and must not count in favour of the observed data.
       res <- tryCatch({
-        r <- compute_consensus(ens, k, graph = g_b,
-                               refine_boundary = refine_boundary,
-                               min_size = min_size,
-                               large_n_threshold = large_n_threshold,
-                               sample_size = sample_size, n_cores = n_cores,
-                               report_native = FALSE, verbose = FALSE)
+        r <- 
+          withCallingHandlers(
+            compute_consensus(
+              ens, 
+              k,
+              graph = g_b, 
+              refine_boundary = refine_boundary,
+              min_size = min_size, 
+              large_n_threshold = large_n_threshold,
+              sample_size = sample_size, 
+              n_cores = n_cores, 
+              report_native = FALSE, 
+              verbose = FALSE
+            ),
+            warning = function(w)
+              if (grepl("pi_support", conditionMessage(w), fixed = TRUE))
+                invokeRestart("muffleWarning")
+          )
         .check_effective_regions(r$hard_labels, k)
         r
       },

@@ -31,7 +31,7 @@
 #'
 #' @section Fixed resolution:
 #' One ensemble is built at \code{regions_per_partition} (default
-#' \code{3 * max(k_range)}) and summarised once at \code{k_base} regions
+#' \code{3 * max(k_range)}) and summarized once at \code{k_base} regions
 #' (default \code{2 * max(k_range)}). Smaller \eqn{k} come from merging
 #' adjacent base regions with the smallest Ward cost
 #' \eqn{n_r n_s / (n_r + n_s) ||\bar x_r - \bar x_s||^2}, so the partitions are
@@ -42,7 +42,7 @@
 #'
 #' @section Rules:
 #' \describe{
-#'   \item{\code{gap}}{\eqn{\mathrm{Gap}(k) = \bar{\ell}^*_k - \ell_k} with
+#'   \item{\code{gap_global}}{\eqn{\mathrm{Gap}(k) = \bar{\ell}^*_k - \ell_k} with
 #'     \eqn{\ell_k = \log(W_k / W_1)} and \eqn{\bar\ell^*_k} the mean over null
 #'     replicates; \eqn{s_k = \mathrm{sd}^*_k \sqrt{1 + 1/B}}. The suggestion
 #'     is \code{cluster::maxSE(method = "Tibs2001SEmax")} over
@@ -71,15 +71,12 @@
 #'     \code{null_stability_B > 0}.}
 #' }
 #'
-#' @section Nulls:
-#' \code{null = "permute"} shuffles env rows among units, as
-#' \code{\link{compute_null_baseline}}. It also removes spatial
-#' autocorrelation, so smooth structure without regions counts as signal and
-#' rules tend to over-split. \code{null = "spectral"} keeps it: each column is
+#' @section Nulls model:
+#' Each column is
 #' expanded on the Moran eigenvectors of the graph and the coefficients get
 #' random signs, the same signs for every column (Wagner and Dray 2015,
 #' "singleton" variant). This keeps every column's Moran's I, variance and the
-#' covariance between columns. It needs a dense eigen decomposition, so it is
+#' covariance between columns. It needs a dense eigendecomposition, so it is
 #' allowed only up to \code{spectral_max} units, or on superpixels.
 #'
 #' @section Large N:
@@ -103,7 +100,6 @@
 #'   \code{2 * max(k_range)}; must exceed \code{max(k_range)}.
 #' @param B Null replicates. Default 19 (smallest p-value 0.05). 0 skips the
 #'   null; \code{gap}, \code{merge} and \code{stab_norm} are then \code{NA}.
-#' @param null \code{"permute"} (default) or \code{"spectral"}.
 #' @param coarse \code{NULL} (default, full pipeline) or the number of
 #'   superpixels.
 #' @param rule Rule behind \code{$k} and \code{$set}. Default \code{"gap"}.
@@ -173,9 +169,8 @@ suggest_regions <- function(graph,
                             regions_per_partition = NULL,
                             k_base                = NULL,
                             B                     = 19,
-                            null                  = c("permute", "spectral"),
                             coarse                = NULL,
-                            rule                  = c("gap", "merge", "slope",
+                            rule                  = c("gap_global", "merge", "slope",
                                                       "composite", "stab_norm"),
                             alpha                 = 0.05,
                             stability_B           = 5,
@@ -224,10 +219,12 @@ suggest_regions <- function(graph,
            call. = FALSE)
   }
   n_nodes <- if (is.null(coarse)) N else coarse
-  if (null == "spectral" && n_nodes > spectral_max)
-    stop(sprintf(paste0("null = \"spectral\" needs a dense %d x %d eigen ",
-                        "decomposition. Use `coarse` (e.g. coarse = 500) or raise ",
-                        "`spectral_max` deliberately."), n_nodes, n_nodes), call. = FALSE)
+  if (n_nodes > spectral_max){
+    coarse = 500
+    message(sprintf("The number of units exceeds the suggested maximum number of %s. 
+                    Therefore, %s superpixels (argument coarse) are used.", spectral_max, coarse))
+  }
+    
   if (B > 0L && is.null(coarse)) .check_env_reproduces_weights(graph, X)
   if (B > 0L && (1 / (B + 1)) > alpha)
     warning(sprintf(paste0("With B = %d the smallest null p-value is %.3f > alpha = %g, ",
@@ -283,20 +280,21 @@ suggest_regions <- function(graph,
          call. = FALSE)
 
   # ---- null paths ---------------------------------------------------------*
-  W0 <- matrix(NA_real_, B, path$k0); H0 <- W0
+  W0 <- matrix(NA_real_, B, path$k0)
+  H0 <- W0
   S0 <- matrix(NA_real_, B, k_max)
   n_fail <- 0L
   if (B > 0L) {
-    U <- if (null == "spectral") {
-      if (is.null(coarse)) .moran_basis(.unit_adjacency(graph))
-      else .moran_basis(.region_adjacency_matrix(path$region))
-    } else NULL
+    U <- if (is.null(coarse)){
+      .moran_basis(.unit_adjacency(graph))
+    } else {
+      .moran_basis(.region_adjacency_matrix(path$region))
+    }
     eta_null <- NULL
     for (b in seq_len(B)) {
       if (verbose) message(sprintf("Null replicate %d / %d ...", b, B))
       if (is.null(coarse)) {
-        X_b <- if (null == "permute") X[sample.int(N), , drop = FALSE]
-               else .spectral_randomise(X, U)
+        X_b <- .spectral_randomise(X, U)
         g_b <- graph
         igraph::E(g_b)$weight <- .edge_weights_from_env(graph, X_b)
         g_b <- igraph::set_graph_attr(g_b, "env", X_b)
@@ -316,8 +314,7 @@ suggest_regions <- function(graph,
       } else {
         rg  <- path$region
         M   <- rg$S / rg$n
-        M_b <- if (null == "permute") M[sample.int(nrow(M)), , drop = FALSE]
-               else .spectral_randomise(M, U)
+        M_b <- spectral_randomise(M, U)
         p   <- .ward_path(rg$pairs, rg$n, M_b * rg$n, rg$W_within)
         pb  <- list(p = p, s = NULL)
       }

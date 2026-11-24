@@ -12,9 +12,8 @@ suggest_regions(
   regions_per_partition = NULL,
   k_base = NULL,
   B = 19,
-  null = c("permute", "spectral"),
   coarse = NULL,
-  rule = c("gap", "merge", "slope", "composite", "stab_norm"),
+  rule = c("gap_global", "merge", "slope", "composite", "stab_norm"),
   alpha = 0.05,
   stability_B = 5,
   null_stability_B = 0,
@@ -54,8 +53,6 @@ suggest_regions(
 
 \item{B}{Null replicates. Default 19 (smallest p-value 0.05). 0 skips the
 null; \code{gap}, \code{merge} and \code{stab_norm} are then \code{NA}.}
-
-\item{null}{\code{"permute"} (default) or \code{"spectral"}.}
 
 \item{coarse}{\code{NULL} (default, full pipeline) or the number of
 superpixels.}
@@ -134,7 +131,7 @@ supported, a plausible set, and one suggestion per rule. Fit the chosen
 \section{Fixed resolution}{
 
 One ensemble is built at \code{regions_per_partition} (default
-\code{3 * max(k_range)}) and summarised once at \code{k_base} regions
+\code{3 * max(k_range)}) and summarized once at \code{k_base} regions
 (default \code{2 * max(k_range)}). Smaller \eqn{k} come from merging
 adjacent base regions with the smallest Ward cost
 \eqn{n_r n_s / (n_r + n_s) ||\bar x_r - \bar x_s||^2}, so the partitions are
@@ -147,7 +144,7 @@ below \code{k_base}; they are for choosing \eqn{k}, not for mapping.
 \section{Rules}{
 
 \describe{
-  \item{\code{gap}}{\eqn{\mathrm{Gap}(k) = \bar{\ell}^*_k - \ell_k} with
+  \item{\code{gap_global}}{\eqn{\mathrm{Gap}(k) = \bar{\ell}^*_k - \ell_k} with
     \eqn{\ell_k = \log(W_k / W_1)} and \eqn{\bar\ell^*_k} the mean over null
     replicates; \eqn{s_k = \mathrm{sd}^*_k \sqrt{1 + 1/B}}. The suggestion
     is \code{cluster::maxSE(method = "Tibs2001SEmax")} over
@@ -177,16 +174,13 @@ below \code{k_base}; they are for choosing \eqn{k}, not for mapping.
 }
 }
 
-\section{Nulls}{
+\section{Nulls model}{
 
-\code{null = "permute"} shuffles env rows among units, as
-\code{\link{compute_null_baseline}}. It also removes spatial
-autocorrelation, so smooth structure without regions counts as signal and
-rules tend to over-split. \code{null = "spectral"} keeps it: each column is
+Each column is
 expanded on the Moran eigenvectors of the graph and the coefficients get
 random signs, the same signs for every column (Wagner and Dray 2015,
 "singleton" variant). This keeps every column's Moran's I, variance and the
-covariance between columns. It needs a dense eigen decomposition, so it is
+covariance between columns. It needs a dense eigendecomposition, so it is
 allowed only up to \code{spectral_max} units, or on superpixels.
 }
 

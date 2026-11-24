@@ -75,7 +75,7 @@ test_that("suggest_regions() validates its arguments", {
   t <- k_toy()
   expect_error(suggest_regions(t$g, k_range = c(2, 4, 5), B = 0), "contiguous")
   expect_error(suggest_regions(t$g, k_range = 2:4, k_base = 4, B = 0), "k_base")
-  expect_error(suggest_regions(t$g, k_range = 2:4, null = "spectral", spectral_max = 50,
+  expect_warning(suggest_regions(t$g, k_range = 2:4,spectral_max = 50,
                                B = 1), "coarse")
   expect_warning(suggest_regions(t$g, k_range = 2:4, coarse = 30, B = 3, n_random = 10,
                                  n_boot = 10, seed = 1, verbose = FALSE), "smallest null")
@@ -92,7 +92,7 @@ test_that("coarse mode returns every rule inside k_range and rescoring is free",
   expect_true(s$k %in% s$set)
   s2 <- .rescore_k(s, 3:5)
   expect_true(all(s2$rules[!is.na(s2$rules)] %in% 3:5))
-  s_sp <- suggest_regions(t$g, k_range = 2:6, coarse = 40, B = 19, null = "spectral",
+  s_sp <- suggest_regions(t$g, k_range = 2:6, coarse = 40, B = 19,
                           n_random = 20, n_boot = 20, seed = 1, verbose = FALSE)
   expect_s3_class(s_sp, "pulse_k_suggestion")
   expect_output(print(s), "pulse_k_suggestion")

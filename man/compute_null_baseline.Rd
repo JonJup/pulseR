@@ -3,7 +3,7 @@
 \name{compute_null_baseline}
 \alias{compute_null_baseline}
 \alias{print.pulse_null}
-\title{Permutation null baseline for the Level 1 validity criteria}
+\title{Spatial null baseline for the Level 1 validity criteria}
 \usage{
 compute_null_baseline(
   graph,
@@ -23,6 +23,7 @@ compute_null_baseline(
   stability_k = NULL,
   observed = NULL,
   max_fail_share = 0.2,
+  spectral_max = 5000,
   large_n_threshold = 20000,
   sample_size = 5000,
   n_cores = 1,
@@ -71,6 +72,9 @@ A \code{"pulse_regions"} object is rescored on \code{graph}, so its
 \code{B} replicates that may fail at any one k (see Failed replicates).
 Default 0.2.}
 
+\item{spectral_max}{Largest number of units for the dense eigen
+decomposition. Default 5000 (about 200 MB).}
+
 \item{large_n_threshold, sample_size, n_cores}{As in \code{\link{tune_regions}}.}
 
 \item{seed}{Optional integer seed; the caller's RNG state is restored.}
@@ -96,13 +100,15 @@ An object of class \code{"pulse_null"}: \code{null} (one row per
 \code{print.pulse_null} returns \code{x} invisibly.
 }
 \description{
-Shuffles the rows of \code{env} among units, recomputes every edge weight
-as the Euclidean distance between the shuffled rows of its two end units,
-and reruns the Level 1 pipeline (spanning trees, ensemble, consensus,
-validity criteria) at one ensemble configuration and every requested
-\code{final_regions}. Contiguity is kept and environmental structure is
-removed, so each replicate shows what the criteria report when only the
-map drives the result: the "contiguity-only" floor.
+Randomises \code{env} by random sign flips of its Moran eigenvector
+coefficients (spectral randomisation; Wagner and Dray 2015). This keeps
+column means, variances, covariances and each column's Moran's I, and
+removes the arrangement. Every edge weight is then recomputed as the
+Euclidean distance between the randomised rows of its two end units, and
+the Level 1 pipeline (spanning trees, ensemble, consensus, validity
+criteria) is rerun at one ensemble configuration and every requested
+\code{final_regions}. Each replicate shows what the criteria report for
+data that are as spatially smooth as \code{env} but have no discrete regions.
 }
 \details{
 Edge weights are recomputed as Euclidean distance on \code{env}
@@ -111,21 +117,20 @@ Edge weights are recomputed as Euclidean distance on \code{env}
   \code{\link{add_edge_weight}} uses. This tests
   environmental signal only if \code{env} is the matrix the observed
   weights were computed from, so the function first recomputes the weights
-  from the unshuffled \code{env} and stops unless they correlate with
+  from the unrandomized \code{env} and stops unless they correlate with
   \code{E(graph)$weight} above 0.999. The default \code{env = NULL} uses
   the matrix \code{add_edge_weight()} stored on \code{graph}, which always
-  passes. Shuffling leaves column means and standard deviations unchanged,
+  passes. Spectral randomization leaves column means and standard deviations unchanged,
   so no rescaling is needed. A prior
   typology is not used in the null. With \code{B} replicates the smallest
   attainable p-value is \eqn{1 / (B + 1)}; \code{B = 19} is the minimum for
   a 5\% test.
-
-  The shuffle also removes spatial autocorrelation in \code{env}. Smooth
-  but substantively meaningless gradients therefore count as signal here.
+  
+  Smooth gradients without discrete regions are therefore part of the null. 
 
   The tree noise multiplier \eqn{\eta} is calibrated to
   \code{target_edge_turnover} on the first replicate and reused for the
-  others. Replicates are exchangeable permutations of the same matrix, so
+  others. Replicates are exchangeable draws from the same spectral null, so
   one calibration serves all of them; the noise scale itself is still each
   replicate's own weight MAD. The value is returned in \code{settings$eta}.
 }
