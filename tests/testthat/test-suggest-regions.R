@@ -1,5 +1,3 @@
-# Tests for suggest_regions() and its helpers (R/suggest_regions.R).
-
 k_toy <- function(side = 10, R = 3, contrast = 3, seed = 1) {
   set.seed(seed)
   g  <- igraph::make_lattice(c(side, side))
@@ -75,8 +73,14 @@ test_that("suggest_regions() validates its arguments", {
   t <- k_toy()
   expect_error(suggest_regions(t$g, k_range = c(2, 4, 5), B = 0), "contiguous")
   expect_error(suggest_regions(t$g, k_range = 2:4, k_base = 4, B = 0), "k_base")
-  expect_warning(suggest_regions(t$g, k_range = 2:4,spectral_max = 50,
-                               B = 1), "coarse")
+  expect_message(
+    s <- suggest_regions(t$g, k_range = 2:4, spectral_max = 50, B = 19,
+                         n_random = 10, n_boot = 10, seed = 1, verbose = FALSE),
+    "superpixels")
+  expect_equal(s$settings$coarse, 50L)
+  expect_error(suggest_regions(t$g, k_range = 2:4, coarse = 60, spectral_max = 50, B = 0),
+               "spectral_max")
+  
   expect_warning(suggest_regions(t$g, k_range = 2:4, coarse = 30, B = 3, n_random = 10,
                                  n_boot = 10, seed = 1, verbose = FALSE), "smallest null")
 })

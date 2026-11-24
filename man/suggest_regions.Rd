@@ -52,12 +52,16 @@ suggest_regions(
 \code{2 * max(k_range)}; must exceed \code{max(k_range)}.}
 
 \item{B}{Null replicates. Default 19 (smallest p-value 0.05). 0 skips the
-null; \code{gap}, \code{merge} and \code{stab_norm} are then \code{NA}.}
+null; \code{gap_global}, \code{gap}, \code{merge} and \code{stab_norm}
+are then \code{NA}.}
 
-\item{coarse}{\code{NULL} (default, full pipeline) or the number of
-superpixels.}
+\item{coarse}{\code{NULL} (default: full pipeline up to
+\code{spectral_max} units, 500 superpixels above) or the number of
+superpixels, between \code{k_base} and \code{min(N, spectral_max)}.}
 
-\item{rule}{Rule behind \code{$k} and \code{$set}. Default \code{"gap"}.}
+\item{rule}{Rule behind \code{$k} and \code{$set}: \code{"gap_global"}
+(default), \code{"merge"}, \code{"slope"}, \code{"composite"} or
+\code{"stab_norm"}.}
 
 \item{alpha}{Level for \code{merge} and \code{stab_norm}. Default 0.05.}
 
@@ -79,8 +83,9 @@ Default \code{TRUE}.}
 
 \item{n_boot}{Bootstrap resamples for the support columns. Default 200.}
 
-\item{spectral_max}{Largest number of units (or superpixels) for
-\code{null = "spectral"}. Default 5000.}
+\item{spectral_max}{Largest number of nodes (units, or superpixels with
+\code{coarse}) for the dense eigendecomposition of the null. Default
+5000 (about 200 MB).}
 
 \item{large_n_threshold, sample_size, n_cores}{As in \code{\link{get_regions}}.}
 
@@ -96,26 +101,29 @@ Default \code{TRUE}.}
 An object of class \code{"pulse_k_suggestion"}:
   \describe{
     \item{\code{k}}{Suggested \eqn{k} of \code{rule}.}
-    \item{\code{set}}{Plausible set of \code{rule}. gap: every \eqn{k}
-      chosen in at least 5\% of bootstrap resamples of the null replicates,
-      plus \code{k}; merge: \code{k} up to the largest \eqn{k} with
-      \eqn{p_k \le \alpha}; slope: the \eqn{k} chosen for
-      \eqn{\kappa \in [1.5, 2.5] \kappa_{min}}; composite: 1-SE set.}
+    \item{\code{set}}{Plausible set of \code{rule}. gap_global: the
+      \eqn{k} within one standard error of the largest gap
+      (\code{support$in_gap_set}); merge: \code{k} up to the largest
+      \eqn{k} with \eqn{p_k \le \alpha}; slope: the \eqn{k} chosen for
+      \eqn{\kappa \in [1.5, 2.5] \kappa_{min}}; composite: 1-SE set;
+      stab_norm: every \eqn{k} passing the test. The set reflects Monte
+      Carlo uncertainty of the null, not sampling uncertainty of the data,
+      and is not a confidence set.}
     \item{\code{rules}}{Named integer vector: the suggestion of every rule
       (\code{gap}, \code{gap_first}, \code{gap_global}, \code{merge},
       \code{slope}, \code{slope_ddse}, \code{composite}, \code{stab_norm}).}
     \item{\code{support}}{One row per \eqn{k} in \code{k_range}: \code{W},
       \code{gap}, \code{gap_se}, \code{gap_support} (bootstrap share of null
-      resamples that select \eqn{k}), \code{in_gap_set} (global 1-SE set),
-      \code{merge_cost},
-      \code{merge_z}, \code{merge_p}, \code{ch}, \code{stab},
-      \code{z_ch}, \code{z_stab}, \code{composite}, \code{composite_se},
-      \code{composite_support}, \code{stab_null_z}, \code{vi_next}
-      (VI in bits between the path partitions at \eqn{k} and \eqn{k + 1}).}
+      resamples for which the \code{gap} rule selects \eqn{k}),
+      \code{in_gap_set}, \code{merge_cost}, \code{merge_z}, \code{merge_p},
+      \code{ch}, \code{stab}, \code{z_ch}, \code{z_stab}, \code{composite},
+      \code{composite_se}, \code{composite_support}, \code{stab_null_z},
+      \code{vi_next} (VI in bits between the path partitions at \eqn{k}
+      and \eqn{k + 1}).}
     \item{\code{path}}{Base labels and merge sequence; partitions at any
       \eqn{k} with \code{pulseR:::.path_labels(x$path, k)}.}
     \item{\code{null}}{\code{W} and \code{h}: \eqn{B \times}
-      \code{k_base} matrices of the null paths; \code{stab}.}
+      \code{k_base} matrices of the null paths; \code{stab}; \code{n_fail}.}
     \item{\code{random}}{Random-partition calibration draws.}
     \item{\code{settings}, \code{timing}}{Call settings; seconds per stage.}
   }
@@ -128,31 +136,59 @@ user-chosen \eqn{k}: it reports how well each candidate \eqn{k} is
 supported, a plausible set, and one suggestion per rule. Fit the chosen
 \eqn{k} with \code{\link{get_regions}} afterwards.
 }
+\details{
+\strong{Experimental.} The default rule was selected and checked on
+simulated landscapes (N = 1000 units, 6 true regions, one selection seed
+and one held-out seed). There it was exact or within one region in most
+runs at moderate to strong signal. Under weak or graded region boundaries
+it tends to suggest too few regions. Read the \code{$support} table, not
+only \code{$k}.
+}
 \section{Fixed resolution}{
 
 One ensemble is built at \code{regions_per_partition} (default
-\code{3 * max(k_range)}) and summarized once at \code{k_base} regions
+\code{3 * max(k_range)}) and summarised once at \code{k_base} regions
 (default \code{2 * max(k_range)}). Smaller \eqn{k} come from merging
 adjacent base regions with the smallest Ward cost
 \eqn{n_r n_s / (n_r + n_s) ||\bar x_r - \bar x_s||^2}, so the partitions are
 nested and \eqn{W_{k-1} = W_k + h_k}, with \eqn{W_k} the within-region sum
 of squares of \code{graph_attr(graph, "env")} and \eqn{h_k} the cost of the
-merge from \eqn{k} to \eqn{k - 1}. Path partitions are not boundary-refined
-below \code{k_base}; they are for choosing \eqn{k}, not for mapping.
+merge from \eqn{k} to \eqn{k - 1}. Every candidate \eqn{k} is therefore
+scored on the same ensemble. Path partitions are not boundary-refined below
+\code{k_base}; they are for choosing \eqn{k}, not for mapping.
+}
+
+\section{Null model}{
+
+Each null replicate randomises the environment matrix by spectral
+randomisation (Wagner and Dray 2015): every column is expanded on the
+Moran eigenvectors of the graph, and the coefficients get random signs,
+the same signs for every column. This keeps each column's mean, variance
+and Moran's I, and the covariances between columns, but removes the
+arrangement. The replicate then reruns the same pipeline (trees, ensemble,
+base consensus, path). Smooth gradients without discrete regions are
+therefore part of the null and do not count as evidence for more regions.
+A row permutation would destroy all spatial autocorrelation, and on data
+with spatially structured within-region variation it favours the largest
+candidate \eqn{k}. The randomisation needs a dense eigendecomposition, so
+it runs on at most \code{spectral_max} units (see Large N).
 }
 
 \section{Rules}{
 
+All rules use \eqn{\ell_k = \log(W_k / W_1)} on the observed path and
+\eqn{\ell^*_{k,b}} on null path \eqn{b}. \eqn{W_1} is the same in every
+null replicate, because the spectral null keeps the variances.
 \describe{
-  \item{\code{gap_global}}{\eqn{\mathrm{Gap}(k) = \bar{\ell}^*_k - \ell_k} with
-    \eqn{\ell_k = \log(W_k / W_1)} and \eqn{\bar\ell^*_k} the mean over null
-    replicates; \eqn{s_k = \mathrm{sd}^*_k \sqrt{1 + 1/B}}. The suggestion
-    is \code{cluster::maxSE(method = "Tibs2001SEmax")} over
-    \code{k_range}: the smallest \eqn{k} with
-    \eqn{\mathrm{Gap}(k) \ge \mathrm{Gap}(k+1) - s_{k+1}}. The 1-SE set is
-    \eqn{\{k : \mathrm{Gap}(k) \ge \max \mathrm{Gap} - s_{\arg\max}\}}. Under the
-    permutation null \eqn{W_1} is the same in every replicate, so this is
-    the usual gap statistic.}
+  \item{\code{gap_global} (default)}{\eqn{\mathrm{Gap}(k) = \bar\ell^*_k - \ell_k},
+    \eqn{s_k = \mathrm{sd}^*_k \sqrt{1 + 1/B}}. The suggestion is the
+    smallest \eqn{k} with
+    \eqn{\mathrm{Gap}(k) \ge \max_j \mathrm{Gap}(j) - s_{j^*}}, \eqn{j^*} the
+    argmax (\code{cluster::maxSE(method = "globalSEmax")}). Its set is all
+    \eqn{k} meeting that condition. \code{$rules} also reports
+    \code{gap} (\code{"Tibs2001SEmax"}: the smallest \eqn{k} with
+    \eqn{\mathrm{Gap}(k) \ge \mathrm{Gap}(k+1) - s_{k+1}}) and
+    \code{gap_first} (\code{"firstSEmax"}).}
   \item{\code{merge}}{\eqn{p_k = (1 + \#\{b : h^*_{k,b} \ge h_k\}) / (B + 1)}.
     Splits are tested in the fixed order \eqn{k = 2, 3, \dots}; the
     suggestion is the last \eqn{k} before the first \eqn{p_k > \alpha}.
@@ -172,33 +208,28 @@ below \code{k_base}; they are for choosing \eqn{k}, not for mapping.
     largest \eqn{k} with \eqn{z \ge} \code{qnorm(1 - alpha)}. Needs
     \code{null_stability_B > 0}.}
 }
-}
-
-\section{Nulls model}{
-
-Each column is
-expanded on the Moran eigenvectors of the graph and the coefficients get
-random signs, the same signs for every column (Wagner and Dray 2015,
-"singleton" variant). This keeps every column's Moran's I, variance and the
-covariance between columns. It needs a dense eigendecomposition, so it is
-allowed only up to \code{spectral_max} units, or on superpixels.
+In simulations, \code{slope}, \code{slope_ddse} and \code{composite}
+suggested too many regions; they are reported for comparison.
 }
 
 \section{Large N}{
 
-\code{coarse = 500} replaces the ensemble by superpixels: one near-greedy
-SSD cut of the minimum spanning tree into \code{coarse} pieces. The path,
-the null (superpixel means permuted, or spectral on the superpixel graph)
-and all rules then run on the superpixel graph, which costs seconds at any
-\eqn{N}. The superpixel null conditions on the over-segmentation, so it is
-less conservative than the full null; compare both on a subset before
-relying on it.
+With \code{coarse}, the ensemble is replaced by superpixels: one
+near-greedy SSD cut of the minimum spanning tree into \code{coarse} pieces.
+The path, the spectral null (on the superpixel graph, applied to
+superpixel means) and all rules then run on the superpixel graph, which
+costs seconds at any \eqn{N}. If \code{coarse = NULL} and \eqn{N >}
+\code{spectral_max}, \code{coarse = 500} is set with a message. The
+superpixel null conditions on the over-segmentation, so it is less
+conservative than the full null; compare both on a subset before relying
+on it.
 }
 
 \examples{
 \dontrun{
 s <- suggest_regions(gw, k_range = 2:12, N_tree = 200, B = 19, seed = 1)
 s
+s$support[, c("k", "gap", "gap_se", "in_gap_set")]
 fit <- get_regions(gw, final_regions = s$k, N_tree = 200, seed = 1)
 }
 }
@@ -208,4 +239,8 @@ Akhanli and Hennig (2020) Statistics and Computing 30:1523-1544.
 Baudry, Maugis and Michel (2012) Statistics and Computing 22:455-470.
 Lebarbier (2005) Signal Processing 85:717-736.
 Wagner and Dray (2015) Methods in Ecology and Evolution 6:1169-1178.
+}
+\seealso{
+\code{\link{get_regions}} to fit the chosen \eqn{k};
+  \code{\link{compute_null_baseline}} for the same null at a fixed \eqn{k}.
 }

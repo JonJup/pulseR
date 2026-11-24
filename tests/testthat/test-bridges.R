@@ -113,19 +113,14 @@ test_that("Level 3 excludes bridges from reachability and edges", {
         expect_false(anyNA(s_in[n, ]))
 })
 
-test_that("the permutation null accepts a penalised graph", {
+test_that("the spatial null accepts a penalised graph", {
         net <- build_network(make_island_sf(), verbose = FALSE)
         g   <- add_edge_weight(net, id_col = "ID", verbose = FALSE)
-        expect_warning(
-                nb <- compute_null_baseline(g, final_regions = 2, regions_per_partition = 4,
-                                            N_tree = 4, B = 1, stability_B = 0, seed = 1,
-                                            verbose = FALSE, cut_rule = "propensity"),
-                "one-unit piece"
-        )
+        nb  <- compute_null_baseline(g, final_regions = 2, regions_per_partition = 4,
+                                     N_tree = 4, B = 1, stability_B = 0, seed = 1,
+                                     verbose = FALSE, cut_rule = "propensity")
         expect_s3_class(nb, "pulse_null")
 })
-
-
 
 test_that("without RANN, bridges fall back to sf and the backend is recorded", {
         local_mocked_bindings(.has_pkg = function(pkg) FALSE)
