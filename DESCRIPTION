@@ -46,6 +46,7 @@ Suggests:
     rmarkdown,
     sfarrow,
     terra,
+	capushe,
     testthat (>= 3.0.0)
 Encoding: UTF-8
 Roxygen: list(markdown = FALSE)

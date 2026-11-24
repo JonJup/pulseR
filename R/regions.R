@@ -131,6 +131,10 @@
 #' @seealso \code{\link{sample_spanning_trees}},
 #'   \code{\link{compute_ensemble}},
 #'   \code{\link{compute_consensus}}, \code{\link{tune_regions}}.
+#' @seealso \code{\link{sample_spanning_trees}},
+#'   \code{\link{compute_ensemble}},
+#'   \code{\link{compute_consensus}}, \code{\link{tune_regions}},
+#'   \code{\link{suggest_regions}} to choose \code{final_regions}.
 #'
 #' @examples
 #' \dontrun{
