@@ -1,6 +1,6 @@
 Package: pulseR
 Title: Probabilistic Hierarchical Spatial Regionalization
-Version: 0.99.0
+Version: 0.100.0
 Authors@R: 
     person("Jonathan", "Jupke", , "jonjup@duck.com",
            role = c("aut", "cre", "cph"),
